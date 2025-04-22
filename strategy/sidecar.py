@@ -10,22 +10,22 @@ from decimal import Decimal
 from typing import Dict, Any
 
 from models import *
-from strategy import Strategy
+from .cta import STAStrategy
 from sub_strategy import EnterStrategy, ExitStrategy
 from utils import get_logger, EventBus
 
 logger = get_logger(__name__)
 
-class StrategySidecar:
+class CTAStrategySidecar:
     """
-    管理策略实例的生命周期和状态。
+    管理择时策略实例的生命周期和状态。
     
     职责:
     1. 管理策略的状态
     2. 管理进出场策略
     """
     
-    def __init__(self, event_bus: EventBus, strategy: Strategy, enter_strategy: EnterStrategy, exit_strategy: ExitStrategy):
+    def __init__(self, event_bus: EventBus, strategy: STAStrategy, enter_strategy: EnterStrategy, exit_strategy: ExitStrategy):
         """
         初始化策略上下文
         

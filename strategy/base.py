@@ -54,18 +54,6 @@ class Strategy(Component, ABC):
         super().__init__(instance_id, name)
         self.logger = get_logger(f"strategy.{self.__class__.display_name}.{name}.{instance_id}")
     
-    def initialize(self):
-        """
-        初始化策略，在策略添加到引擎后调用
-        """
-        ...
-    
-    def stop(self):
-        """
-        停止策略，在引擎停止时调用
-        """
-        ...
-    
     def on_data(self, data: Data = None):
         """
         处理数据，子类可以选择性重写此方法
@@ -115,21 +103,3 @@ class Strategy(Component, ABC):
             仓位比例，0-1之间的小数， 如0.5，标识此次会开/平仓50%(相较于全部投入)的仓位
         """
         return Decimal('1')
-    
-    def get_state(self) -> Dict[str, Any]:
-        """
-        获取策略状态，用于序列化
-        
-        返回:
-            策略状态字典
-        """
-        return {}
-    
-    def load_state(self, state: Dict[str, Any]):
-        """
-        加载策略状态，用于反序列化
-        
-        参数:
-            state: 策略状态字典
-        """
-        ...

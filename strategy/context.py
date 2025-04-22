@@ -13,7 +13,7 @@ from typing import Dict, Any, Type, Tuple, List
 from models import Component, Event, EventType, EventSource, Signal
 from models.constants import DataType, PositionSide, StrategyState
 from strategy import Strategy
-from strategy.sidecar import StrategySidecar
+from strategy.sidecar import CTAStrategySidecar
 from sub_strategy import EnterStrategy, ExitStrategy
 from utils import get_logger
 from utils.event_bus import EventBus
@@ -62,7 +62,7 @@ class StrategyContext(Component, ABC):
         self.event_bus = event_bus
         self.strategy_mode = config.strategy_cls.strategy_mode
 
-        self.strategies: Dict[str, StrategySidecar] = {}
+        self.strategies: Dict[str, CTAStrategySidecar] = {}
 
     def on_data_event(self, event: Event):
         """
@@ -108,7 +108,7 @@ class StrategyContext(Component, ABC):
         # todo
         return None
 
-    def _create_strategy_instance(self) -> StrategySidecar:
+    def _create_strategy_instance(self) -> CTAStrategySidecar:
         strategy = self.config.strategy_cls(**self.config.strategy_config)
         Strategy.__init__(strategy, self.instance_id, self.name)
 
@@ -118,7 +118,7 @@ class StrategyContext(Component, ABC):
         exit_strategy = self.config.exit_strategy_cls(**self.config.exit_strategy_config)
         ExitStrategy.__init__(exit_strategy)
 
-        return StrategySidecar(self.event_bus, strategy, enter_strategy, exit_strategy)
+        return CTAStrategySidecar(self.event_bus, strategy, enter_strategy, exit_strategy)
 
     def start(self):
         """
