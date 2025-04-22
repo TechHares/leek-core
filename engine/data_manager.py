@@ -8,8 +8,8 @@ from typing import Dict, Any
 
 from data import DataSource
 from data_processor import Processor
-from models import DataType, EventType, Event, EventSource, Data
-from .core import EventBus
+from models import DataType, Data
+from utils.event_bus import EventType, Event, EventSource, EventBus
 
 
 class DataManager:
@@ -101,7 +101,7 @@ class DataManager:
             return
         processor = self.processors[instance_id]
         processor.stop()
-        del self.data_sources[instance_id]
+        del self.processors[instance_id]
 
     def destroy(self):
         """

@@ -12,7 +12,6 @@ from .constants import TimeFrame, DataType, AssetType, MarketStatus, TradeMode, 
 from .order import Order, SubOrder
 from .parameter import Field, FieldType, ChoiceType
 from .position import PositionSide, Position, PositionContext
-from .events import EventType, Event, EventSource
 from .signal import Signal
 
 __all__ = [
@@ -23,11 +22,8 @@ __all__ = [
     "PositionConfig",
     "Position",
     "StrategyState",
-    "EventSource",
     "StrategyInstanceState",
     "Signal",
-    "EventType",
-    "Event",
     "Component",
     "KLine",
     "TimeFrame",

@@ -7,9 +7,10 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from typing import Dict
 
-from models import Event, StrategyState
+from utils import Event, EventType, EventBus
+from models import StrategyState
 from strategy.context import StrategyContext
-from .core import EventBus
+
 
 
 class StrategyManager:

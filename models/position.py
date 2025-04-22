@@ -7,7 +7,6 @@ from decimal import Decimal
 from enum import Enum
 from typing import Optional, List
 
-from .signal import Signal
 from .constants import TradeInsType, AssetType
 from .order import Order
 
@@ -67,6 +66,7 @@ class PositionSide(Enum):
 
 @dataclass
 class Position:
+    from .signal import Signal
     """
     表示一个策略在一个交易器下、一个单独标的的仓位。
 
@@ -116,7 +116,7 @@ class Position:
     leverage: Decimal = Decimal("1")  # 杠杆倍数，默认1倍
     open_time: datetime = datetime.now()  # 开仓时间
     orders: Optional[List[Order]] = field(default=list)  # 相关订单列表
-    signals: Optional[List[Signal]] = field(default=list)  # 相关信号列表
+    signals: Optional[List["Signal"]] = field(default=list)  # 相关信号列表
 
 
 @dataclass

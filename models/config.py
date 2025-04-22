@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import ClassVar, Dict, Any, List
 
-from models import OrderType
+from .constants import OrderType
 
 
 @dataclass

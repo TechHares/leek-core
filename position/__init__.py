@@ -9,9 +9,7 @@
     4. 风险计算
 """
 from .base import Policy
-from engine.position_manager import PositionManager
 
 __all__ = [
     'Policy',
-    'PositionManager',
 ]

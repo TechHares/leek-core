@@ -9,7 +9,8 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import List, Any, Callable, Iterator
 
-from models import DataType, Field, AssetType, Component, EventSource, Data
+from models import DataType, Field, AssetType, Component, Data
+from utils import EventSource
 
 
 class DataSource(Component, ABC):

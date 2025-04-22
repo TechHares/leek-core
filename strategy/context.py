@@ -10,13 +10,13 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Dict, Any, Type, Tuple, List
 
-from models import Component, Event, EventType, EventSource, Signal
+from models import Component, Signal
 from models.constants import DataType, PositionSide, StrategyState
 from strategy import Strategy
 from strategy.sidecar import CTAStrategySidecar
 from sub_strategy import EnterStrategy, ExitStrategy
 from utils import get_logger
-from utils.event_bus import EventBus
+from utils import EventBus, EventType, Event, EventSource
 
 logger = get_logger(__name__)
 
