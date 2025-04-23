@@ -11,6 +11,7 @@ from .decorator import classproperty
 from .event_bus import EventBus, EventType, Event, EventSource
 from .id_generator import IdGenerator, generate, generate_str
 from .logging import setup_logging, get_logger, log_function, log_method, log_trade
+from .alarm import alarm_manager, AlarmLevel, ErrorAlarmHandler
 
 __all__ = [
     "EventType",
@@ -28,5 +29,8 @@ __all__ = [
     "log_function", 
     "log_method", 
     "classproperty",
-    "log_trade"
+    "log_trade",
+    "alarm_manager",
+    "ErrorAlarmHandler",
+    "AlarmLevel"
 ]
