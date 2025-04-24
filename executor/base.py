@@ -127,7 +127,7 @@ class WebSocketExecutor(Executor, ABC):
     def status(self):
         return self._status
 
-    def start(self):
+    def on_start(self):
         """
         启动WebSocket连接主循环（同步接口，自动调度异步任务）
         """
@@ -139,7 +139,7 @@ class WebSocketExecutor(Executor, ABC):
         # 启动异步主任务
         self._main_task = loop.create_task(self._run())
 
-    def stop(self):
+    def on_stop(self):
         """
         停止WebSocket连接（同步接口）
         """

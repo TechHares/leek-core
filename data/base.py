@@ -19,7 +19,6 @@ class DataSource(Component, ABC):
     # 声明支持的资产类型
     supported_asset_type: DataType = AssetType.STOCK
     backtest_supported: bool = False
-    init_params: List[Field] = []
     # 声明显示名称
     verbose_name = "OKX K线"
     """
@@ -83,7 +82,7 @@ class DataSource(Component, ABC):
         """
         ...
 
-    def start(self):
+    def on_start(self):
         """
         启动数据源。
         """
@@ -91,7 +90,7 @@ class DataSource(Component, ABC):
             return
         self.is_connected = self.connect()
 
-    def stop(self):
+    def on_stop(self):
         """
         停止数据源。
         """

@@ -165,7 +165,7 @@ class WebSocketDataSource(DataSource, ABC):
 
                 # 停止事件循环（必须使用call_soon_threadsafe）
                 if self._loop.is_running():
-                    self._loop.call_soon_threadsafe(self._loop.stop)
+                    self._loop.call_soon_threadsafe(self._loop.on_stop)
                     logger.debug(f"已安排停止事件循环: {self.name}")
             except Exception as e:
                 logger.error(f"停止事件循环失败: {e}", exc_info=True)

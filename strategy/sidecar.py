@@ -169,4 +169,4 @@ class CTAStrategySidecar:
         """
         停止组件
         """
-        self.strategy.stop()
+        self.strategy.on_stop()

@@ -6,9 +6,9 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import ClassVar, Set
+from typing import ClassVar, Set, List
 
-from models import Component, Data, Position, DataType
+from models import Component, Data, Position, DataType, Field
 from utils import get_logger
 
 logger = get_logger(__name__)
@@ -22,7 +22,7 @@ class RiskPlugin(Component, ABC):
     风控策略用于检查订单是否符合风控规则，如果不符合则拒绝交易。
     """
 
-    def __init__(self, instance_id: str=None, name: str=None):
+    def __init__(self, instance_id: str=None, name: str=None) -> None:
         """
         初始化风控策略
 

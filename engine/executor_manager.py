@@ -6,23 +6,20 @@
 from typing import Dict, List, Optional
 
 from executor import Executor
-from models import Order
+from models import Order, Component
+from utils import EventBus
 
 
-class ExecutorManager:
+class ExecutorManager(Component):
     """
     执行器管理器，负责订单的接收、路由和调度到具体执行器。
     支持多执行器注册、动态路由、状态查询等功能。
     """
 
-    def __init__(self, event_bus, instance_id: str=None, name: str=None, executors: List[Executor]=None):
+    def __init__(self, instance_id: str, name: str, event_bus: EventBus):
+        super().__init__(instance_id, name)
         self.event_bus = event_bus
-        self.instance_id = instance_id
-        self.name = name
         self.executors: Dict[str, Executor] = {}  # 执行器ID -> 执行器实例
-        if executors:
-            for executor in executors:
-                self.add_executor(executor)
 
     def add_executor(self, executor: Executor):
         """

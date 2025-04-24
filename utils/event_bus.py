@@ -19,9 +19,9 @@ class EventType(Enum):
     事件类型定义
     """
     # 引擎生命周期事件
-    ENGINE_INIT = "engine_init"  # 引擎初始化 todo
-    ENGINE_START = "engine_start"  # 引擎启动 todo
-    ENGINE_STOP = "engine_stop"  # 引擎停止 todo
+    ENGINE_INIT = "engine_init"  # 引擎初始化
+    ENGINE_START = "engine_start"  # 引擎启动
+    ENGINE_STOP = "engine_stop"  # 引擎停止
 
     # 数据源事件
     DATA_SOURCE_INIT = "data_source_init"  # 数据源初始化 todo
@@ -45,7 +45,17 @@ class EventType(Enum):
     STRATEGY_STOP = "strategy_stop"  # 策略停止 todo
     STRATEGY_SIGNAL = "strategy_signal"  # 策略产生信号
 
+    # 风控插件事件
+    RISK_PLUGIN_INIT = "risk_plugin_init"  # 插件初始化
+    RISK_PLUGIN_START = "risk_plugin_start"  # 插件绑定仓位启动
+    RISK_PLUGIN_STOP = "risk_plugin_stop"  # 插件绑定停止
+
     # 风控事件
+    RISK_MANAGER_INIT = "risk_manager_init"  # 风控检查开始 todo
+    RISK_MANAGER_START = "risk_manager_start"  # 风控检查开始 todo
+    RISK_MANAGER_STOP = "risk_manager_stop"  # 风控检查开始 todo
+    RISK_MANAGER_UPDATE = "risk_manager_update"  # 风控检查开始 todo
+
     RISK_CHECK_START = "risk_check_start"  # 风控检查开始 todo
     RISK_CHECK_PASS = "risk_check_pass"  # 风控检查通过 todo
     RISK_CHECK_REJECT = "risk_check_reject"  # 风控检查拒绝 todo
@@ -102,26 +112,28 @@ class Event:
         return f"Event(type={self.event_type.value}, source={self.source}, data={self.data})"
 
 
-
 class EventBus:
     """简化版事件总线，负责事件分发和处理"""
 
     def __init__(self):
         """初始化事件总线"""
         self._subscribers: Dict[EventType, Set[Callable]] = {}
-        self._interceptors: Dict[EventType, List[Callable]] = {}
+        self._all_event_subscribers: Set[Callable] = set()
 
     def subscribe_event(self, event_type: EventType, callback: Callable) -> bool:
         """
-        订阅事件
+        订阅事件。如果 event_type 为空，则订阅所有事件。
 
         参数:
-            event_type: 事件类型
+            event_type: 事件类型（可为 None 或空字符串，表示订阅全部事件）
             callback: 回调函数
 
         返回:
             是否成功订阅
         """
+        if not event_type:
+            self._all_event_subscribers.add(callback)
+            return True
         if event_type not in self._subscribers:
             self._subscribers[event_type] = set()
         self._subscribers[event_type].add(callback)
@@ -138,100 +150,32 @@ class EventBus:
         返回:
             是否成功取消订阅
         """
+        if event_type is None:
+            self._all_event_subscribers.discard(callback)
+
         if event_type in self._subscribers and callback in self._subscribers[event_type]:
             self._subscribers[event_type].remove(callback)
             return True
         return False
 
-    def add_interceptor(self, event_type: EventType, interceptor: Callable) -> bool:
+    def publish_event(self, event: 'Event') -> bool:
         """
-        添加事件拦截器
-
-        参数:
-            event_type: 事件类型
-            interceptor: 拦截器函数
-
-        返回:
-            是否成功添加拦截器
+        发布事件，支持分发给所有订阅者（包括订阅所有事件的回调）
         """
-        if event_type not in self._interceptors:
-            self._interceptors[event_type] = []
-        self._interceptors[event_type].append(interceptor)
-        return True
-
-    def remove_interceptor(self, event_type: EventType, interceptor: Callable) -> bool:
-        """
-        移除事件拦截器
-
-        参数:
-            event_type: 事件类型
-            interceptor: 拦截器函数
-
-        返回:
-            是否成功移除拦截器
-        """
-        if event_type in self._interceptors and interceptor in self._interceptors[event_type]:
-            self._interceptors[event_type].remove(interceptor)
-            return True
-        return False
-
-    async def publish_event(self, event: Event) -> bool:
-        """
-        发布事件
-
-        参数:
-            event: 事件对象
-
-        返回:
-            是否成功发布
-        """
-        # 应用拦截器
-        should_continue = await self._apply_interceptors(event)
-        if not should_continue:
-            logger.debug(f"事件被拦截: {event.event_type}, 来源: {event.source}")
-            return False
-
-        # 分发事件给订阅者
+        dispatched = False
+        # 先分发给具体类型订阅者
         if event.event_type in self._subscribers:
-            tasks = []
-            for subscriber in self._subscribers[event.event_type]:
-                if asyncio.iscoroutinefunction(subscriber):
-                    tasks.append(asyncio.create_task(subscriber(event)))
-                else:
-                    try:
-                        subscriber(event)
-                    except Exception as e:
-                        logger.error(f"事件处理错误: {e}", exc_info=True)
-
-            # 等待所有异步任务完成
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
-
-        return True
-
-    async def _apply_interceptors(self, event: Event) -> bool:
-        """
-        应用事件拦截器
-
-        参数:
-            event: 事件对象
-
-        返回:
-            是否继续处理事件
-        """
-        if event.event_type not in self._interceptors:
-            return True
-
-        for interceptor in self._interceptors[event.event_type]:
+            for cb in list(self._subscribers[event.event_type]):
+                try:
+                    cb(event)
+                    dispatched = True
+                except Exception as e:
+                    logger.error(f"事件处理异常: {e}")
+        # 再分发给全局订阅者
+        for cb in self._all_event_subscribers:
             try:
-                if asyncio.iscoroutinefunction(interceptor):
-                    result = await interceptor(event)
-                else:
-                    result = interceptor(event)
-
-                if result is False:  # 明确返回False才阻止事件传播
-                    return False
+                cb(event)
+                dispatched = True
             except Exception as e:
-                logger.error(f"拦截器错误: {e}", exc_info=True)
-
-        return True
+                logger.error(f"全局事件处理异常: {e}")
+        return dispatched

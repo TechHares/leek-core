@@ -17,7 +17,7 @@ from .strategy_manager import StrategyManager
 
 from utils import EventBus, EventType, Event, EventSource, get_logger
 from strategy import StrategyContext, Strategy
-from models import Component, DataType
+from models import Component, DataType, InstanceInitConfig
 from data import DataSource
 
 
@@ -26,32 +26,43 @@ logger = get_logger(__name__)
 
 class Engine(Component):
     """
-    异步交易引擎
+    交易引擎
     """
 
-    def __init__(self, instance_id, name: str = "LeekEngine", event_bus: EventBus = EventBus()):
+    def __init__(self, instance_id: str, name: str, event_bus: EventBus,
+                 data_manager: DataManager, strategy_manager: StrategyManager,
+                 position_manager: PositionManager, risk_manager: RiskManager,
+                 executor_manager: ExecutorManager):
         """
         初始化交易引擎
         
         参数:
+            instance_id: 引擎实例唯一标识
             name: 引擎名称
+            event_bus: 事件总线（用于组件间事件通信）
+            data_manager: 数据管理器（负责行情、数据源管理）
+            strategy_manager: 策略管理器（负责策略加载、调度与管理）
+            position_manager: 仓位管理器（负责资金与仓位管理）
+            risk_manager: 风控管理器（负责风险控制与风控规则）
+            executor_manager: 执行器管理器（负责订单执行与撮合）
+        
+        说明：
+            所有核心组件均通过依赖注入方式传入，便于扩展和测试。
+            初始化时会创建独立事件循环，并注册引擎默认事件监听器。
         """
         super().__init__(instance_id, name)
-        self.instance_id = instance_id
-        self.name = name
-
         self.event_bus = event_bus
-        self.data_manager = DataManager(event_bus)
-        self.strategy_manager = StrategyManager(event_bus)
-        self.position_manager = PositionManager(event_bus, None, None, None)
-        self.risk_manager = RiskManager(event_bus)
-        self.executor_manager = ExecutorManager(event_bus)
+        self.data_manager = data_manager
+        self.strategy_manager = strategy_manager
+        self.position_manager = position_manager
+        self.risk_manager = risk_manager
+        self.executor_manager = executor_manager
 
         # 创建事件循环
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
-
         # 注册默认事件监听器
+        self.running = False
         self._register_default_listeners()
 
     def _register_default_listeners(self):
@@ -104,6 +115,15 @@ class Engine(Component):
         """订单更新事件处理"""
         order = event.data
         self.position_manager.update_order(order)
+
+    def add_risk_plugin(self, plugin: InstanceInitConfig):
+        """
+        添加风控插件
+
+        参数:
+            plugin: 插件初始化配置
+        """
+        self.risk_manager.add_plugin(plugin)
 
     def add_data_source(self, data_source: DataSource):
         """
@@ -216,99 +236,48 @@ class Engine(Component):
         """
         self.event_bus.subscribe_event(event_type, callback)
 
-    def add_interceptor(self, event_type: EventType, interceptor: Callable):
+    def load_state(self, state: Dict[str, Any]=None):
         """
-        添加事件拦截器
-        
-        参数:
-            event_type: 事件类型
-            interceptor: 拦截器函数
+        加载组件状态
         """
-        self.event_bus.add_interceptor(event_type, interceptor)
+        self.initialize()
+        self.event_bus.publish_event(Event(
+            event_type=EventType.ENGINE_INIT,
+            data=state,
+            source=EventSource(
+                instance_id=self.instance_id,
+                name=self.name,
+                cls=self.__class__.__name__
+            )
+        ))
 
-    async def initialize(self):
+    def initialize(self):
         """初始化引擎"""
-        logger.info(f"初始化引擎: {self.name}")
+        ...
 
-        # 初始化数据管理器
-        self.data_manager.in_service = True
-
-        # 初始化所有策略
-        for name, strategy in self.strategies.items():
-            if hasattr(strategy, 'initialize') and asyncio.iscoroutinefunction(strategy.initialize):
-                await strategy.initialize()
-            elif hasattr(strategy, 'initialize'):
-                strategy.initialize()
-
-        # 初始化所有风控
-        for name, controller in self.risk_controllers.items():
-            if hasattr(controller, 'initialize') and asyncio.iscoroutinefunction(controller.initialize):
-                await controller.initialize()
-            elif hasattr(controller, 'initialize'):
-                controller.initialize()
-
-        # 初始化所有仓位管理器
-        for name, manager in self.position_managers.items():
-            if hasattr(manager, 'initialize') and asyncio.iscoroutinefunction(manager.initialize):
-                await manager.initialize()
-            elif hasattr(manager, 'initialize'):
-                manager.initialize()
-
-        # 初始化所有交易执行器
-        for name, trader in self.traders.items():
-            if hasattr(trader, 'initialize') and asyncio.iscoroutinefunction(trader.initialize):
-                await trader.initialize()
-            elif hasattr(trader, 'initialize'):
-                trader.initialize()
-
-        # 发布引擎初始化事件
-        await self.publish_event(EventType.ENGINE_INIT)
-
-    async def start(self):
+    def on_start(self):
         """启动引擎"""
         if self.running:
-            logger.warning("引擎已经在运行中")
+            logger.warning("引擎已经启动")
             return
-
         logger.info(f"启动引擎: {self.name}")
         self.running = True
-
-        # 连接所有数据源
-        self.data_manager._connect_all()
-
-        # 启动所有策略
-        for name, strategy in self.strategies.items():
-            if hasattr(strategy, 'start') and asyncio.iscoroutinefunction(strategy.start):
-                await strategy.start()
-            elif hasattr(strategy, 'start'):
-                strategy.start()
-
-        # 启动所有风控
-        for name, controller in self.risk_controllers.items():
-            if hasattr(controller, 'start') and asyncio.iscoroutinefunction(controller.start):
-                await controller.start()
-            elif hasattr(controller, 'start'):
-                controller.start()
-
-        # 启动所有仓位管理器
-        for name, manager in self.position_managers.items():
-            if hasattr(manager, 'start') and asyncio.iscoroutinefunction(manager.start):
-                await manager.start()
-            elif hasattr(manager, 'start'):
-                manager.start()
-
-        # 启动所有交易执行器
-        for name, trader in self.traders.items():
-            if hasattr(trader, 'start') and asyncio.iscoroutinefunction(trader.start):
-                await trader.start()
-            elif hasattr(trader, 'start'):
-                trader.start()
-
-        # 发布引擎启动事件
-        await self.publish_event(EventType.ENGINE_START)
-
-        # 启动主循环
-        self._main_task = asyncio.create_task(self._main_loop())
+        self.risk_manager.on_start()
+        self.position_manager.on_start()
+        self.executor_manager.on_start()
+        self.strategy_manager.on_start()
+        self.data_manager.on_start()
+        self.event_bus.publish_event(Event(
+            event_type=EventType.ENGINE_START,
+            data={},
+            source=EventSource(
+                instance_id=self.instance_id,
+                name=self.name,
+                cls=self.__class__.__name__
+            )
+        ))
+        # 启动事件循环
+        self._loop.run_until_complete(self._main_loop())
 
     async def _main_loop(self):
         """引擎主循环"""
@@ -322,11 +291,11 @@ class Engine(Component):
             logger.info("引擎主循环被取消")
         except Exception as e:
             logger.error(f"引擎主循环异常: {e}", exc_info=True)
-            await self.stop()
+            await self.on_stop()
 
         logger.info("引擎主循环结束")
 
-    async def stop(self):
+    def on_stop(self):
         """停止引擎"""
         if not self.running:
             logger.warning("引擎已经停止")
@@ -335,82 +304,18 @@ class Engine(Component):
         logger.info(f"停止引擎: {self.name}")
         self.running = False
 
-        # 取消主循环任务
-        if self._main_task and not self._main_task.done():
-            self._main_task.cancel()
-            try:
-                await self._main_task
-            except asyncio.CancelledError:
-                pass
-
+        self.data_manager.on_stop()
+        self.strategy_manager.on_stop()
+        self.executor_manager.on_stop()
+        self.position_manager.on_stop()
+        self.risk_manager.on_stop()
         # 发布引擎停止事件
-        await self.publish_event(EventType.ENGINE_STOP)
-
-        # 停止所有交易执行器
-        for name, trader in self.traders.items():
-            if hasattr(trader, 'stop') and asyncio.iscoroutinefunction(trader.stop):
-                await trader.stop()
-            elif hasattr(trader, 'stop'):
-                trader.stop()
-
-        # 停止所有仓位管理器
-        for name, manager in self.position_managers.items():
-            if hasattr(manager, 'stop') and asyncio.iscoroutinefunction(manager.stop):
-                await manager.stop()
-            elif hasattr(manager, 'stop'):
-                manager.stop()
-
-        # 停止所有风控
-        for name, controller in self.risk_controllers.items():
-            if hasattr(controller, 'stop') and asyncio.iscoroutinefunction(controller.stop):
-                await controller.stop()
-            elif hasattr(controller, 'stop'):
-                controller.stop()
-
-        # 停止所有策略
-        for name, strategy in self.strategies.items():
-            if hasattr(strategy, 'stop') and asyncio.iscoroutinefunction(strategy.stop):
-                await strategy.stop()
-            elif hasattr(strategy, 'stop'):
-                strategy.stop()
-
-        # 断开所有数据源
-        self.data_manager.shutdown()
-
-    def run(self):
-        """
-        在单独的线程中运行引擎
-        
-        该方法会启动一个新的线程来运行事件循环，适用于在非异步环境中使用引擎
-        """
-
-        def run_loop():
-            asyncio.set_event_loop(self._loop)
-            self._loop.run_until_complete(self._run())
-
-        thread = threading.Thread(target=run_loop)
-        thread.daemon = True
-        thread.start()
-
-        return thread
-
-    async def _run(self):
-        """实际的运行方法"""
-        try:
-            await self.initialize()
-            await self.start()
-
-            # 保持运行直到被停止
-            while self.running:
-                await asyncio.sleep(1)
-
-        except KeyboardInterrupt:
-            logger.info("接收到键盘中断，停止引擎")
-        except Exception as e:
-            logger.error(f"引擎运行异常: {e}", exc_info=True)
-        finally:
-            await self.stop()
-
-    def stop_sync(self):
-        """同步停止引擎"""
-        asyncio.run_coroutine_threadsafe(self.stop(), self._loop).result()
+        self.event_bus.publish_event(Event(
+            event_type=EventType.ENGINE_STOP,
+            data={},
+            source=EventSource(
+                instance_id=self.instance_id,
+                name=self.name,
+                cls=self.__class__.__name__
+            )
+        ))

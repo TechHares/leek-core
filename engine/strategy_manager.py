@@ -8,12 +8,12 @@ from copy import deepcopy
 from typing import Dict
 
 from utils import Event, EventType, EventBus
-from models import StrategyState
-from strategy.context import StrategyContext
+from models import StrategyState, Component
+from strategy import StrategyContext
 
 
 
-class StrategyManager:
+class StrategyManager(Component):
     """
     管理多个策略上下文（StrategyContext）并提供统一接口。
 
@@ -21,13 +21,14 @@ class StrategyManager:
     处理策略的生命周期、信号分发。
     """
 
-    def __init__(self, event_bus: EventBus, max_workers=5):
+    def __init__(self, instance_id, name, event_bus: EventBus, max_workers=5):
         """
         初始化策略管理器。
 
         参数:
             event_bus: 事件总线
         """
+        super().__init__(instance_id, name)
         self.strategy_contexts: Dict[str, StrategyContext] = {}
         self.event_bus = event_bus
         self.executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="StrategyManager-")
@@ -55,7 +56,7 @@ class StrategyManager:
         if context.instance_id in self.strategy_contexts:
             return
         self.strategy_contexts[context.instance_id] = context
-        context.start()
+        context.on_start()
 
     def remove_strategy_context(self, instance_id: str):
         """
@@ -67,7 +68,7 @@ class StrategyManager:
         if instance_id not in self.strategy_contexts:
             return
         context = self.strategy_contexts[instance_id]
-        context.stop()
+        context.on_stop()
         del self.strategy_contexts[instance_id]
 
     def destroy(self):
@@ -75,7 +76,7 @@ class StrategyManager:
         停止服务
         """
         for context in self.strategy_contexts.values():
-            context.stop()
+            context.on_stop()
         self.strategy_contexts.clear()
 
 if __name__ == '__main__':

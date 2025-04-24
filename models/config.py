@@ -5,7 +5,20 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import ClassVar, Dict, Any, List
 
+from . import create_instance, Component
 from .constants import OrderType
+
+@dataclass
+class EngineRuntimeData:
+    """
+    引擎运行时数据
+    """
+    data: Dict[str, Any] = field(default_factory=dict)
+    data_manager_data: Dict[str, Any] = field(default_factory=dict)
+    strategy_manager_data: Dict[str, Any] = field(default_factory=dict)
+    position_manager_data: Dict[str, Any] = field(default_factory=dict)
+    risk_manager_data: Dict[str, Any] = field(default_factory=dict)
+    executor_manager_data: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -29,14 +42,11 @@ class InstanceInitConfig:
     """
     用户各种灵活启用的配置
     """
-    cls: ClassVar
+    cls: type[Component]
     config: Dict[str, Any]
 
     def get_instance(self):
-        sig = inspect.signature(self.cls)
-        params = sig.parameters
-        parameter_map = {k: v for k, v in self.config.items() if k in list(params.keys())}
-        return self.cls(**parameter_map)
+        return create_instance(cls=self.cls, **self.config)
 
 
 

@@ -120,13 +120,13 @@ class StrategyContext(Component, ABC):
 
         return CTAStrategySidecar(self.event_bus, strategy, enter_strategy, exit_strategy)
 
-    def start(self):
+    def on_start(self):
         """
         启动策略
         """
         ...
 
-    def stop(self):
+    def on_stop(self):
         """
         停止策略
         """

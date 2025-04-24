@@ -4,7 +4,7 @@
 """
 数据模型模块，包含各模块间交互的DTO和通用数据结构。
 """
-from .component import Component
+from .component import Component, create_instance
 from .config import PositionConfig, InstanceInitConfig
 from .data import KLine, Data
 from .constants import TimeFrame, DataType, AssetType, MarketStatus, TradeMode, TradeInsType, OrderType, \
@@ -15,6 +15,7 @@ from .position import PositionSide, Position, PositionContext
 from .signal import Signal
 
 __all__ = [
+    "create_instance",
     "SubOrder",
     "InstanceInitConfig",
     "PositionContext",

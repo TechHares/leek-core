@@ -22,17 +22,17 @@ class PositionManager(Component):
     仓位管理器抽象基类，负责管理交易仓位。
     """
 
-    def __init__(self, event_bus: EventBus, config: PositionConfig, instance_id: str = None, name: str = None, policies: List[Policy] = None):
+    def __init__(self, instance_id: str, name: str, event_bus: EventBus, config: PositionConfig = None):
         """初始化仓位管理器"""
         super().__init__(instance_id, name)
         self.event_bus = event_bus
         self.config = config
-        self.policies = policies if policies else []
+        self.policies = []
 
-        self.amount = config.init_amount
+        self.amount = config.init_amount if config is not None else Decimal(0)
         self.activate_ratio = Decimal(1)  # 可用比例
         self.activate_amount = Decimal(1)  # 可用金额
-        self.virtual_amount = config.init_amount
+        self.virtual_amount = self.amount
 
         self.positions: Dict[str, Position] = {}  # 仓位字典，键为仓位ID
         self.strategy_positions: Dict[str, List[Position]] = {}  # 策略仓位字典，键为策略ID
@@ -177,6 +177,7 @@ class PositionManager(Component):
             asset_type=signal.asset_type,
             side=signal.side,
             is_open=True,
+            is_fake=position.is_fake,
             order_amount=amount,
             order_price=signal.price
         )
@@ -292,3 +293,10 @@ class PositionManager(Component):
         :param instance_id: 策略实例ID
         """
         self.policies = [p for p in self.policies if getattr(p, 'policy_id', None) != instance_id]
+
+    def update_config(self, config: PositionConfig):
+        """
+        更新仓位管理器配置。
+        :param config: PositionConfig 实例
+        """
+        self.config = config
