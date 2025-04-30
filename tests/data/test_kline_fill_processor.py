@@ -10,7 +10,7 @@ import time
 
 from models.data import KLine
 from models.constants import TimeFrame, TradeInsType
-from data_processor.kline_fill_processor import KLineFillProcessor
+from info_fabricator.kline_fill import KLineFillProcessor
 
 
 class TestKLineFillProcessor(unittest.TestCase):

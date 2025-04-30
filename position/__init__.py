@@ -8,8 +8,4 @@
     3. 仓位风控
     4. 风险计算
 """
-from .base import Policy
 
-__all__ = [
-    'Policy',
-]

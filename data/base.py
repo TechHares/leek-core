@@ -7,20 +7,22 @@
 """
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import List, Any, Callable, Iterator
+from typing import List, Any, Callable, Iterator, Dict
 
-from models import DataType, Field, AssetType, Component, Data
-from utils import EventSource
+from base import LeekComponent, LeekContext, create_component
+from event import EventBus, Event, EventType, EventSource
+from models import DataType, Field, AssetType, Data, KLine, LeekComponentConfig
 
 
-class DataSource(Component, ABC):
+class DataSource(LeekComponent, ABC):
     # 声明支持的数据类型
     supported_data_type: DataType = DataType.KLINE
     # 声明支持的资产类型
     supported_asset_type: DataType = AssetType.STOCK
+    # 是否支持回测
     backtest_supported: bool = False
     # 声明显示名称
-    verbose_name = "OKX K线"
+    display_name = "X数据源"
     """
     所有数据源的抽象基类。
 
@@ -28,7 +30,7 @@ class DataSource(Component, ABC):
     无论其具体实现细节（REST API、WebSocket、基于文件、数据库等）。
     """
 
-    def __init__(self, instance_id: str = None, name: str = None):
+    def __init__(self):
         """
         初始化数据源。
 
@@ -36,68 +38,12 @@ class DataSource(Component, ABC):
             instance_id: 数据源实例ID，用于跟踪数据流向
             name: 数据源的名称
         """
-        super().__init__(instance_id, name if name else self.__class__.verbose_name)
+        super().__init__()
 
-        self.is_connected = False
-        self.callback: Callable|None = None
-        self.params_list = None
+        self.callback: Callable | None = None
 
-    def set_callback(self, callback: Callable):
-        """
-        设置数据源的回调函数。
-        参数:
-            callback: 回调函数
-        """
-        self.callback = callback
-
-    def _callback(self, data: Data):
-        if self.params_list is None:
-            self.params_list = [p.name for p in  self.get_supported_parameters()]
-
-        if self.callback:
-            self.callback(EventSource(
-                instance_id=self.instance_id,
-                name=self.name,
-                cls=self.__class__.__name__,
-                extra={"params": self.params_list}
-            ), data)
-
-    @abstractmethod
-    def connect(self) -> bool:
-        """
-        建立与数据源的连接。
-
-        返回:
-            bool: 连接成功返回True，否则返回False
-        """
-        ...
-
-    @abstractmethod
-    def disconnect(self) -> bool:
-        """
-        断开与数据源的连接。
-
-        返回:
-            bool: 断开连接成功返回True，否则返回False
-        """
-        ...
-
-    def on_start(self):
-        """
-        启动数据源。
-        """
-        if self.is_connected:
-            return
-        self.is_connected = self.connect()
-
-    def on_stop(self):
-        """
-        停止数据源。
-        """
-        if not self.is_connected:
-            return
-        self.disconnect()
-        self.is_connected = False
+    def send_data(self, data: Data):
+        self.callback(data)
 
     def subscribe(self, **kwargs):
         """
@@ -125,7 +71,7 @@ class DataSource(Component, ABC):
         raise NotImplementedError("数据源不支持订阅")
 
     @abstractmethod
-    def get_history_data(self,start_time: datetime|int = None, end_time: datetime|int = None, limit: int = None,
+    def get_history_data(self, start_time: datetime | int = None, end_time: datetime | int = None, limit: int = None,
                          **kwargs) -> Iterator[Any]:
         """
         获取历史K线/蜡烛图数据。
@@ -144,16 +90,69 @@ class DataSource(Component, ABC):
     @abstractmethod
     def get_supported_parameters(self) -> List[Field]:
         """
-        获取数据源支持的参数。
+        获取数据源订阅支持的参数。
         返回:
             List[Field]: 参数定义
         """
         pass
 
-    def __str__(self) -> str:
-        """数据源的字符串表示。"""
-        return f"DataSource({self.name}-{self.instance_id})"
 
-    def __repr__(self) -> str:
-        """数据源的详细表示。"""
-        return f"DataSource(name={self.name}-{self.instance_id}, connected={self.is_connected})"
+class DataSourceContext(LeekContext):
+    """
+    数据源上下文。
+    """
+
+    def __init__(self, event_bus: EventBus, config: LeekComponentConfig[DataSource, Dict[str, Any]]):
+        super().__init__(event_bus, config)
+        self._data_source = self.create_component()
+        self._data_source.callback = self.send_data
+        self.is_connected = False
+        self.params_list = None
+
+    def send_data(self, data: Data):
+        if self.params_list is None:
+            self.params_list = self._data_source.get_supported_parameters()
+
+        data.data_source_id = self.instance_id
+        if isinstance(data, KLine):
+            data.data_type = DataType.KLINE
+        self.event_bus.publish_event(Event(EventType.DATA_RECEIVED, data, EventSource(
+            instance_id=self._data_source.instance_id,
+            name=self._data_source.name,
+            cls=self._data_source.__class__.__name__,
+            extra={"params": self.params_list}
+        )))
+
+    def on_start(self):
+        """
+        启动数据源。
+        """
+        if self.is_connected:
+            return
+        self._data_source.on_start()
+        self.is_connected = True
+
+    def on_stop(self):
+        """
+        停止数据源。
+        """
+        if not self.is_connected:
+            return
+        self._data_source.on_stop()
+        self.is_connected = False
+
+    def get_state(self) -> Dict[str, Any]:
+        """
+        获取数据源状态。
+        返回:
+            Dict[str, Any]: 数据源状态
+        """
+        raise NotImplementedError("数据源暂不支持序列化状态")
+
+    def load_state(self, state: Dict[str, Any]):
+        """
+        设置数据源状态。
+        参数:
+            state: 数据源状态
+        """
+        raise NotImplementedError("数据源暂不支持序列化状态")

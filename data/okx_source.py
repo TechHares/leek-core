@@ -13,7 +13,7 @@ import pandas as pd
 import websockets
 from datetime import datetime
 
-from .common import WebSocketDataSource
+from .websocket import WebSocketDataSource
 from models import TimeFrame, KLine, TradeInsType, DataType, Field, FieldType, ChoiceType
 from utils import get_logger
 from models.data import KLine
@@ -40,12 +40,11 @@ class OkxDataSource(WebSocketDataSource):
     supported_data_type: DataType = DataType.KLINE
     supported_asset_type: DataType = AssetType.CRYPTO
     init_params: List[Field] = [
-        Field(name="work_flag", label="环境", type=FieldType.RADIO, default="0", choices=[("0", "生产"), ("1", "模拟盘"), ("2", "生产(AWS)")], choice_type=ChoiceType.STR),
+        Field(name="symbols", label="标的", type=FieldType.ARRAY, default=[], choice_type=ChoiceType.STRING),
     ]
     verbose_name = "OKX K线"
 
-    def __init__(self, name: str = "okx_ws",
-                 instance_id: str = None):
+    def __init__(self, symbols: List[str]=None):
         """
         初始化 OKX WebSocket 数据源。
 
@@ -54,7 +53,8 @@ class OkxDataSource(WebSocketDataSource):
             instance_id: 数据源实例ID
         """
         self.ws_domain = "wss://ws.okx.com:8443/ws/v5/business"
-        super().__init__(name=name, ws_url=self.ws_domain, instance_id=instance_id)
+        super().__init__(ws_url=self.ws_domain)
+        self.symbols = []
         self._loop = asyncio.get_event_loop()
         self._ping_interval = 25
         self._ping_task: Optional[asyncio.Task] = None
@@ -80,10 +80,10 @@ class OkxDataSource(WebSocketDataSource):
 
     async def _send_ping_loop(self):
         """OKX心跳任务"""
-        while self.is_connected and self._connection:
+        while self._connection:
             try:
                 await asyncio.sleep(self._ping_interval)
-                if self.is_connected and self._connection:
+                if self._connection:
                     logger.debug(f"发送心跳到OKX")
                     await self._connection.send("ping")
             except asyncio.CancelledError:
@@ -197,12 +197,11 @@ class OkxDataSource(WebSocketDataSource):
                         timeframe=tf,
                         quote_currency=quote_currency,
                         ins_type=ins_type,
-                        data_source_id=self.instance_id,
                         is_finished=int(row[8]) == 1
                     )
 
                     # 调用订阅的回调函数
-                    self._callback(kline)
+                    self.send_data(kline)
                 except (IndexError, ValueError, TypeError) as e:
                     logger.error(f"解析OKX K线数据时出错: {e}, 原始数据: {row}", exc_info=True)
                     continue
@@ -224,10 +223,6 @@ class OkxDataSource(WebSocketDataSource):
         返回:
             bool: 订阅成功返回True，否则返回False
         """
-        # 检查WebSocket连接
-        if not self.is_connected:
-            logger.error("OKX未连接，无法订阅")
-            return False
         # 获取OKX格式的时间周期字符串
         tf_value = self._get_okx_tf_value(timeframe)
         if tf_value is None:
@@ -293,21 +288,23 @@ class OkxDataSource(WebSocketDataSource):
         return self.async_send(json.dumps(msg))
 
     def get_supported_parameters(self) -> List[Field]:
-        from okx import MarketData
-        market_api = MarketData.MarketAPI(domain="https://www.okx.com", flag="0", debug=False)
+        if self.symbols is None or len(self.symbols) == 0:
+            from okx import MarketData
+            market_api = MarketData.MarketAPI(domain="https://www.okx.com", flag="0", debug=False)
 
-        tickers = market_api.get_tickers(instType="SWAP")
-        symbols = set([ticker["instId"].split("-")[0] for ticker in tickers["data"]])
-        tickers = market_api.get_tickers(instType="SPOT")
-        symbols |= set([ticker["instId"].split("-")[0] for ticker in tickers["data"]])
+            tickers = market_api.get_tickers(instType="SWAP")
+            symbols = set([ticker["instId"].split("-")[0] for ticker in tickers["data"]])
+            tickers = market_api.get_tickers(instType="SPOT")
+            symbols |= set([ticker["instId"].split("-")[0] for ticker in tickers["data"]])
+            self.symbols = list(symbols)
         ins_types = [(TradeInsType.SPOT.value, str(TradeInsType.SPOT)), (TradeInsType.SWAP.value, str(TradeInsType.SWAP))]
         return [
-            Field(name='symbol', label='交易标的', type=FieldType.RADIO, required=True, choices=list(symbols),
-                  choice_type=ChoiceType.STR),
+            Field(name='symbol', label='交易标的', type=FieldType.RADIO, required=True, choices=self.symbols,
+                  choice_type=ChoiceType.STRING),
             Field(name='timeframe', label='时间周期', type=FieldType.RADIO, required=True,
-                  choices=list(OKX_TIMEFRAME_MAP.keys()), choice_type=ChoiceType.STR),
+                  choices=list(OKX_TIMEFRAME_MAP.keys()), choice_type=ChoiceType.STRING),
             Field(name='quote_currency', label='计价币种', type=FieldType.RADIO, required=True,
-                  choices=["USDT"], choice_type=ChoiceType.STR),
+                  choices=["USDT"], choice_type=ChoiceType.STRING),
             Field(name='ins_type', label='交易标的类型', type=FieldType.RADIO, required=True,
                   choices=ins_types, choice_type=ChoiceType.INT),
         ]

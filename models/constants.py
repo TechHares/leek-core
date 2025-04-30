@@ -127,7 +127,7 @@ class StrategyState(Enum):
     """策略状态。"""
     CREATED = "created"      # 空仓
     PREPARING = "preparing"  # 准备中
-    Running = "running"      # 运行中
+    RUNNING = "running"      # 运行中
     STOPPING = "stopping"    # 停止中
     STOPPED = "stopped"      # 已停止
 

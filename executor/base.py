@@ -27,8 +27,9 @@ class Executor(Component, ABC):
     """
     交易执行抽象基类
     """
+    just_backtest = False  # 仅用于回测，不实际执行
 
-    def __init__(self, callback, instance_id: str=None, name: str=None, **kwargs):
+    def __init__(self, instance_id: str=None, name: str=None):
         """
         初始化交易器
         
@@ -36,8 +37,8 @@ class Executor(Component, ABC):
             callback: 回调函数，用于处理订单状态变化等信息
         """
         super().__init__(instance_id, name)
-        self.callback = callback
         self.orders: dict[str, SubOrder] = {}
+        self.callback = None
 
     def check_order(self, order: Order) -> bool:
         """

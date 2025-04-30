@@ -11,8 +11,8 @@ from typing import Dict, List, Optional
 
 from models import TradeInsType, Position, Component, Signal, Order, PositionConfig, AssetType, \
     OrderStatus, PositionContext
-from position.base import Policy
-from utils import get_logger, EventBus, generate_str, decimal_quantize
+from policy.position import Policy
+from utils import get_logger, EventBus, generate_str, decimal_quantize, Event, EventType
 
 logger = get_logger(__name__)
 
@@ -285,14 +285,35 @@ class PositionManager(Component):
         添加风控策略到仓位管理器。
         :param policy: Policy 实例
         """
+        policy.on_start()
         self.policies.append(policy)
+        self.event_bus.publish_event(Event(
+            event_type=EventType.POSITION_POLICY_ADD,
+            data={
+                "instance_id": policy.instance_id,
+                "name": policy.name,
+            },
+            source=self._event_source()
+        ))
 
     def remove_policy(self, instance_id: str):
         """
         根据策略ID（policy_id）删除风控策略。
         :param instance_id: 策略实例ID
         """
-        self.policies = [p for p in self.policies if getattr(p, 'policy_id', None) != instance_id]
+        del_policies = [p for p in self.policies if p.position_id != instance_id]
+        self.policies = [p for p in self.policies if p.position_id != instance_id]
+        for policy in del_policies:
+            policy.on_stop()
+            self.event_bus.publish_event(Event(
+                event_type=EventType.POSITION_POLICY_DEL,
+                data={
+                    "instance_id": instance_id,
+                    "name": policy.name,
+                },
+                source=self._event_source()
+            ))
+
 
     def update_config(self, config: PositionConfig):
         """

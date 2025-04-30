@@ -6,7 +6,7 @@
 """
 from .clickhouse_source import ClickHouseKlineDataSource
 from .base import DataSource
-from .common import WebSocketDataSource
+from .websocket import WebSocketDataSource
 from .okx_source import OkxDataSource
 
 __all__ = [

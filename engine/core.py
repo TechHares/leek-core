@@ -9,6 +9,8 @@ import asyncio
 import threading
 from typing import Dict, Any, Callable
 
+from executor import Executor
+from position import Policy
 from .risk_manager import RiskManager
 from .position_manager import PositionManager
 from .data_manager import DataManager
@@ -163,7 +165,7 @@ class Engine(Component):
         self.strategies[name] = strategy
         logger.info(f"已添加策略: {name}")
 
-    def add_risk_controller(self, controller: Any, name: str = None):
+    def add_risk_policy(self, policy: Policy):
         """
         添加风控
         
@@ -171,18 +173,8 @@ class Engine(Component):
             controller: 风控实例
             name: 风控名称
         """
-        if name is None:
-            name = controller.__class__.__name__
-
-        # 确保风控有事件总线
-        if not hasattr(controller, 'event_bus'):
-            controller.event_bus = self.event_bus
-
-        # 确保风控有名称
-        controller.name = name
-
-        self.risk_controllers[name] = controller
-        logger.info(f"已添加风控: {name}")
+        self.position_manager.add_policy(policy)
+        logger.info(f"已添加风控: {policy.name} @ {policy.instance_id}")
 
     def add_position_manager(self, manager: Any, name: str = None):
         """
@@ -205,7 +197,7 @@ class Engine(Component):
         self.position_managers[name] = manager
         logger.info(f"已添加仓位管理器: {name}")
 
-    def add_trader(self, trader: Any, name: str = None):
+    def add_executor(self, executor: Executor, run_data: Dict[str, Any]=None):
         """
         添加交易执行器
         
@@ -213,18 +205,8 @@ class Engine(Component):
             trader: 交易执行器实例
             name: 交易执行器名称
         """
-        if name is None:
-            name = trader.__class__.__name__
-
-        # 确保交易执行器有事件总线
-        if not hasattr(trader, 'event_bus'):
-            trader.event_bus = self.event_bus
-
-        # 确保交易执行器有名称
-        trader.name = name
-
-        self.traders[name] = trader
-        logger.info(f"已添加交易执行器: {name}")
+        self.executor_manager.add_executor(executor, run_data)
+        logger.info(f"已添加交易执行器: {executor.name} {executor.instance_id}")
 
     def subscribe_event(self, event_type: EventType, callback: Callable):
         """

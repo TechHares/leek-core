@@ -7,22 +7,15 @@ OKX交易执行模块
 
 import json
 import asyncio
-import time
-import websocket
-from cachetools import cached, TTLCache
 from decimal import Decimal
 
-from models import PositionSide as PS, OrderType as OT, TradeMode, TradeInsType, PosMode
+from models import PositionSide as PS, OrderType as OT, TradeMode, TradeInsType
 from models import Order
-from .base import Executor, WebSocketExecutor, WSStatus
-from utils.event_bus import EventBus
+from .base import WebSocketExecutor
 from utils import get_logger
-from utils import decimal_quantize
-from okx.Account import AccountAPI
 from okx.utils import sign
 from okx.MarketData import MarketAPI
 from okx.PublicData import PublicAPI
-from okx.Trade import TradeAPI
 
 logger = get_logger(__name__)
 LOCK = asyncio.Lock()

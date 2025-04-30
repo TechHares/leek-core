@@ -26,8 +26,8 @@ class Data(ABC):
     """
     数据源最终产出的数据结构
     """
-    data_source_id: str  # 数据源ID
-    data_type: DataType  # 数据类型
+    data_source_id: str = None  # 数据源ID
+    data_type: DataType = None  # 数据类型
 
     # 保护的字段名称，这些字段不能被动态属性覆盖（类字段）
     _protected_fields: ClassVar[set[str]] = {}
@@ -178,18 +178,18 @@ class KLine(Data):
         is_finished: 标识K线是否已完成
         timeframe: K线时间粒度
     """
-    symbol: str
-    market: str  # 市场标识，如"okx"
-    open: Decimal
-    close: Decimal
-    high: Decimal
-    low: Decimal
-    volume: Decimal
-    amount: Decimal
-    start_time: int  # 毫秒时间戳
-    end_time: int  # 毫秒时间戳
-    current_time: int  # 毫秒时间戳
-    timeframe: TimeFrame  # K线时间粒度
+    symbol: str = None
+    market: str = None  # 市场标识，如"okx"
+    open: Decimal = None
+    close: Decimal = None
+    high: Decimal = None
+    low: Decimal = None
+    volume: Decimal = None
+    amount: Decimal = None
+    start_time: int = None  # 毫秒时间戳
+    end_time: int = None  # 毫秒时间戳
+    current_time: int = None  # 毫秒时间戳
+    timeframe: TimeFrame = None  # K线时间粒度
     quote_currency: str = "USDT"  # 计价币种，默认为USDT
     ins_type: TradeInsType = TradeInsType.SPOT  # 交易品种类型，默认为现货
     is_finished: bool = False
@@ -257,6 +257,13 @@ class KLine(Data):
         获取当前时间的datetime对象
         """
         return datetime.fromtimestamp(self.current_time / 1000)
+
+    @property
+    def row_key(self) -> tuple[str, str, str, Any, Any]:
+        """
+        获取K线的唯一标识符
+        """
+        return self.data_source_id, self.symbol, self.quote_currency, self.ins_type.value, self.timeframe.value
 
     def to_dict(self) -> dict:
         """

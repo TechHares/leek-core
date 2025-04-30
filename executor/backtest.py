@@ -8,13 +8,9 @@
 import random
 from decimal import Decimal
 
-from models import Data
-from models.constants import OrderType
-from models.order import Order, SubOrder
+from models import Data, Field, OrderType, SubOrder, FieldType, ChoiceType
+from utils import get_logger, decimal_quantize
 from .base import Executor
-from utils.event_bus import EventBus
-from utils import get_logger
-from utils.decimal_utils import decimal_quantize
 
 logger = get_logger(__name__)
 
@@ -23,9 +19,25 @@ class BacktestExecutor(Executor):
     """
     回测交易执行器
     """
-    verbose_name = "回测交易"
-    
-    def __init__(self, bus: EventBus, slippage: Decimal = 0.0, fee_type: int = 0, fee: Decimal = 0,
+    display_name = "回测交易"
+    just_backtest = True
+    init_params = [
+        Field(name="slippage", label="滑点幅度(0.0 - 1.0)",
+              description="成交价会在该幅度内随机产生 [(1-slippage)*报价, (1+slippage)*报价] 仅针对市价单有效",
+              type=FieldType.FLOAT, default=0.0, min=0, max=1, required=True),
+        Field(name="fee_type", label="费用收取方式", description="", type=FieldType.RADIO, default=0, min=0, max=3,
+              required=True, choices=[(0, "无费用"), (1, "固定费用"), (2, "成交额固定比例"), (3, "单位成交固定费用")],
+              choice_type=ChoiceType.INT),
+        Field(name="fee", label="费率",
+              description="用收取方式类型无费用时无效， 固定费用时表示固定费用， 成交额固定比例时表示固定比例",
+              type=FieldType.FLOAT, default=0.0, min=0, max=1, required=True),
+        Field(name="limit_order_execution_rate", label="限价单成交率(1-100)",
+              description="仅针对限价单有效, 成交额=报单额*random(成交率% ~ 1)",
+              type=FieldType.FLOAT, default=100, min=1, max=100, required=True)
+    ]
+    init_params += Executor.init_params
+
+    def __init__(self, instance_id: str=None, name: str=None, slippage: Decimal = 0.0, fee_type: int = 0, fee: Decimal = 0,
                  limit_order_execution_rate: int = 100):
         """
         初始化回测交易器
@@ -33,10 +45,11 @@ class BacktestExecutor(Executor):
         参数:
             bus: 事件总线
             slippage: 滑点幅度，0.0 - 1.0 成交价会在该幅度内随机产生 [(1-slippage)*报价, (1+slippage)*报价] 仅针对市价单有效
-            fee_type: 费用收取方式类型，0 无费用，1 固定费用，2 成交额固定比例，3 单位成交固定费用
+            fee_type: ，0 无费用，1 固定费用，2 成交额固定比例，3 单位成交固定费用
             fee: 费率， 费用收取方式类型 0 时无效， 1 时表示固定费用， 2 时表示固定比例
             limit_order_execution_rate: 限价单成交率， 1 - 100, 仅针对限价单有效, 成交额=报单额*random(limit_order_execution_rate% ~ 1)
         """
+        super().__init__(instance_id, name)
         self.slippage = Decimal(slippage)
         if self.slippage > 1:
             self.slippage = Decimal(1)
@@ -53,8 +66,7 @@ class BacktestExecutor(Executor):
             self.limit_order_execution_rate = 1
         if self.limit_order_execution_rate > 100:
             self.limit_order_execution_rate = 100
-            
-        super().__init__(bus)
+
 
     def send_order(self, order: SubOrder) -> SubOrder:
         """
@@ -102,7 +114,8 @@ class BacktestExecutor(Executor):
             pos_trade.transaction_volume = decimal_quantize(pos_trade.sz * random_num / 100, 6)
 
         # 3. 计算成交额
-        pos_trade.transaction_amount = decimal_quantize(pos_trade.transaction_volume * pos_trade.transaction_price, 2, 1)
+        pos_trade.transaction_amount = decimal_quantize(pos_trade.transaction_volume * pos_trade.transaction_price, 2,
+                                                        1)
 
         # 4. 计算手续费
         fee = Decimal(0)

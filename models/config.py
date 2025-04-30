@@ -3,9 +3,9 @@
 import inspect
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import ClassVar, Dict, Any, List
+from typing import ClassVar, Dict, Any, List, Type, Tuple, TypeVar, Generic
 
-from . import create_instance, Component
+from base import LeekComponent
 from .constants import OrderType
 
 @dataclass
@@ -37,16 +37,17 @@ class PositionConfig:
     max_ratio: Decimal      # 单单次开仓最大仓位比例
 
 
+T = TypeVar('T', bound=LeekComponent)
+CFG = TypeVar('CFG')
 @dataclass
-class InstanceInitConfig:
+class LeekComponentConfig(Generic[T, CFG]):
     """
-    用户各种灵活启用的配置
+    各种组件的类型和初始化配置
     """
-    cls: type[Component]
-    config: Dict[str, Any]
-
-    def get_instance(self):
-        return create_instance(cls=self.cls, **self.config)
+    instance_id: str
+    name: str
+    cls: type[T]
+    config: CFG
 
 
 
@@ -60,4 +61,19 @@ class StrategyPositionConfig:
     order_type: OrderType = None  # 订单类型
     executor_id: str = None  # 指定执行器ID
 
-    risk_policy: List[InstanceInitConfig] = field(default_factory=list)
+
+@dataclass
+class StrategyConfig:
+    """
+    策略配置信息
+    """
+    data_source_configs: List[LeekComponentConfig["DataSource", Dict[str, Any]]]
+    strategy_config: Dict[str, Any] = None
+    strategy_position_config: StrategyPositionConfig = None
+
+    enter_strategy_cls: Type["EnterStrategy"] = None
+    enter_strategy_config: Dict[str, Any] = None
+    exit_strategy_cls: Type['ExitStrategy'] = None
+    exit_strategy_config: Dict[str, Any] = None
+
+    risk_policies: List[LeekComponentConfig["PositionPolicy", Dict[str, Any]]] = field(default_factory=list)

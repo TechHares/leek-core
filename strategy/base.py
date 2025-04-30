@@ -6,10 +6,13 @@
 """
 
 from abc import ABC
+from dataclasses import dataclass
 from decimal import Decimal
+from logging import Logger
 from typing import Dict, Any, ClassVar, Set, List
 
-from models import PositionSide, Field, Component
+from base import LeekComponent
+from models import PositionSide, Field
 from models.constants import DataType
 from models.data import KLine, Data
 from utils import get_logger
@@ -17,7 +20,19 @@ from .strategy_mode import StrategyMode, KlineSimple
 
 logger = get_logger(__name__)
 
-class Strategy(Component, ABC):
+@dataclass
+class StrategyCommand:
+    """
+    策略指令。
+
+    属性:
+        side: 仓位方向
+        ratio: 仓位比例
+    """
+    side: PositionSide
+    ratio: Decimal
+
+class Strategy(LeekComponent, ABC):
     """
     择时策略抽象基类，定义策略的基本接口。
     
@@ -26,33 +41,28 @@ class Strategy(Component, ABC):
         open_just_no_pos: 是否只在没有仓位时开仓，默认为True
         accepted_data_types: 策略接受的数据类型列表，默认接受K线数据
         strategy_mode: 策略运行模式，默认为单标的单时间周期模式
-        
-    实例属性:
-        instance_id: 策略实例ID，用于跟踪具体实例产生的数据和策略表现
-        event_bus: 事件总线，用于发布事件
     """
     
     # 策略展示名称
-    display_name: ClassVar[str] = "未命名策略"
+    display_name: str = "未命名策略"
     
     # 是否只在没有仓位时开仓
-    open_just_no_pos: ClassVar[bool] = True
+    open_just_no_pos: bool = True
     
     # 策略接受的数据类型
-    accepted_data_types: ClassVar[Set[DataType]] = {DataType.KLINE}
+    accepted_data_types: Set[DataType] = {DataType.KLINE}
     
     # 策略运行模式
-    strategy_mode: ClassVar[StrategyMode] = KlineSimple()
+    strategy_mode: StrategyMode = KlineSimple()
     # 参数
-    params: ClassVar[List[Field]] = []
+    init_params: List[Field] = []
 
-    def __init__(self, instance_id: str=None, name: str=None):
+    def __init__(self):
         """
         初始化策略
         """
         # 初始化日志器
-        super().__init__(instance_id, name)
-        self.logger = get_logger(f"strategy.{self.__class__.display_name}.{name}.{instance_id}")
+        self.logger: Logger = None
     
     def on_data(self, data: Data = None):
         """
@@ -75,31 +85,21 @@ class Strategy(Component, ABC):
         """
         ...
     
-    def should_open(self) -> PositionSide:
+    def should_open(self) -> PositionSide | StrategyCommand:
         """
         判断是否应该开仓
         
         返回:
-            是否应该开仓
+            是否应该开仓 PositionSide 表示全仓开， StrategyCommand 可以自定义比例
         """
         ...
     
-    def should_close(self, position_side:PositionSide) -> bool:
+    def should_close(self, position_side:PositionSide) -> bool | Decimal:
         """
         判断是否应该平仓
         参数:
             position_side: 当前仓位方向
         返回:
-            是否应该平仓
+            是否应该平仓 True 表示平仓，False 表示不平仓，Decimal 表示平仓比例
         """
         return False
-
-    def get_position_change_rate(self) -> Decimal:
-        """
-        获取当前仓位变化的比例
-        在返回开仓或者平仓之后会被调用， 如策略不自定义仓位管理， 无需覆写
-
-        返回:
-            仓位比例，0-1之间的小数， 如0.5，标识此次会开/平仓50%(相较于全部投入)的仓位
-        """
-        return Decimal('1')

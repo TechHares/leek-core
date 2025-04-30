@@ -11,7 +11,7 @@ from utils import DateTimeUtils
 
 class FieldType(Enum):
     """字段类型"""
-    STR = "str"
+    STRING = "string"
     INT = "int"
     FLOAT = "float"
     BOOLEAN = "boolean"
@@ -22,7 +22,7 @@ class FieldType(Enum):
 
 class ChoiceType(Enum):
     """可选值类型"""
-    STR = "str"
+    STRING = "string"
     INT = "int"
     FLOAT = "float"
     BOOLEAN = "boolean"
@@ -36,7 +36,7 @@ class Field:
     name: str  # 字段名称
     label: str = None  # 显示名称，默认为name
     description: str = "" # 字段描述
-    type: FieldType = FieldType.STR  # 入参类型，可以是 "str", "int", "float", "bool", "datetime", "radio", "select"
+    type: FieldType = FieldType.STRING  # 入参类型，可以是 "string", "int", "float", "bool", "datetime", "radio", "select"
     default: Any = None  # 默认值
     length: int = None  # 字段长度，仅适用于str
     min: float = None  # 最小值，仅适用于 int、float和datetime
@@ -58,7 +58,12 @@ class Field:
         """
         将字符串值转换为指定类型。
         """
-        if tp == FieldType.STR:
+        if value is None:
+            return None
+        if isinstance(value, Enum):
+            return Field.covert_value(tp, value.value)
+
+        if tp == FieldType.STRING:
             return str(value)
 
         if tp == FieldType.INT:

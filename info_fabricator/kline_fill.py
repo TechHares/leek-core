@@ -9,35 +9,45 @@ from collections import deque
 from decimal import Decimal
 from typing import List, Dict, Tuple
 
-from models import DataType, TradeInsType
-from models.data import KLine
-from models.constants import TimeFrame
-from data_processor.base import Processor
+from .base import Fabricator
+
+from models import DataType, TradeInsType, KLine, TimeFrame
 from utils import get_logger
 
 logger = get_logger(__name__)
 
 
-class KLineFillProcessor(Processor):
+class KLineFillFabricator(Fabricator):
     priority = 0
-    process_data_type = DataType.KLINE
+    process_data_type = {DataType.KLINE}
     display_name = "缺失K线填充"
     """
     K线数据填充处理器，用于处理缺失的K线数据。
-    
-    该处理器会自动记录历史数据，并根据时间间隔判断是否需要填充缺失的K线。
-    填充的K线数据会使用前后K线的平均值进行估算。
+
+    本插件主要用于自动检测和填补K线（蜡烛图）数据流中的缺失区间，保证下游策略和风控模块能够收到连续、完整的K线数据序列。
+
+    主要功能与原理：
+    1. 自动记录每个交易对的历史K线数据，维护时间序列连续性。
+    2. 检测到相邻K线之间存在时间缺口时，自动插入补全K线。
+    3. 填充的K线数据会采用前后K线的价格均值、成交量等信息进行合理估算，尽量还原真实走势。
+
+    典型应用场景：
+    - 数据源推送不稳定、偶发丢包时，保障策略回测/实盘的K线连续性。
+    - 多数据源拼接、历史数据回补等场景下，自动修复时间断档。
+
+    注意事项：
+    - 填充K线为估算数据，仅用于辅助分析和保持数据流完整，不能作为真实成交依据。
     """
 
     def __init__(self):
         """
         初始化K线填充处理器
         """
-        super().__init__("KLineFillProcessor", Processor.display_name)
+        super().__init__()
         # 使用字典存储不同交易对的历史数据
         # key: (data_source_id, symbol, quote_currency, ins_type, timeframe)
         # value: deque of KLine
-        self.history: Dict[Tuple[str, str, str, TradeInsType, TimeFrame], deque] = {}
+        self.history: Dict[Tuple, deque] = {}
 
     def _get_history(self, kline: KLine) -> deque:
         """
@@ -49,7 +59,7 @@ class KLineFillProcessor(Processor):
         返回:
             历史数据队列
         """
-        key = (kline.data_source_id, kline.symbol, kline.quote_currency, kline.ins_type, kline.timeframe)
+        key = kline.row_key
         if key not in self.history:
             self.history[key] = deque(maxlen=5)
         return self.history[key]

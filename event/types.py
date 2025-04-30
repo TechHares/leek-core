@@ -1,18 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import asyncio
-from typing import Dict, Set, Callable, List
-
-from .logging import get_logger
-
-logger = get_logger(__name__)
 """
 事件定义和事件总线扩展
 """
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
-
 
 class EventType(Enum):
     """
@@ -36,7 +29,6 @@ class EventType(Enum):
 
     # 数据事件
     DATA_RECEIVED = "data_received"  # 接收到数据
-    DATA_PROCESSING = "data_processing"  # 数据处理
     DATA_PROCESSED = "data_processed"  # 数据处理完成
 
     # 策略事件
@@ -61,12 +53,20 @@ class EventType(Enum):
     RISK_CHECK_REJECT = "risk_check_reject"  # 风控检查拒绝 todo
 
     # 仓位管理事件
+    POSITION_POLICY_ADD = "POSITION_POLICY_ADD"  # 仓位风控添加
+    POSITION_POLICY_DEL = "POSITION_POLICY_DEL"  # 仓位风控删除
     POSITION_INIT = "position_init"  # 仓位管理初始化 todo
     POSITION_OPEN = "position_open"  # 开仓 todo
     POSITION_CLOSE = "position_close"  # 平仓 todo
     POSITION_UPDATE = "position_update"  # 仓位更新 todo
 
-    # 交易执行事件
+    # 执行器事件
+    EXECUTOR_INIT = "executor_load_data"  # 执行器初始化
+    EXECUTOR_START = "executor_start"  # 执行器启动
+    EXECUTOR_STOP = "executor_stop"  # 执行器停止
+    EXECUTOR_UPDATE = "executor_update"  # 执行器更新 todo
+
+    # 订单执行事件
     ORDER_CREATED = "order_created"  # 订单创建 todo
     ORDER_SENT = "order_sent"  # 订单发送 todo
     ORDER_FILLED = "order_filled"  # 订单成交 todo
@@ -110,72 +110,3 @@ class Event:
 
     def __str__(self):
         return f"Event(type={self.event_type.value}, source={self.source}, data={self.data})"
-
-
-class EventBus:
-    """简化版事件总线，负责事件分发和处理"""
-
-    def __init__(self):
-        """初始化事件总线"""
-        self._subscribers: Dict[EventType, Set[Callable]] = {}
-        self._all_event_subscribers: Set[Callable] = set()
-
-    def subscribe_event(self, event_type: EventType, callback: Callable) -> bool:
-        """
-        订阅事件。如果 event_type 为空，则订阅所有事件。
-
-        参数:
-            event_type: 事件类型（可为 None 或空字符串，表示订阅全部事件）
-            callback: 回调函数
-
-        返回:
-            是否成功订阅
-        """
-        if not event_type:
-            self._all_event_subscribers.add(callback)
-            return True
-        if event_type not in self._subscribers:
-            self._subscribers[event_type] = set()
-        self._subscribers[event_type].add(callback)
-        return True
-
-    def unsubscribe_event(self, event_type: EventType, callback: Callable) -> bool:
-        """
-        取消订阅事件
-
-        参数:
-            event_type: 事件类型
-            callback: 回调函数
-
-        返回:
-            是否成功取消订阅
-        """
-        if event_type is None:
-            self._all_event_subscribers.discard(callback)
-
-        if event_type in self._subscribers and callback in self._subscribers[event_type]:
-            self._subscribers[event_type].remove(callback)
-            return True
-        return False
-
-    def publish_event(self, event: 'Event') -> bool:
-        """
-        发布事件，支持分发给所有订阅者（包括订阅所有事件的回调）
-        """
-        dispatched = False
-        # 先分发给具体类型订阅者
-        if event.event_type in self._subscribers:
-            for cb in list(self._subscribers[event.event_type]):
-                try:
-                    cb(event)
-                    dispatched = True
-                except Exception as e:
-                    logger.error(f"事件处理异常: {e}")
-        # 再分发给全局订阅者
-        for cb in self._all_event_subscribers:
-            try:
-                cb(event)
-                dispatched = True
-            except Exception as e:
-                logger.error(f"全局事件处理异常: {e}")
-        return dispatched

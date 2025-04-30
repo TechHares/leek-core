@@ -22,11 +22,11 @@ class ClickHouseKlineDataSource(DataSource):
     supported_asset_type: DataType = {AssetType.STOCK, AssetType.CRYPTO}
     backtest_supported: bool = True
     init_params: List[Field] = [
-        Field(name="host", label="主机", type=FieldType.STR, required=True, default="127.0.0.1"),
+        Field(name="host", label="主机", type=FieldType.STRING, required=True, default="127.0.0.1"),
         Field(name="port", label="端口", type=FieldType.INT, required=True, default=9000),
-        Field(name="user", label="用户名", type=FieldType.STR, required=True, default="default"),
-        Field(name="password", label="密码", type=FieldType.STR, default=""),
-        Field(name="database", label="数据库名", type=FieldType.STR, default="default"),
+        Field(name="user", label="用户名", type=FieldType.STRING, required=True, default="default"),
+        Field(name="password", label="密码", type=FieldType.STRING, default=""),
+        Field(name="database", label="数据库名", type=FieldType.STRING, default="default"),
     ]
     # 声明显示名称
     verbose_name = "ClickHouse K线"
@@ -59,8 +59,7 @@ class ClickHouseKlineDataSource(DataSource):
     """
 
     def __init__(self, host: str, port: int = 9000, user: str = 'default',
-                 password: str = '', database: str = 'default',
-                 instance_id: str = None, name: str = None):
+                 password: str = '', database: str = 'default'):
         """
         初始化 ClickHouse 数据源。
         
@@ -77,13 +76,7 @@ class ClickHouseKlineDataSource(DataSource):
             ins_type: 交易品种类型，默认为现货(SPOT)
             instance_id: 数据源实例ID，用于跟踪数据流向
         """
-        # 生成特定格式的instance_id（如果未提供）
-        if instance_id is None:
-            instance_id = f"{host}@{user}/klines?{id(self)}"
-        if name is None:
-            name = f"{host}@{user}/klines"
-
-        super().__init__(instance_id, name)
+        super().__init__()
         self.config = {
             'host': host,
             'port': port,

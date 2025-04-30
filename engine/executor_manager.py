@@ -3,11 +3,13 @@
 """
 执行器管理器模块，提供执行器的管理和调度功能。
 """
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
+
+from pandas.io.sql import execute
 
 from executor import Executor
-from models import Order, Component
-from utils import EventBus
+from models import Order, Component, SubOrder
+from utils import EventBus, EventType, Event
 
 
 class ExecutorManager(Component):
@@ -21,11 +23,33 @@ class ExecutorManager(Component):
         self.event_bus = event_bus
         self.executors: Dict[str, Executor] = {}  # 执行器ID -> 执行器实例
 
-    def add_executor(self, executor: Executor):
+    def add_executor(self, executor: Executor, run_data: Dict[str, Any]=None):
         """
         注册一个新的执行器。
         :param executor: 执行器实例
+        :param run_data: 运行时数据
         """
+        if run_data is None:
+            run_data = {}
+        executor.callback = self.executor_callback
+        executor.load_state(run_data)
+        self.event_bus.publish_event(Event(
+            event_type=EventType.EXECUTOR_INIT,
+            source=self._event_source(),
+            data={
+                "instance_id": executor.instance_id,
+                "name": executor.name,
+            }
+        ))
+        executor.on_start()
+        self.event_bus.publish_event(Event(
+            event_type=EventType.EXECUTOR_START,
+            source=self._event_source(),
+            data={
+                "instance_id": executor.instance_id,
+                "name": executor.name,
+            }
+        ))
         self.executors[executor.instance_id] = executor
 
     def remove_executor(self, executor_id: str):
@@ -33,7 +57,17 @@ class ExecutorManager(Component):
         移除指定ID的执行器。
         :param executor_id: 执行器ID
         """
-        self.executors.pop(executor_id, None)
+        executor = self.executors.pop(executor_id, None)
+        if executor:
+            executor.on_stop()
+            self.event_bus.publish_event(Event(
+                event_type=EventType.EXECUTOR_STOP,
+                source=self._event_source(),
+                data={
+                    "instance_id": executor.instance_id,
+                    "name": executor.name,
+                }
+            ))
 
     def get_executor(self, executor_id: str):
         """
@@ -81,3 +115,6 @@ class ExecutorManager(Component):
         if executor and hasattr(executor, 'get_status'):
             return executor.get_status()
         return None
+
+    def executor_callback(self, order: SubOrder):
+        ...

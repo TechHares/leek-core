@@ -4,12 +4,12 @@
 引擎组件数据源管理子模块，给引擎提供组件管理相关功能
 """
 
-from typing import Dict, Any
+from typing import Dict
 
 from data import DataSource
-from data_processor import Processor
-from models import DataType, Data, Component
-from utils.event_bus import EventType, Event, EventSource, EventBus
+from info_fabricator import Processor
+from models import Data, Component
+from event.bus import EventType, Event, EventSource, EventBus
 
 
 class DataManager(Component):
@@ -40,7 +40,7 @@ class DataManager(Component):
             data_type: 数据类型
             data: 数据
         """
-        self.event_bus.publish_event(Event(EventType.DATA_RECEIVED, data, source))
+
         datas = [data]
         for processor in self.processors.values():
             if processor.process_data_type != data.data_type:
@@ -51,7 +51,7 @@ class DataManager(Component):
                                                EventSource(instance_id=processor.instance_id, name=processor.name, cls=processor.__class__.__name__)))
 
         for d in datas:
-            self.event_bus.publish_event(Event(EventType.DATA_PROCESSED, d, source))
+
 
     def add_data_source(self, source: DataSource):
         """

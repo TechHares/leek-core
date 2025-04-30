@@ -9,11 +9,11 @@ from abc import ABC, abstractmethod
 from decimal import Decimal
 from typing import List, Set
 
-from models import KLine, Field, Data
-from models.constants import DataType, PositionSide
+from models import Field, DataType, PositionSide
+from strategy import Strategy
 
 
-class SubStrategy(ABC):
+class SubStrategy(Strategy, ABC):
     # 声明可接受的数据类型 只有数据类型和主策略有重合， 主策略才可以绑定该附属策略
     accepted_data_types: Set[DataType] = set(DataType)
     # 声明附属策略初始化参数
@@ -29,23 +29,11 @@ class SubStrategy(ABC):
         """
         初始化附属策略
         """
+        super().__init__()
         self.progress = Decimal('0')  # 进度，0-1之间的小数
-        
-    def on_data(self, data: Data = None) -> None:
-        """
-        处理数据，更新内部状态
-        
-        参数:
-            data: 接收到的数据，可以是任何类型
-        """
-        if data.data_type == DataType.KLINE and isinstance(data, KLine):
-            self.on_kline(data)
-
-    def on_kline(self, kline: KLine) -> None:
-        ...
     
     @abstractmethod
-    def position_rate(self, position_side: PositionSide) -> Decimal:
+    def ratio(self, position_side: PositionSide):
         """
         此次建议的仓位比例
         
@@ -54,17 +42,18 @@ class SubStrategy(ABC):
         """
         pass
     
-    def reset(self) -> None:
+    def reset(self):
         """
         重置策略状态
         """
         self.progress = Decimal('0')
 
+    @property
     def is_finished(self) -> bool:
         """
         判断策略是否完成
         """
-        return self.progress >= 1
+        return self.progress >= Decimal('1')
 
 
 class EnterStrategy(SubStrategy):
@@ -83,9 +72,8 @@ class EnterStrategy(SubStrategy):
         """
         super().__init__()
 
-    def position_rate(self, position_side: PositionSide) -> Decimal:
+    def ratio(self, position_side: PositionSide):
         self.progress = Decimal('1')
-        return self.progress
 
 
 class ExitStrategy(SubStrategy):
@@ -101,6 +89,5 @@ class ExitStrategy(SubStrategy):
         """
         super().__init__()
 
-    def position_rate(self, position_side: PositionSide) -> Decimal:
+    def ratio(self, position_side: PositionSide):
         self.progress = Decimal('1')
-        return self.progress
