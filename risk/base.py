@@ -6,41 +6,40 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import ClassVar, Set, List
+from typing import List
 
-from models import Component, Data, Position, DataType, Field
+from models import Position, PositionInfo
 from utils import get_logger
+from .base import LeekComponent
 
 logger = get_logger(__name__)
 
 
-class RiskPlugin(Component, ABC):
-    accepted_data_types: ClassVar[Set[DataType]] = {DataType.KLINE}
+class RiskPlugin(LeekComponent, ABC):
     """
-    风控策略抽象基类，定义风控策略的基本接口。
+    风控插件基类。
+
+    本抽象基类定义了所有风控插件的统一接口和通用行为，便于扩展和集成多种风控规则。
     
-    风控策略用于检查订单是否符合风控规则，如果不符合则拒绝交易。
+    主要职责：
+    1. 统一风控插件的接口，子类需实现 trigger 方法，对仓位集合进行风控检查。
+    2. 支持灵活扩展多种风控逻辑，如批量止损、止盈、强平、风控组合等。
+    3. 可与仓位管理、策略等模块解耦集成，实现灵活的风控组合与批量处理。
+    
+    使用说明：
+    - 所有自定义风控插件需继承本类并实现 trigger 方法。
+    - trigger 方法根据传入的仓位信息，返回需要被平掉的仓位列表。
     """
-
-    def __init__(self, instance_id: str=None, name: str=None) -> None:
-        """
-        初始化风控策略
-
-        参数:
-            instance_id: 策略ID，如果不提供则自动生成
-            name: 风控组件名称
-        """
-        super().__init__(instance_id=instance_id, name=name)
 
     @abstractmethod
-    def trigger(self, position: Position, data: Data) -> bool:
+    def trigger(self, info: PositionInfo) -> List[Position]:
         """
-        检查订单是否符合风控规则
+        检查仓位是否符合风控规则
 
         参数:
-            data: 数据
+            info: 仓位信息
 
         返回:
-            是否通过检查
+            需要平掉的仓位
         """
         pass

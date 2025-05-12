@@ -6,14 +6,13 @@
 import asyncio
 import threading
 from abc import ABC, abstractmethod
-import time
 from typing import List
 
 import websockets
 
 from models import Field, FieldType
-from .base import DataSource
 from utils import get_logger
+from .base import DataSource
 
 logger = get_logger(__name__)
 
@@ -49,7 +48,6 @@ class WebSocketDataSource(DataSource, ABC):
         self._loop = None
         self._thread = None
         self._conn_event = None
-        self._lock = threading.RLock()
 
     def on_start(self):
         """
@@ -58,33 +56,30 @@ class WebSocketDataSource(DataSource, ABC):
         返回:
             bool: 连接成功返回True，否则返回False
         """
-        try:
-            # 创建异步事件循环和事件
-            self._loop = asyncio.new_event_loop()
-            self._conn_event = threading.Event()
+        self._conn_event = threading.Event()
+        # 启动后台线程运行异步连接
+        self._thread = threading.Thread(target=self._run_async_loop)
+        self._thread.daemon = True
+        self._thread.start()
 
-            # 启动后台线程运行异步连接
-            self._thread = threading.Thread(target=self._run_async_loop)
-            self._thread.daemon = True
-            self._thread.start()
-
-            # 等待连接完成或超时
-            if not self._conn_event.wait(timeout=10.0):
-                logger.error(f"WebSocket数据源'{self.ws_url}'连接超时")
-                self._cleanup_resources()
-                return False
-
-        except Exception as e:
-            logger.error(f"WebSocket数据源'{self.ws_url}'连接失败: {e}", exc_info=True)
+        # 等待连接完成或超时
+        if not self._conn_event.wait(timeout=15.0):
             self._cleanup_resources()
+            raise TimeoutError(f"WebSocket数据源'{self.ws_url}'连接超时")
 
     def _run_async_loop(self):
         """在后台线程中运行异步事件循环"""
         try:
+            logger.info(f"WebSocket数据源 async_loop 开始运行: {self.ws_url}")
+            # 创建异步事件循环和事件
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+            assert asyncio.get_event_loop() is self._loop, "事件循环绑定失败！"
+
             self._loop.run_until_complete(self._async_connect())
             self._loop.run_forever()
         except Exception as e:
-            logger.error(f"WebSocket异步循环出错: {e}")
+            logger.error(f"WebSocket异步循环出错: {e}", exc_info=True)
         finally:
             self._cleanup_loop()
 
@@ -94,7 +89,7 @@ class WebSocketDataSource(DataSource, ABC):
             self._connection = await websockets.connect(self.ws_url)
             # 启动监听任务
             self._listener_task = asyncio.create_task(self._listen())
-            logger.info(f"WebSocket数据源'{self.ws_url}'连接成功: {self.ws_url}")
+            logger.info(f"WebSocket数据源连接成功: {self.ws_url}")
             self.on_connect()
         except Exception as e:
             logger.error(f"WebSocket数据源'{self.ws_url}'异步连接失败: {e}")
@@ -156,32 +151,8 @@ class WebSocketDataSource(DataSource, ABC):
                         logger.debug(f"已安排取消所有任务: {self.ws_url}")
                     except Exception as e:
                         logger.error(f"安排取消任务时出错: {e}", exc_info=True)
-
-                # 延迟一小段时间，确保取消操作有时间执行
-                time.sleep(0.1)
-
-                # 停止事件循环（必须使用call_soon_threadsafe）
-                if self._loop.is_running():
-                    self._loop.call_soon_threadsafe(self._loop.on_stop)
-                    logger.debug(f"已安排停止事件循环: {self.ws_url}")
             except Exception as e:
                 logger.error(f"停止事件循环失败: {e}", exc_info=True)
-
-        # 等待线程结束
-        if self._thread and self._thread.is_alive():
-            # 给线程一个合理的时间来清理
-            join_timeout = 5.0
-            logger.debug(f"等待WebSocket线程结束，超时时间: {join_timeout}秒")
-            self._thread.join(timeout=join_timeout)
-
-            if self._thread.is_alive():
-                logger.error(f"WebSocket线程'{self.ws_url}'未能在{join_timeout}秒内结束，可能导致资源泄漏")
-                # 最后的紧急手段 - 强制结束线程（可选，取决于您的风险承受能力）
-                # import ctypes
-                # ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(self._thread.ident),
-                #                                         ctypes.py_object(SystemExit))
-            else:
-                logger.debug(f"WebSocket线程'{self.ws_url}'已成功结束")
 
         # 清理状态
         self._connection = None
@@ -325,7 +296,7 @@ class WebSocketDataSource(DataSource, ABC):
         返回:
             bool: 发送成功返回True，否则返回False
         """
-        if self._loop:
+        if self._loop is None:
             logger.error("WebSocket未连接，无法发送消息")
             return False
 
@@ -336,11 +307,6 @@ class WebSocketDataSource(DataSource, ABC):
             )
             return future.result(timeout=5.0)
         except Exception as e:
-            logger.error(f"异步发送WebSocket消息时出错: {e}")
+            logger.error(f"异步发送WebSocket消息时出错: {e}", exc_info=True)
             return False
 
-
-
-
-if __name__ == '__main__':
-    pass

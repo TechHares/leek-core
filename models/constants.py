@@ -74,6 +74,7 @@ class TimeFrame(Enum):
 
 class DataType(Enum):
     """处理的金融数据类型。"""
+    INIT_PACKAGE = "init_package" # 初始化数据包
     KLINE = "kline"               # K线数据
     TICK = "tick"                 # 逐笔成交数据
     ORDER_BOOK = "order_book"     # 订单簿数据
@@ -115,8 +116,9 @@ class PositionSide(Enum):
 
 class StrategyInstanceState(Enum):
     """策略实例状态。"""
-    CREATED = "created"      # 空仓
-    READY = "ready"      # 空仓
+    CREATED = "created"              # 空仓
+    INIT = "init"                    # 等待历史数据初始化
+    READY = "ready"                  # 空仓
     ENTERING = "entering"            # 入场中
     HOLDING = "holding"              # 持仓中
     EXITING = "exiting"              # 出场中

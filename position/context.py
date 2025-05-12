@@ -1,35 +1,33 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
-"""
-仓位管理模块，提供仓位管理的基础功能。
-"""
-
 from datetime import datetime
 from decimal import Decimal
-from typing import Dict, List, Optional
+from typing import Dict, List
 
-from models import TradeInsType, Position, Component, Signal, Order, PositionConfig, AssetType, \
-    OrderStatus, PositionContext
-from policy.position import Policy
-from utils import get_logger, EventBus, generate_str, decimal_quantize, Event, EventType
+from base import LeekContext, create_component
+from event import EventBus, Event, EventType
+from models import (TradeInsType, Position, Signal, Order, PositionConfig, AssetType,
+                    OrderStatus, PositionInfo, LeekComponentConfig, SubOrder)
+from policy import StrategyPolicy
+from utils import get_logger, generate_str, decimal_quantize
 
 logger = get_logger(__name__)
 
+class PositionContext(LeekContext):
 
-class PositionManager(Component):
     """
     仓位管理器抽象基类，负责管理交易仓位。
     """
 
-    def __init__(self, instance_id: str, name: str, event_bus: EventBus, config: PositionConfig = None):
+    def __init__(self, event_bus: EventBus, config: LeekComponentConfig[None, PositionConfig]):
         """初始化仓位管理器"""
-        super().__init__(instance_id, name)
-        self.event_bus = event_bus
-        self.config = config
-        self.policies = []
+        super().__init__(event_bus, config)
+        self.policies: List[StrategyPolicy] = []
 
-        self.amount = config.init_amount if config is not None else Decimal(0)
+        position_config = config.config
+        for policy in position_config.risk_policies:
+            self.policies.append(create_component(policy.cls, **policy.config))
+        self.amount = position_config.init_amount if config is not None else Decimal(0)
         self.activate_ratio = Decimal(1)  # 可用比例
         self.activate_amount = Decimal(1)  # 可用金额
         self.virtual_amount = self.amount
@@ -58,7 +56,8 @@ class PositionManager(Component):
             return self.open_position(position, signal)
         return self.close_position(position, signal)
 
-    def _get_position(self, strategy_id: str, symbol: str, quote_currency: str, ins_type: TradeInsType, asset_type: AssetType) -> Position|None:
+    def _get_position(self, strategy_id: str, symbol: str, quote_currency: str, ins_type: TradeInsType,
+                      asset_type: AssetType) -> Position | None:
         if strategy_id not in self.strategy_positions:
             return None
         positions = self.strategy_positions[strategy_id]
@@ -68,8 +67,10 @@ class PositionManager(Component):
         return None
 
     def _get_symbol_current_principal(self, symbol: str, quote_currency: str) -> (Decimal, Decimal):
-        principal = sum(p.amount + p.pnl for p in self.positions.values() if p.symbol == symbol and p.quote_currency == quote_currency)
-        ratio = sum(p.ratio for p in self.positions.values() if p.symbol == symbol and p.quote_currency == quote_currency)
+        principal = sum(p.amount + p.pnl for p in self.positions.values() if
+                        p.symbol == symbol and p.quote_currency == quote_currency)
+        ratio = sum(
+            p.ratio for p in self.positions.values() if p.symbol == symbol and p.quote_currency == quote_currency)
         return principal, ratio
 
     def _get_strategy_current_principal(self, strategy_id: str) -> (Decimal, Decimal):
@@ -90,7 +91,7 @@ class PositionManager(Component):
     def open_position(self, position: Position, signal: Signal) -> Order:
         """
         开仓
-        
+
         参数:
             position: 仓位
             signal: 信号
@@ -128,7 +129,7 @@ class PositionManager(Component):
         strategy_principal, strategy_ratio = self._get_strategy_current_principal(
             strategy_id=signal.strategy_instance_id)
         symbol_principal, symbol_ratio = self._get_symbol_current_principal(symbol=signal.symbol,
-                                                                           quote_currency=signal.quote_currency)
+                                                                            quote_currency=signal.quote_currency)
         # 该策略还可以投入的资金
         strategy_available_amount = self.config.max_strategy_amount - strategy_principal
         strategy_available_ratio = self.config.max_strategy_ratio - strategy_ratio
@@ -140,10 +141,11 @@ class PositionManager(Component):
         # 当次比例
         ratio = min(symbol_available_ratio, strategy_available_ratio, self.config.max_ratio) * signal.ratio
         # 当次金额
-        order_amount = min(cfg.principal * signal.ratio, strategy_available_amount, symbol_available_amount, self.amount*ratio)
+        order_amount = min(cfg.principal * signal.ratio, strategy_available_amount, symbol_available_amount,
+                           self.amount * ratio)
 
         order.order_amount = decimal_quantize(order_amount, 4)
-        order.ratio=decimal_quantize(order_amount / self.amount, 4)
+        order.ratio = decimal_quantize(order_amount / self.amount, 4)
 
         position.executing_ratio += order.ratio
         position.executing_amount += order.order_amount
@@ -155,11 +157,11 @@ class PositionManager(Component):
     def close_position(self, position: Position, signal: Signal) -> Order:
         """
         平仓
-        
+
         参数:
             position: 仓位
             signal: 信号
-            
+
         返回:
             订单
         """
@@ -209,28 +211,18 @@ class PositionManager(Component):
         if position:
             # 从策略仓位字典移除
             if position.strategy_id in self.strategy_positions:
-                self.strategy_positions[position.strategy_id] = [p for p in self.strategy_positions[position.strategy_id] if p.position_id != position_id]
+                self.strategy_positions[position.strategy_id] = [p for p in
+                                                                 self.strategy_positions[position.strategy_id] if
+                                                                 p.position_id != position_id]
                 if not self.strategy_positions[position.strategy_id]:
                     del self.strategy_positions[position.strategy_id]
             # 从执行器仓位字典移除
             if position.executor_id and position.executor_id in self.execution_positions:
-                self.execution_positions[position.executor_id] = [p for p in self.execution_positions[position.executor_id] if p.position_id != position_id]
+                self.execution_positions[position.executor_id] = [p for p in
+                                                                  self.execution_positions[position.executor_id] if
+                                                                  p.position_id != position_id]
                 if not self.execution_positions[position.executor_id]:
                     del self.execution_positions[position.executor_id]
-
-
-    def update_position(self, position_id: str, current_price: Decimal) -> Optional[Position]:
-        """
-        更新仓位状态
-        
-        参数:
-            position_id: 仓位ID
-            current_price: 当前价格
-            
-        返回:
-            更新后的仓位实例，如果仓位不存在则返回None
-        """
-        pass
 
     def get_state(self) -> dict:
         """
@@ -268,19 +260,19 @@ class PositionManager(Component):
         # self.config = ...
 
     def do_risk_policy(self, signal: Signal) -> bool:
-        pos_ctx = PositionContext(
+        pos_ctx = PositionInfo(
             active_amount=self.activate_amount,
             active_ratio=self.activate_ratio,
             positions=list(self.positions.values())
         )
         for policy in self.policies:
-            reason = policy.check(signal, pos_ctx)
-            if reason:
-                logger.warning(f"Risk policy {policy.name} rejected signal {signal} with reason: {policy.reject_reason}")
+            if policy.evaluate(signal, pos_ctx):
+                logger.warning(
+                    f"Risk policy {policy.display_name} rejected signal {signal}")
                 return True
         return False
 
-    def add_policy(self, policy: Policy):
+    def add_policy(self, policy: StrategyPolicy):
         """
         添加风控策略到仓位管理器。
         :param policy: Policy 实例
@@ -290,30 +282,27 @@ class PositionManager(Component):
         self.event_bus.publish_event(Event(
             event_type=EventType.POSITION_POLICY_ADD,
             data={
-                "instance_id": policy.instance_id,
-                "name": policy.name,
-            },
-            source=self._event_source()
+                "instance_id": self.instance_id,
+                "name": policy.display_name,
+            }
         ))
 
-    def remove_policy(self, instance_id: str):
+    def remove_policy(self, cls: type[StrategyPolicy]):
         """
         根据策略ID（policy_id）删除风控策略。
-        :param instance_id: 策略实例ID
+        :param cls: 策略class
         """
-        del_policies = [p for p in self.policies if p.position_id != instance_id]
-        self.policies = [p for p in self.policies if p.position_id != instance_id]
+        del_policies = [p for p in self.policies if isinstance(p, cls)]
+        self.policies = [p for p in self.policies if not isinstance(p, cls)]
         for policy in del_policies:
             policy.on_stop()
             self.event_bus.publish_event(Event(
                 event_type=EventType.POSITION_POLICY_DEL,
                 data={
-                    "instance_id": instance_id,
-                    "name": policy.name,
-                },
-                source=self._event_source()
+                    "instance_id": self.instance_id,
+                    "name": policy.display_name,
+                }
             ))
-
 
     def update_config(self, config: PositionConfig):
         """
@@ -321,3 +310,6 @@ class PositionManager(Component):
         :param config: PositionConfig 实例
         """
         self.config = config
+
+    def order_update(self, order: SubOrder):
+        ...

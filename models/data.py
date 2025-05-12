@@ -4,12 +4,12 @@
 """
 K线数据模型模块，定义K线数据传输对象。
 """
-from abc import ABC, abstractmethod
+from abc import abstractmethod, ABCMeta
 from builtins import set
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal, getcontext
-from typing import Optional, Union, Dict, Any, Set, List, Tuple, ClassVar
+from typing import Optional, Union, Dict, Any, Set, List, ClassVar
 
 from utils import DecimalEncoder
 from .constants import TimeFrame, TradeInsType, DataType
@@ -22,15 +22,19 @@ NumericType = Union[Decimal, str, int, float]
 
 
 @dataclass
-class Data(ABC):
+class Data(metaclass=ABCMeta):
     """
     数据源最终产出的数据结构
     """
     data_source_id: str = None  # 数据源ID
     data_type: DataType = None  # 数据类型
+    target_instance_id: Set[str] = field(default_factory=set)  # 目标实例ID
 
+    dynamic_attrs: Dict[str, Any] = field(default_factory=dict)
+    # 元数据，可用于存储额外信息
+    metadata: Dict[str, Any] = field(default_factory=dict)
     # 保护的字段名称，这些字段不能被动态属性覆盖（类字段）
-    _protected_fields: ClassVar[set[str]] = {}
+    _protected_fields: ClassVar[set[str]] = {"dynamic_attrs", 'metadata', "data_source_id", "data_type", "target_instance_id"}
 
     def __getattr__(self, name: str) -> Any:
         """
@@ -42,18 +46,12 @@ class Data(ABC):
         返回:
             属性值，如果不存在则返回None
         """
-        if name in ["_dynamic_attrs", "metadata"]:
-            if r := getattr(self, name, None):
-                return r
-            setattr(self, name, {})
-            return {}
-
-        if name in self._protected_fields or name in ["data_source_id", "data_type"]:
-            return getattr(self, name)
+        if name in self._protected_fields or name in Data._protected_fields:
+            return object.__getattribute__(self, name)
 
         # 检查动态属性字典
-        if name in self._dynamic_attrs:
-            return self._dynamic_attrs[name]
+        if name in self.dynamic_attrs:
+            return self.dynamic_attrs[name]
 
         # 检查元数据字典（向后兼容）
         if name in self.metadata:
@@ -71,12 +69,13 @@ class Data(ABC):
             value: 属性值
         """
         # 如果是受保护字段或者是类的标准属性，使用标准方式设置
-        if name in self._protected_fields or name.startswith('_') or name in self.__annotations__:
+        if (name in self._protected_fields or name.startswith('_') or name in self.__annotations__ or
+                name in Data._protected_fields):
             object.__setattr__(self, name, value)
             return
 
         # 否则作为动态属性存储
-        self._dynamic_attrs[name] = value
+        self.dynamic_attrs[name] = value
 
     def get(self, name: str, default: Any = None) -> Any:
         """
@@ -97,8 +96,8 @@ class Data(ABC):
                 pass
 
         # 检查动态属性
-        if name in self._dynamic_attrs:
-            return self._dynamic_attrs[name]
+        if name in self.dynamic_attrs:
+            return self.dynamic_attrs[name]
 
         # 检查元数据
         if name in self.metadata:
@@ -117,6 +116,11 @@ class Data(ABC):
         """
         self.__setattr__(name, value)
 
+    @property
+    @abstractmethod
+    def row_key(self) -> tuple:
+        ...
+
     @staticmethod
     def _to_decimal(value: NumericType) -> Decimal:
         """
@@ -125,34 +129,6 @@ class Data(ABC):
         if isinstance(value, Decimal):
             return value
         return Decimal(str(value))  # 通过字符串转换避免浮点精度问题
-
-    @abstractmethod
-    def to_dict(self) -> dict:
-        ...
-
-    @classmethod
-    @abstractmethod
-    def from_dict(cls, data: dict) -> "Data":
-        """
-        从字典创建K线对象，自动处理字符串形式的Decimal值
-        """
-        ...
-
-    def to_json(self) -> str:
-        """
-        将K线对象转换为JSON字符串
-        """
-        import json
-        return json.dumps(self.to_dict())
-
-    @classmethod
-    def from_json(cls, json_str: str) -> "Data":
-        """
-        从JSON字符串创建K线对象
-        """
-        import json
-        data = json.loads(json_str)
-        return cls.from_dict(data)
 
 
 @dataclass
@@ -193,15 +169,12 @@ class KLine(Data):
     quote_currency: str = "USDT"  # 计价币种，默认为USDT
     ins_type: TradeInsType = TradeInsType.SPOT  # 交易品种类型，默认为现货
     is_finished: bool = False
-    # 元数据，可用于存储额外信息
-    metadata: Dict[str, Any] = field(default_factory=dict)
 
     # 保护的字段名称，这些字段不能被动态属性覆盖（类字段）
     _protected_fields: ClassVar[set[str]] = {
-        'symbol', 'market', 'quote_currency', 'ins_type', 'data_source_id', 'open', 'close', 'high', 'low', 'volume',
+        'symbol', 'market', 'quote_currency', 'ins_type', 'open', 'close', 'high', 'low', 'volume',
         'amount',
         'start_time', 'end_time', 'current_time', 'timeframe', 'is_finished',
-        'metadata', '_protected_fields', '_dynamic_attrs'
     }
 
     def __post_init__(self):
@@ -259,69 +232,18 @@ class KLine(Data):
         return datetime.fromtimestamp(self.current_time / 1000)
 
     @property
-    def row_key(self) -> tuple[str, str, str, Any, Any]:
+    def row_key(self) -> tuple:
         """
         获取K线的唯一标识符
         """
-        return self.data_source_id, self.symbol, self.quote_currency, self.ins_type.value, self.timeframe.value
+        return self.symbol, self.quote_currency, self.ins_type.value, self.timeframe.value
 
-    def to_dict(self) -> dict:
-        """
-        将K线对象转换为字典，所有的Decimal类型都会被转换为字符串
-        """
-        # 基本字段
-        result = {
-            "symbol": self.symbol,
-            "market": self.market,
-            "open": str(self.open),
-            "close": str(self.close),
-            "high": str(self.high),
-            "low": str(self.low),
-            "volume": str(self.volume),
-            "amount": str(self.amount),
-            "start_time": self.start_time,
-            "end_time": self.end_time,
-            "current_time": self.current_time,
-            "timeframe": self.timeframe.value,
-            "is_finished": self.is_finished,
-            "metadata": DecimalEncoder.encode(self.metadata)  # 处理元数据中的Decimal
-        }
+@dataclass
+class InitDataPackage(Data):
+    pack_row_key: tuple = None
+    history_datas: List[Data] = None
 
-        # 处理动态属性
-        if self._dynamic_attrs:
-            # 将动态属性中的Decimal也转换为字符串
-            result["dynamic_attrs"] = DecimalEncoder.encode(self._dynamic_attrs)
+    @property
+    def row_key(self) -> tuple:
+        return self.pack_row_key
 
-        return result
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "KLine":
-        """
-        从字典创建K线对象，自动处理字符串形式的Decimal值
-        """
-        # 创建基本对象
-        kline = cls(
-            symbol=data["symbol"],
-            market=data["market"],  # market是必需字段
-            open=data["open"],  # 自动在__post_init__中转换为Decimal
-            close=data["close"],
-            high=data["high"],
-            low=data["low"],
-            volume=data["volume"],
-            amount=data["amount"],
-            start_time=data["start_time"],
-            end_time=data["end_time"],
-            current_time=data["current_time"],
-            timeframe=data["timeframe"],  # 自动在__post_init__中转换为TimeFrame
-            is_finished=data.get("is_finished", False),
-            metadata=data["metadata"]
-        )
-
-        # 处理动态属性
-        if "dynamic_attrs" in data and isinstance(data["dynamic_attrs"], dict):
-            # 将动态属性中的字符串数字转换为Decimal
-            decoded_attrs = DecimalEncoder.decode(data["dynamic_attrs"])
-            for key, value in decoded_attrs.items():
-                kline.set(key, value)
-
-        return kline

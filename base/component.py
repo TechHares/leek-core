@@ -2,12 +2,10 @@
 # -*- coding: utf-8 -*-
 from typing import Dict, Any, List
 
-from models.parameter import Field
-
 
 class LeekComponent:
     display_name: str = None
-    init_params: List[Field] = []
+    init_params: List['Field'] = []
 
     def on_start(self):
         """

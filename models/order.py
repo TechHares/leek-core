@@ -62,6 +62,7 @@ class Order:
     order_amount: Decimal  # 订单金额
     order_price: Decimal  # 订单价格
     order_type: OrderType = None  # 订单类型
+    target_executor_id: str = None  # 指定的执行ID
     ratio: Decimal = Decimal(0)  # 仓位比例
 
     sub_orders: Optional[List['SubOrder']] = None  # 子订单列表
@@ -81,13 +82,13 @@ class SubOrder(Order):
     子订单数据结构
 
     属性：
-        execution_id:    执行ID
+        executor_id:    执行ID
         trade_mode:      交易模式
         sub_order_id:    子订单ID
         extra:           附加信息（扩展字段）
         market_order_id: 市场订单ID
     """
-    execution_id: str = None         # 执行ID
+    executor_id: str = None         # 执行ID
     trade_mode: TradeMode = None     # 交易模式
     sub_order_id: str = None         # 子订单ID
     extra: dict[str, str] = None     # 附加信息

@@ -9,16 +9,15 @@ from collections import deque
 from decimal import Decimal
 from typing import List, Dict, Tuple
 
-from .base import Fabricator
-
-from models import DataType, TradeInsType, KLine, TimeFrame
+from models import DataType, KLine
 from utils import get_logger
+from .base import Fabricator
 
 logger = get_logger(__name__)
 
 
 class KLineFillFabricator(Fabricator):
-    priority = 0
+    priority = -100
     process_data_type = {DataType.KLINE}
     display_name = "缺失K线填充"
     """
@@ -105,6 +104,7 @@ class KLineFillFabricator(Fabricator):
             open=last_kline.close,
             high=last_kline.high,
             low=last_kline.low,
+            target_instance_id=kline.target_instance_id,
             close=(last_kline.high + last_kline.low) / 2,
             volume=sum(k.volume for k in history) / len(history),
             amount=sum(k.amount for k in history) / len(history),
@@ -112,6 +112,8 @@ class KLineFillFabricator(Fabricator):
             end_time=last_kline.end_time + kline.timeframe.milliseconds,
             current_time=kline.current_time,
             timeframe=kline.timeframe,
+            ins_type=kline.ins_type,
+            quote_currency=kline.quote_currency,
             is_finished=True,  # 填充的K线都是已完成的,
             data_source_id=kline.data_source_id,
             data_type=kline.data_type,
@@ -122,12 +124,13 @@ class KLineFillFabricator(Fabricator):
                 int(kline.timeframe.milliseconds * 100 / (last_kline.current_time - last_kline.start_time + 1)) / 100)
             filled_kline.volume = last_kline.volume * r
             filled_kline.amount = last_kline.amount * r
+            filled_kline.start_time = last_kline.start_time
+            filled_kline.end_time = last_kline.end_time
 
         if filled_kline.end_time == kline.start_time:
             filled_kline.close = kline.open
         filled_kline.high = max(filled_kline.open, filled_kline.close, filled_kline.high)
         filled_kline.low = min(filled_kline.open, filled_kline.close, filled_kline.low)
-
         logger.warning(f"填充K线{filled_kline}")
         # 添加当前K线到历史数据
         history.append(kline)

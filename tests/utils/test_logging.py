@@ -17,7 +17,7 @@ from io import StringIO
 current_dir = os.path.dirname(os.path.abspath(__file__))
 # 导入模块
 from utils import (
-    get_logger, log_function, log_method, log_trade, setup_logging
+    get_logger, log_function, log_method, log_trade
 )
 from utils.logging.formatters import TextFormatter, JsonFormatter
 
@@ -110,8 +110,8 @@ class LoggingTest(unittest.TestCase):
         
         # 清理现有日志处理器
         root_logger = logging.getLogger()
-        for handler in root_logger.handlers[:]:
-            root_logger.removeHandler(handler)
+        # for handler in root_logger.handlers[:]:
+        #     root_logger.removeHandler(handler)
         
         # 添加内存处理器
         root_logger.addHandler(cls.memory_handler)
@@ -247,7 +247,7 @@ class LoggingTest(unittest.TestCase):
         self.assertIn("ZeroDivisionError", log_output)
         self.assertIn("failing_function", log_output)
         self.assertIn("函数 failing_function 执行异常", log_output)
-        
+
 
 if __name__ == "__main__":
     # 运行测试

@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import inspect
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import ClassVar, Dict, Any, List, Type, Tuple, TypeVar, Generic
+from typing import Dict, Any, List, Type, Tuple, TypeVar, Generic
 
 from base import LeekComponent
 from .constants import OrderType
+
 
 @dataclass
 class EngineRuntimeData:
@@ -21,22 +21,6 @@ class EngineRuntimeData:
     executor_manager_data: Dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass
-class PositionConfig:
-    """
-    仓位配置
-    """
-    init_amount: Decimal          # 初始余额
-    max_strategy_amount: Decimal  # 单个策略最大仓位
-    max_strategy_ratio: Decimal    # 单个策略最大仓位比例
-
-    max_symbol_amount: Decimal    # 单个标的最大仓位
-    max_symbol_ratio: Decimal      # 单个标的最大仓位比例
-
-    max_amount: Decimal    # 单次开仓最大仓位
-    max_ratio: Decimal      # 单单次开仓最大仓位比例
-
-
 T = TypeVar('T', bound=LeekComponent)
 CFG = TypeVar('CFG')
 @dataclass
@@ -44,10 +28,10 @@ class LeekComponentConfig(Generic[T, CFG]):
     """
     各种组件的类型和初始化配置
     """
-    instance_id: str
-    name: str
-    cls: type[T]
-    config: CFG
+    instance_id: str = None
+    name: str = None
+    cls: type[T] = None
+    config: CFG = None
 
 
 
@@ -68,6 +52,8 @@ class StrategyConfig:
     策略配置信息
     """
     data_source_configs: List[LeekComponentConfig["DataSource", Dict[str, Any]]]
+    info_fabricator_configs: List[LeekComponentConfig["Fabricator", Dict[str, Any]]] = field(default_factory=list)
+
     strategy_config: Dict[str, Any] = None
     strategy_position_config: StrategyPositionConfig = None
 
@@ -77,3 +63,34 @@ class StrategyConfig:
     exit_strategy_config: Dict[str, Any] = None
 
     risk_policies: List[LeekComponentConfig["PositionPolicy", Dict[str, Any]]] = field(default_factory=list)
+    runtime_data: Dict[Tuple, Dict[str, Any]] = None
+
+
+@dataclass
+class PositionConfig:
+    """
+    仓位配置
+    """
+    init_amount: Decimal          # 初始余额
+    max_strategy_amount: Decimal  # 单个策略最大仓位
+    max_strategy_ratio: Decimal    # 单个策略最大仓位比例
+
+    max_symbol_amount: Decimal    # 单个标的最大仓位
+    max_symbol_ratio: Decimal      # 单个标的最大仓位比例
+
+    max_amount: Decimal    # 单次开仓最大仓位
+    max_ratio: Decimal      # 单单次开仓最大仓位比例
+
+    risk_policies: List[LeekComponentConfig["StrategyPolicy", Dict[str, Any]]] = field(default_factory=list)
+
+
+@dataclass
+class SimpleEngineConfig:
+    """
+    引擎配置 包含引擎启动所有组件的配置
+    """
+    data_sources: LeekComponentConfig["DataSourceContext", List[LeekComponentConfig["DataSource", Dict[str, Any]]]]
+    strategy_configs: List[LeekComponentConfig["Strategy", StrategyConfig]] = field(default_factory=list)
+    position_config: PositionConfig = None
+    executor_configs: List[LeekComponentConfig["Executor", Dict[str, Any]]] = field(default_factory=list)
+    timeout: int = 10 # 超时时间，单位秒

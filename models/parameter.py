@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from dataclasses import dataclass, field
-from datetime import datetime, date
+from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any
@@ -11,6 +11,7 @@ from utils import DateTimeUtils
 
 class FieldType(Enum):
     """字段类型"""
+    PASSWORD = "password"
     STRING = "string"
     INT = "int"
     FLOAT = "float"
@@ -50,6 +51,8 @@ class Field:
         将字符串值转换为指定类型。
         """
         if self.type in [FieldType.RADIO, FieldType.SELECT, FieldType.ARRAY]:
+            if self.choice_type is None:
+                return value
             return self.covert_value(FieldType(self.choice_type.value), value)
         return self.covert_value(self.type, value)
 
@@ -63,7 +66,7 @@ class Field:
         if isinstance(value, Enum):
             return Field.covert_value(tp, value.value)
 
-        if tp == FieldType.STRING:
+        if tp == FieldType.STRING or tp == FieldType.PASSWORD:
             return str(value)
 
         if tp == FieldType.INT:

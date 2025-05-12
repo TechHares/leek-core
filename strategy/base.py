@@ -9,12 +9,12 @@ from abc import ABC
 from dataclasses import dataclass
 from decimal import Decimal
 from logging import Logger
-from typing import Dict, Any, ClassVar, Set, List
+from typing import Any, Set, List
 
 from base import LeekComponent
 from models import PositionSide, Field
 from models.constants import DataType
-from models.data import KLine, Data
+from models.data import Data
 from utils import get_logger
 from .strategy_mode import StrategyMode, KlineSimple
 
@@ -72,20 +72,9 @@ class Strategy(LeekComponent, ABC):
             data: 接收到的数据，可以是任何类型
             data_type: 数据类型，如果为None，则由策略自行判断
         """
-        # 如果是K线数据，调用on_kline方法
-        if data.data_type == DataType.KLINE and isinstance(data, KLine):
-            self.on_kline(data)
-    
-    def on_kline(self, kline: KLine):
-        """
-        处理K线数据，为了向后兼容而保留
-        
-        参数:
-            kline: K线数据
-        """
         ...
     
-    def should_open(self) -> PositionSide | StrategyCommand:
+    def should_open(self) -> Any:
         """
         判断是否应该开仓
         
@@ -94,7 +83,7 @@ class Strategy(LeekComponent, ABC):
         """
         ...
     
-    def should_close(self, position_side:PositionSide) -> bool | Decimal:
+    def should_close(self, position_side:PositionSide) -> Any:
         """
         判断是否应该平仓
         参数:

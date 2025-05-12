@@ -67,10 +67,10 @@ class EventBus:
                 try:
                     cb(event)
                 except Exception as e:
-                    logger.error(f"事件处理异常: {e}")
+                    logger.error(f"事件处理异常: {e}", exc_info=True)
         # 再分发给全局订阅者
         for cb in self._all_event_subscribers:
             try:
                 cb(event)
             except Exception as e:
-                logger.error(f"全局事件处理异常: {e}")
+                logger.error(f"全局事件处理异常: {e}", exc_info=True)

@@ -7,7 +7,8 @@
 
 from .backtest import BacktestExecutor
 from .base import Executor, WebSocketExecutor
+from .context import ExecutorContext
 from .okx import OkxWebSocketExecutor
 
-__all__ = ['Executor', 'BacktestExecutor', 'OkxWebSocketExecutor', "WebSocketExecutor"]
+__all__ = ['Executor', 'ExecutorContext', 'BacktestExecutor', 'OkxWebSocketExecutor', "WebSocketExecutor"]
 

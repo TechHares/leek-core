@@ -7,11 +7,10 @@
 """
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import List, Any, Callable, Iterator, Dict
+from typing import List, Any, Callable, Iterator
 
-from base import LeekComponent, LeekContext, create_component
-from event import EventBus, Event, EventType, EventSource
-from models import DataType, Field, AssetType, Data, KLine, LeekComponentConfig
+from base import LeekComponent
+from models import DataType, Field, AssetType, Data
 
 
 class DataSource(LeekComponent, ABC):
@@ -45,25 +44,35 @@ class DataSource(LeekComponent, ABC):
     def send_data(self, data: Data):
         self.callback(data)
 
-    def subscribe(self, **kwargs):
+    @abstractmethod
+    def parse_row_key(self, **kwargs) -> List[tuple]:
+        """
+        解析行键为参数。
+        参数:
+            kwargs: 参数
+        返回:
+            tuple 数据键 和 Data定义保持一致 会用于subscribe和unsubscribe
+        """
+        pass
+
+    def subscribe(self, *row_key):
         """
         订阅实时K线/蜡烛图更新。
 
         参数:
-            kwargs: 参数
+            row_key: 参数
 
         返回:
             如果不支持实时订阅，则抛出 NotImplementedError 异常
         """
         raise NotImplementedError("数据源不支持实时订阅")
 
-    def unsubscribe(self, **kwargs):
+    def unsubscribe(self, *row_key):
         """
         取消订阅实时K线/蜡烛图更新。
 
         参数:
-            kwargs: 参数
-            callback: 回调函数
+            row_key: 参数
 
         返回:
             如果不支持实时订阅，则抛出 NotImplementedError 异常
@@ -71,8 +80,7 @@ class DataSource(LeekComponent, ABC):
         raise NotImplementedError("数据源不支持订阅")
 
     @abstractmethod
-    def get_history_data(self, start_time: datetime | int = None, end_time: datetime | int = None, limit: int = None,
-                         **kwargs) -> Iterator[Any]:
+    def get_history_data(self, *row_key,start_time: datetime | int = None, end_time: datetime | int = None, limit: int = None) -> Iterator[Any]:
         """
         获取历史K线/蜡烛图数据。
 
@@ -95,64 +103,3 @@ class DataSource(LeekComponent, ABC):
             List[Field]: 参数定义
         """
         pass
-
-
-class DataSourceContext(LeekContext):
-    """
-    数据源上下文。
-    """
-
-    def __init__(self, event_bus: EventBus, config: LeekComponentConfig[DataSource, Dict[str, Any]]):
-        super().__init__(event_bus, config)
-        self._data_source = self.create_component()
-        self._data_source.callback = self.send_data
-        self.is_connected = False
-        self.params_list = None
-
-    def send_data(self, data: Data):
-        if self.params_list is None:
-            self.params_list = self._data_source.get_supported_parameters()
-
-        data.data_source_id = self.instance_id
-        if isinstance(data, KLine):
-            data.data_type = DataType.KLINE
-        self.event_bus.publish_event(Event(EventType.DATA_RECEIVED, data, EventSource(
-            instance_id=self._data_source.instance_id,
-            name=self._data_source.name,
-            cls=self._data_source.__class__.__name__,
-            extra={"params": self.params_list}
-        )))
-
-    def on_start(self):
-        """
-        启动数据源。
-        """
-        if self.is_connected:
-            return
-        self._data_source.on_start()
-        self.is_connected = True
-
-    def on_stop(self):
-        """
-        停止数据源。
-        """
-        if not self.is_connected:
-            return
-        self._data_source.on_stop()
-        self.is_connected = False
-
-    def get_state(self) -> Dict[str, Any]:
-        """
-        获取数据源状态。
-        返回:
-            Dict[str, Any]: 数据源状态
-        """
-        raise NotImplementedError("数据源暂不支持序列化状态")
-
-    def load_state(self, state: Dict[str, Any]):
-        """
-        设置数据源状态。
-        参数:
-            state: 数据源状态
-        """
-        raise NotImplementedError("数据源暂不支持序列化状态")

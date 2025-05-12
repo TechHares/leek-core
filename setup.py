@@ -6,6 +6,7 @@ Leek Core 量化交易框架安装配置
 """
 
 import os
+
 from setuptools import setup, find_packages
 
 # 读取README文件
@@ -50,14 +51,14 @@ setup(
     long_description=long_description,
     long_description_content_type='text/markdown',
     author='shenglin.li',
-    author_email='shenglin.li@example.com',
+    author_email='764935704@qq.com',
     url='https://github.com/shenglin-li/leek-core',
     packages=find_packages(exclude=['tests', 'tests.*', 'examples', 'docs']),
     include_package_data=True,
     install_requires=requirements,
     tests_require=test_requirements,
     extras_require=extras_require,
-    python_requires='>=3.8',
+    python_requires='>=3.9',
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',

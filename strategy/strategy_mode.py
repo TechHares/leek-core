@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from abc import abstractmethod, ABC
-from typing import Any, Tuple
+from typing import Tuple
 
 from models import Data, KLine
 
@@ -25,9 +25,9 @@ class StrategyMode(ABC):
 class Single(StrategyMode):
     """ 只有一个实例 """
     def build_instance_key(self, data: KLine) -> Tuple:
-        return "default"
+        return "default",
 
 class KlineSimple(StrategyMode):
     """根据K线交易对 资产类型 和 时间周期 来创建策略实例"""
     def build_instance_key(self, data: KLine) -> Tuple:
-        return data.symbol, data.quote_currency, data.timeframe.value, data.ins_type.value
+        return data.row_key

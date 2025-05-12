@@ -3,7 +3,6 @@
 from typing import List
 
 from base import LeekComponent
-from models import Field
 
 
 def create_component(cls: type[LeekComponent], **kwargs):
@@ -15,6 +14,7 @@ def create_component(cls: type[LeekComponent], **kwargs):
     返回:
         实例
     """
+    from models import Field
     define_params: List[Field] = cls.init_params
     params = {}
     for field in define_params:

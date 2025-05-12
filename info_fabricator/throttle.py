@@ -5,20 +5,18 @@
 K线数据频率控制，限制K线数据的生成频率。避免后续策略无意义的计算过多
 """
 
-from collections import deque
 from decimal import Decimal
 from typing import List, Dict, Tuple
 
-from .base import Fabricator
-
-from models import DataType, TradeInsType, KLine, TimeFrame, Field, FieldType
+from models import DataType, KLine, Field, FieldType
 from utils import get_logger
+from .base import Fabricator
 
 logger = get_logger(__name__)
 
 
 class DataThrottleFabricator(Fabricator):
-    priority = 100
+    priority = -99
     process_data_type = {DataType.KLINE}
     display_name = "K线频率控制"
     init_params = [
@@ -53,7 +51,7 @@ class DataThrottleFabricator(Fabricator):
         super().__init__()
 
         self.pre: Dict[Tuple, KLine] = {}
-        self.time_interval = time_interval
+        self.time_interval = int(time_interval) * 1000
         self.price_change_ratio = price_change_ratio
 
     def process(self, kline: List[KLine]) -> List[KLine]:

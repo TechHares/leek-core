@@ -5,12 +5,12 @@
 测试K线数据填充处理器的功能。
 """
 
-import unittest
 import time
+import unittest
 
-from models.data import KLine
-from models.constants import TimeFrame, TradeInsType
 from info_fabricator.kline_fill import KLineFillProcessor
+from models.constants import TimeFrame, TradeInsType
+from models.data import KLine
 
 
 class TestKLineFillProcessor(unittest.TestCase):

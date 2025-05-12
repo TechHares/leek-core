@@ -94,6 +94,8 @@ class Position:
     position_id: str  # 仓位ID
 
     strategy_id: str  # 策略ID
+    strategy_instant_id: str       # 策略实例ID
+
     symbol: str  # 交易标的
     quote_currency: str  # 计价货币
     ins_type: TradeInsType  # 合约/现货类型
@@ -120,7 +122,7 @@ class Position:
 
 
 @dataclass
-class PositionContext:
+class PositionInfo:
     active_amount: Decimal = Decimal("0")   # 活跃仓位
     active_ratio: Decimal = Decimal("0")    # 活跃比例
     positions: List[Position] = field(default_factory=list) # 仓位列表

@@ -8,7 +8,6 @@
 
 import os
 import sys
-import logging
 
 # 获取当前脚本目录
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -19,8 +18,6 @@ sys.path.insert(0, root_dir)
 
 # 导入日志模块
 from utils import setup_logging, get_logger
-from utils.logging import LogFormat, LogLevel
-from utils.logging.formatters import TextFormatter, create_formatter
 
 
 def test_color_logging():

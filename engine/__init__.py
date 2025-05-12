@@ -5,18 +5,10 @@
 交易引擎模块，负责协调数据源、策略、风控和仓位管理
 """
 
-from .core import Engine
-from .data_manager import DataManager
-from .strategy_manager import StrategyManager
-from .risk_manager import RiskManager
-from .executor_manager import ExecutorManager
-from .position_manager import PositionManager
+from .base import Engine
+from .simple import SimpleEngine
 
 __all__ = [
     "Engine",
-    "DataManager",
-    "StrategyManager",
-    "RiskManager",
-    "ExecutorManager",
-    "PositionManager",
+    "SimpleEngine",
 ]

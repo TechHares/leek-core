@@ -8,9 +8,13 @@
 
 
 from .position import PositionPolicy
+from .position_stop_loss import PositionStopLoss
+from .position_take_profit import PositionTakeProfit
 from .strategy import StrategyPolicy
 
 __all__ = [
+    'PositionTakeProfit',
+    'PositionStopLoss',
     'PositionPolicy',
     'StrategyPolicy',
 ]

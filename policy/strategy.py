@@ -4,7 +4,7 @@
 from abc import ABC, abstractmethod
 
 from base import LeekComponent
-from models import Signal, PositionContext
+from models import Signal, PositionInfo
 from utils import get_logger
 
 logger = get_logger(__name__)
@@ -27,7 +27,7 @@ class StrategyPolicy(LeekComponent, ABC):
     """
 
     @abstractmethod
-    def evaluate(self, signal: Signal, context: PositionContext) -> bool:
+    def evaluate(self, signal: Signal, context: PositionInfo) -> bool:
         """
         检查信号是否符合风控规则
 

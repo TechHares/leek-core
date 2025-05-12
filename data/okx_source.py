@@ -8,16 +8,18 @@ OKX WebSocket 数据源实现。
 
 import asyncio
 import json
-from typing import Dict, Any, List, Optional, Union, Callable, Iterator
-import pandas as pd
-import websockets
+import time
 from datetime import datetime
+from typing import Dict, List, Optional, Union, Iterator
 
-from .websocket import WebSocketDataSource
-from models import TimeFrame, KLine, TradeInsType, DataType, Field, FieldType, ChoiceType
-from utils import get_logger
-from models.data import KLine
+import websockets
+from okx import MarketData
+
+from models import TimeFrame, DataType, Field, FieldType, ChoiceType
 from models.constants import TradeInsType, AssetType
+from models.data import KLine
+from utils import get_logger, log_method
+from .websocket import WebSocketDataSource
 
 logger = get_logger(__name__)
 
@@ -44,7 +46,7 @@ class OkxDataSource(WebSocketDataSource):
     ]
     verbose_name = "OKX K线"
 
-    def __init__(self, symbols: List[str]=None):
+    def __init__(self, symbols: List[str] = None):
         """
         初始化 OKX WebSocket 数据源。
 
@@ -54,10 +56,10 @@ class OkxDataSource(WebSocketDataSource):
         """
         self.ws_domain = "wss://ws.okx.com:8443/ws/v5/business"
         super().__init__(ws_url=self.ws_domain)
-        self.symbols = []
-        self._loop = asyncio.get_event_loop()
+        self.symbols = symbols or []
         self._ping_interval = 25
         self._ping_task: Optional[asyncio.Task] = None
+        self.subscribed_channels: Dict[str, int] = {}
 
     def on_connect(self):
         """连接成功后启动心跳任务"""
@@ -69,14 +71,14 @@ class OkxDataSource(WebSocketDataSource):
                 self._send_ping_loop(),
                 self._loop
             )
-            logger.info(f"OKX '{self.name}' 心跳任务已启动")
+            logger.info(f"OKX心跳任务已启动")
 
     def on_disconnect(self):
         """断开连接前取消心跳任务"""
         if self._ping_task:
             self._ping_task.cancel()
             self._ping_task = None
-            logger.info(f"OKX '{self.name}' 心跳任务已停止")
+            logger.info(f"OKX心跳任务已停止")
 
     async def _send_ping_loop(self):
         """OKX心跳任务"""
@@ -178,7 +180,6 @@ class OkxDataSource(WebSocketDataSource):
 
                     # 转换时间戳
                     timestamp = int(row[0])
-                    current_time = timestamp
                     end_time = timestamp + tf.milliseconds
 
                     # 创建KLine对象
@@ -193,13 +194,14 @@ class OkxDataSource(WebSocketDataSource):
                         amount=row[7],
                         start_time=timestamp,
                         end_time=end_time,
-                        current_time=current_time,
+                        current_time=int(time.time() * 1000),
                         timeframe=tf,
                         quote_currency=quote_currency,
                         ins_type=ins_type,
                         is_finished=int(row[8]) == 1
                     )
-
+                    if kline.is_finished:
+                        return
                     # 调用订阅的回调函数
                     self.send_data(kline)
                 except (IndexError, ValueError, TypeError) as e:
@@ -209,8 +211,17 @@ class OkxDataSource(WebSocketDataSource):
         except Exception as e:
             logger.error(f"处理OKX K线数据时出错: {e}", exc_info=True)
 
-    def subscribe(self, symbol: str = "BTC", timeframe: Union[TimeFrame, str] = TimeFrame.M1,
-                  ins_type: TradeInsType = TradeInsType.SWAP, quote_currency: str = "USDT", **kwargs) -> bool:
+    def parse_row_key(self, symbols: List[str] = list, timeframes: List[Union[TimeFrame, str]] = list,
+                  ins_types: List[TradeInsType] = list, quote_currencies: List[str] = list, **kwargs) -> List[tuple]:
+        for s in symbols:
+            for q in quote_currencies:
+                for i in ins_types:
+                    for t in timeframes:
+                        yield s, q, i, t
+
+    @log_method()
+    def subscribe(self, symbol: str = "BTC", quote_currency: str = "USDT", ins_type: TradeInsType = TradeInsType.SWAP,
+                  timeframe: Union[TimeFrame, str] = TimeFrame.M1) -> bool:
         """
         订阅OKX K线数据
         
@@ -234,6 +245,11 @@ class OkxDataSource(WebSocketDataSource):
 
         # 发送订阅请求
         msg = {"op": "subscribe", "args": [{"channel": channel, "instId": inst_id}]}
+        key = f"{channel}:{inst_id}"
+        if key in self.subscribed_channels:
+            self.subscribed_channels[key] += 1
+            return True
+        self.subscribed_channels[key] = 1
         return self.async_send(json.dumps(msg))
 
     @staticmethod
@@ -260,8 +276,9 @@ class OkxDataSource(WebSocketDataSource):
             return f"{symbol}-{quote_currency}"
         raise ValueError(f"不支持的交易类型: {ins_type}")
 
-    def unsubscribe(self, symbol: str = "BTC", timeframe: Union[TimeFrame, str] = TimeFrame.M1,
-                    ins_type: TradeInsType = TradeInsType.SWAP, quote_currency: str = "USDT", **kwargs) -> bool:
+    @log_method()
+    def unsubscribe(self, symbol: str = "BTC", quote_currency: str = "USDT", ins_type: TradeInsType = TradeInsType.SWAP,
+                  timeframe: Union[TimeFrame, str] = TimeFrame.M1) -> bool:
         """
         取消订阅OKX K线数据
         
@@ -285,11 +302,15 @@ class OkxDataSource(WebSocketDataSource):
 
         # 发送取消订阅请求
         msg = {"op": "unsubscribe", "args": [{"channel": channel, "instId": inst_id}]}
+        key = f"{channel}:{inst_id}"
+        if key in self.subscribed_channels and self.subscribed_channels[key] > 1:
+            self.subscribed_channels[key] -= 1
+            return True
+        self.subscribed_channels.pop(key)
         return self.async_send(json.dumps(msg))
 
     def get_supported_parameters(self) -> List[Field]:
         if self.symbols is None or len(self.symbols) == 0:
-            from okx import MarketData
             market_api = MarketData.MarketAPI(domain="https://www.okx.com", flag="0", debug=False)
 
             tickers = market_api.get_tickers(instType="SWAP")
@@ -297,46 +318,93 @@ class OkxDataSource(WebSocketDataSource):
             tickers = market_api.get_tickers(instType="SPOT")
             symbols |= set([ticker["instId"].split("-")[0] for ticker in tickers["data"]])
             self.symbols = list(symbols)
-        ins_types = [(TradeInsType.SPOT.value, str(TradeInsType.SPOT)), (TradeInsType.SWAP.value, str(TradeInsType.SWAP))]
+        ins_types = [(TradeInsType.SPOT.value, str(TradeInsType.SPOT)),
+                     (TradeInsType.SWAP.value, str(TradeInsType.SWAP))]
         return [
-            Field(name='symbol', label='交易标的', type=FieldType.RADIO, required=True, choices=self.symbols,
+            Field(name='symbol', label='交易标的', type=FieldType.SELECT, required=True, choices=self.symbols,
                   choice_type=ChoiceType.STRING),
-            Field(name='timeframe', label='时间周期', type=FieldType.RADIO, required=True,
+            Field(name='timeframe', label='时间周期', type=FieldType.SELECT, required=True,
                   choices=list(OKX_TIMEFRAME_MAP.keys()), choice_type=ChoiceType.STRING),
-            Field(name='quote_currency', label='计价币种', type=FieldType.RADIO, required=True,
+            Field(name='quote_currency', label='计价币种', type=FieldType.SELECT, required=True,
                   choices=["USDT"], choice_type=ChoiceType.STRING),
-            Field(name='ins_type', label='交易标的类型', type=FieldType.RADIO, required=True,
+            Field(name='ins_type', label='交易标的类型', type=FieldType.SELECT, required=True,
                   choices=ins_types, choice_type=ChoiceType.INT),
         ]
 
+    @log_method(log_result=False)
     def get_history_data(
             self,
+            symbol: str = "BTC",
+            quote_currency: str = "USDT",
+            ins_type: TradeInsType = TradeInsType.SWAP,
+            timeframe: Union[TimeFrame, str] = TimeFrame.M1,
             start_time: datetime | int = None,
             end_time: datetime | int = None,
-            limit: int = None,
-            symbol: str = None,
-            timeframe: TimeFrame | str = None,
-            quote_currency: str = 'USDT',
-            ins_type: TradeInsType=None
+            limit: int = None
     ) -> Iterator[KLine]:
         """
         获取K线数据，WebSocket数据源通常不支持历史K线查询
 
         参数:
             symbol: 交易对符号
-            timeframe: K线时间周期
             quote_currency: 计价币种
+            ins_type: 交易品种类型
+            timeframe: K线时间周期
             start_time: 开始时间
             end_time: 结束时间
             limit: 数量限制
-            ins_type: 交易品种类型
 
         返回:
             Iterator[KLine]: K线数据迭代器（空）
         """
-        # WebSocket数据源通常不支持获取历史K线数据
-        logger.warning(f"WebSocket数据源不支持获取历史K线数据，请使用REST API")
-        return iter([])
+        if isinstance(timeframe, str):
+            timeframe = TimeFrame(timeframe)
+        if not isinstance(ins_type, TradeInsType):
+            ins_type = TradeInsType(ins_type)
+        if limit is None:
+            limit = 100
+
+        before = ""
+        if start_time is not None and isinstance(start_time, datetime):
+            before = int(start_time.timestamp() * 1000)
+        after = int(time.time() * 1000)
+        if end_time is not None and isinstance(end_time, datetime):
+            after = int(end_time.timestamp() * 1000)
+
+        inst_id = self.build_inst_id(symbol, ins_type, quote_currency)
+        interval = self._get_okx_tf_value(timeframe)
+        page_size = min(100, limit)
+        res = []
+        with MarketData.MarketAPI(domain="https://www.okx.com", flag="0", debug=False) as api:
+            while len(res) < limit:
+                candlesticks = api.get_history_candlesticks(instId=inst_id, bar=interval, limit=page_size, before=before, after=after)
+                if len(candlesticks["data"]) == 0:
+                    break
+                for row in candlesticks["data"]:
+                    # 创建KLine对象
+                    kline = KLine(
+                        data_type=DataType.KLINE,
+                        symbol=symbol,
+                        market='okx',
+                        open=row[1],
+                        high=row[2],
+                        low=row[3],
+                        close=row[4],
+                        volume=row[5],
+                        amount=row[7],
+                        start_time=int(row[0]),
+                        end_time=int(row[0]) + timeframe.milliseconds,
+                        current_time=int(time.time() * 1000),
+                        timeframe=timeframe,
+                        quote_currency=quote_currency,
+                        ins_type=ins_type,
+                        is_finished=int(row[8]) == 1
+                    )
+                    after = int(row[0]) - 1
+                    res.append(kline)
+            res = res[:limit]
+            res.reverse()
+            return iter(res)
 
     @staticmethod
     def _get_okx_tf_value(timeframe: Union[TimeFrame, str]) -> Optional[str]:

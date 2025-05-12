@@ -7,15 +7,13 @@
 
 from .base import Strategy
 from .context import StrategyContext
-from .cta import STAStrategy
-from .sidecar import CTAStrategySidecar
+from .cta import CTAStrategy
 from .strategy_mode import StrategyMode, KlineSimple, Single
 
 __all__ = [
-    'STAStrategy',
+    'CTAStrategy',
     'Strategy',
     'StrategyContext',
-    'CTAStrategySidecar',
     'KlineSimple',
     'Single',
 ]

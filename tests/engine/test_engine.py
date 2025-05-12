@@ -1,131 +1,201 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+from collections import deque
+
+from executor import OkxWebSocketExecutor
+from info_fabricator import KLineFillFabricator, DataThrottleFabricator, KlineInitFabricator
+from models import StrategyPositionConfig, OrderType, PositionConfig
+from policy import PositionStopLoss
+from strategy import CTAStrategy
+from strategy.base import StrategyCommand
+from sub_strategy import EnterStrategy, ExitStrategy
+from utils import get_logger, setup_logging
+
+setup_logging(use_colors=True, level="INFO")
 import time
 import unittest
-from datetime import datetime
 from decimal import Decimal
 from threading import Thread
-from typing import ClassVar, List
+from typing import List
 
+from data import DataSourceContext, OkxDataSource
 from engine import *
-from executor import BacktestExecutor
-from models import Data, Position, Field, FieldType, KLine, create_instance, InstanceInitConfig, Signal, \
-    PositionContext, PositionSide, ChoiceType
-from position import Policy
-from risk import RiskPlugin
-from utils import EventBus, get_logger, Event, EventType
+from event import EventBus, Event
+from models import LeekComponentConfig, SimpleEngineConfig, StrategyConfig, KLine, PositionSide, Field, FieldType
 
 logger = get_logger(__name__)
 
-class FixedRateRiskPlugin(RiskPlugin):
+
+class CTAStrategyTest(CTAStrategy):
+    # 策略展示名称
+    display_name: str = "未命名策略"
+
     # 参数
-    init_params: ClassVar[List[Field]] = [
+    init_params: List[Field] = [
         Field(
-            name="rate",
-            label="亏损率",
-            type=FieldType.FLOAT,
-            default=0.05,
-            description="风险率，0.05=5%",
+            name="period",
+            label="移动平均线周期",
+            type=FieldType.INT,
+            default=10,
             required=True,
-            min=0.0,
-            max=1.0,
+            description="移动平均线的周期"
         )
     ]
-    init_params += RiskPlugin.init_params
-    """测试风控插件"""
-    def __init__(self, instance_id: str, name: str, rate: Decimal=Decimal("0.05")):
-        super().__init__(instance_id, name)
-        self.risk_rate = -abs(rate)  # 风险率，5%
+    """
+    简单的CTA策略
+    """
 
-    def trigger(self, position: Position, data: KLine) -> bool:
-        """
-        触发风控
-        :param position: 仓位
-        :param data: 市场数据
-        :return: 是否触发风控
-        """
-        pnl_ratio = data.close_price / position.cost_price - 1
-        if position.side.is_short:
-            pnl_ratio *= -1
-        return  pnl_ratio <= self.risk_rate
+    def __init__(self, period: int = 10):
+        super().__init__()
+        self.period = period
+        self.kline_buffer = deque(maxlen=period)
+        self.ma = None
 
-class SidePolicy(Policy):
-    # 参数
-    init_params = Policy.init_params + [
-        Field(
-            name="side",
-            label="方向",
-            type=FieldType.RADIO,
-            description="限制仓位方向",
-            required=True,
-            min=1,
-            max=2,
-            choices=[(1, "多"), (2, "空")],
-            choice_type=ChoiceType.INT,
-        )
-    ]
-    """测试风控插件"""
-    def __init__(self, instance_id: str, name: str, side: PositionSide, start_time: datetime = None, end_time: datetime = None):
-        super().__init__(instance_id, name, start_time, end_time)
-        self.side = PositionSide(side)
+    def on_kline(self, kline: KLine):
+        logger.info(f"K线数据: {kline}")
+        self.ma = None
+        if len(self.kline_buffer) < self.period:
+            self.kline_buffer.append(kline)
+            return
+        ma = sum(k.close for k in self.kline_buffer)
+        self.ma = kline.close > ma
 
-    def _check(self, signal: Signal, context: PositionContext) -> str:
-        """
-        检查信号是否符合风控规则
-        :param signal: 信号
-        :param context: 上下文
-        :return: 拒绝原因
-        """
-        return "" if signal.side == self.side else f"方向不匹配，当前方向：{signal.side.name}"
+    def should_open(self) -> PositionSide | StrategyCommand:
+        if self.ma:
+            return PositionSide.LONG
+
+    def should_close(self, position_side: PositionSide) -> bool | Decimal:
+        if self.ma is False:
+            return True
+
 
 class TestEngine(unittest.TestCase):
     """测试K线策略上下文"""
 
     def setUp(self):
-        cfg = {
-            "instance_id": "test_engine",
-            "name": "测试引擎",
-        }
-        instance_id = cfg.get("instance_id")
-        name = cfg.get("name")
+        engine_cfg = LeekComponentConfig(instance_id="test_engine", name="测试引擎", cls=None, config=None)
 
         event_bus = EventBus()
+
         def on_event(event: Event):
-            logger.info(f"收到事件: {event.event_type} -> {event}")
+            logger.debug(f"收到事件: {event.event_type} -> {event}")
+
         event_bus.subscribe_event(None, on_event)
 
-        risk_manager = RiskManager(instance_id, name, event_bus)
-        executor_manager = ExecutorManager(instance_id, name, event_bus)
-        position_manager = PositionManager(instance_id, name, event_bus)
-        strategy_manager = StrategyManager(instance_id, name, event_bus)
-        data_manager = DataManager(instance_id, name, event_bus)
+        cfg = SimpleEngineConfig(
+            data_sources=LeekComponentConfig(
+                instance_id="data_manager",
+                name="数据管理",
+                cls=DataSourceContext,
+                config=[
+                    LeekComponentConfig(
+                        instance_id="1",
+                        name="okx测试",
+                        cls=OkxDataSource,
+                        config={
+                            "symbols": ["BTC", "ETH"],
+                        }
+                    )
+                ]
+            ),
+            strategy_configs=[LeekComponentConfig(
+                instance_id="1",
+                name="测试策略",
+                cls=CTAStrategyTest,
+                config=StrategyConfig(
+                    data_source_configs=[
+                        LeekComponentConfig(
+                            instance_id="1",
+                            cls=OkxDataSource,
+                            config={
+                                "symbols": ["BTC"],
+                                "timeframes": ["1m"],
+                                "ins_types": [3],
+                                "quote_currencies": ["USDT"],
+                            }
+                        )
+                    ],
+                    strategy_config={
+                        "period": 20
+                    },
+                    strategy_position_config=StrategyPositionConfig(
+                        principal=Decimal("20"),
+                        leverage=Decimal("1"),
+                        order_type=OrderType.MarketOrder,
+                        executor_id="1"
+                    ),
+                    enter_strategy_cls=EnterStrategy,
+                    enter_strategy_config={},
+                    exit_strategy_cls=ExitStrategy,
+                    exit_strategy_config={},
 
-
-        self.engine = Engine(instance_id, name, event_bus, data_manager, strategy_manager, position_manager, risk_manager, executor_manager)
-        self.engine.load_state({})
-        # 1. 添加一个风控插件
-        self.engine.add_risk_plugin(InstanceInitConfig(
-            cls=FixedRateRiskPlugin,
-            config={
-                "rate": Decimal("0.05"),
-            })
+                    risk_policies=[
+                        LeekComponentConfig(
+                            instance_id="1",
+                            name="测试风险策略",
+                            cls=PositionStopLoss,
+                            config={
+                                "stop_loss_ratio": "0.05",
+                            }
+                        )
+                    ],
+                    info_fabricator_configs=[
+                        LeekComponentConfig(
+                            cls=KLineFillFabricator,
+                            config={}
+                        ),
+                        LeekComponentConfig(
+                            cls=KlineInitFabricator,
+                            config={
+                                "num": 20,
+                            }
+                        ),
+                        LeekComponentConfig(
+                            cls=DataThrottleFabricator,
+                            config={
+                                "price_change_ratio": "0.01",
+                                "time_interval": 12,
+                            }
+                        )
+                    ]
+                ))
+            ],
+            position_config=PositionConfig(
+                init_amount=Decimal("10000"),
+                max_strategy_amount=Decimal("10000"),
+                max_strategy_ratio=Decimal("0.1"),
+                max_symbol_amount=Decimal("10000"),
+                max_symbol_ratio=Decimal("0.1"),
+                max_amount=Decimal("10000"),
+                max_ratio=Decimal("0.1"),
+                risk_policies=[]
+            ),
+            executor_configs=[
+                LeekComponentConfig(
+                    instance_id="1",
+                    name="测试执行器",
+                    cls=OkxWebSocketExecutor,
+                    config={
+                        "slippage_level": "10",
+                        "td_mode": "isolated",
+                        "ccy": "USDT",
+                        "lever": "3",
+                        "heartbeat_interval": "25",
+                        "order_type": "market",
+                        "trade_ins_type": "3",
+                    }
+                )
+            ]
         )
-        # 2. 添加一个执行器
-        self.engine.add_executor(BacktestExecutor(
-            instance_id="backtest_executor",
-            name="回测执行器",
-        ), None)
+        engine_cfg.config = cfg
+        self.engine = SimpleEngine(event_bus, engine_cfg)
 
         Thread(target=self.engine.on_start).start()
         # self.engine.start()
 
-    def tearDown(self):
-        self.engine.on_stop()
-
     def test_engine(self):
-        time.sleep(20)
+        time.sleep(130)
         self.engine.on_stop()
-        time.sleep(5)
         self.assertFalse(self.engine.running)
 
 
