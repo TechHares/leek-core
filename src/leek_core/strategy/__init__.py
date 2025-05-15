@@ -4,13 +4,13 @@
 """
 制定和实施交易策略的策略模块。
 """
-
-from .base import Strategy
+from .base import Strategy, StrategyCommand
 from .context import StrategyContext
 from .cta import CTAStrategy
 from .strategy_mode import StrategyMode, KlineSimple, Single
 
 __all__ = [
+    'StrategyCommand',
     'CTAStrategy',
     'Strategy',
     'StrategyContext',

@@ -8,8 +8,8 @@ from leek_core.event import EventBus
 from leek_core.executor import ExecutorContext
 from leek_core.manager import DataManager, StrategyManager, PositionManager, ExecutorManager
 from leek_core.models import LeekComponentConfig, SimpleEngineConfig
-from src.leek_core.strategy import StrategyContext
-from src.leek_core.utils import get_logger, run_func_timeout
+from leek_core.strategy import StrategyContext
+from leek_core.utils import get_logger, run_func_timeout
 
 logger = get_logger(__name__)
 
