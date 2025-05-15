@@ -30,7 +30,7 @@ leek-core/
 
 ### 安装
 ```bash
-pip install leek-core
+pip install leek-core(暂无发布)
 ```
 或源码安装：
 ```bash
@@ -40,10 +40,11 @@ pip install .
 ```
 
 ### 典型用法
+
 ```python
-from engine import Engine
-from executor import OkxWebSocketExecutor, BacktestExecutor
-from strategy import MyStrategy
+from leek_core.engine import Engine
+from leek_core.executor import OkxWebSocketExecutor, BacktestExecutor
+from leek_core.strategy import MyStrategy
 
 engine = Engine(instance_id="engine1")
 engine.add_trader(OkxWebSocketExecutor(...))
@@ -53,8 +54,10 @@ engine.run()
 ```
 
 ### 日志系统示例
+
 ```python
-from utils import get_logger
+from leek_core.utils import get_logger
+
 logger = get_logger("app.module")
 logger.info("系统初始化完成")
 logger.error("操作失败", extra={"error_code": 500, "reason": "连接超时"})

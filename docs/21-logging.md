@@ -17,7 +17,7 @@ Leek Core提供了功能全面、易于使用且高度可配置的日志系统�
 ### 获取日志器
 
 ```python
-from utils import get_logger
+from leek_core.utils import get_logger
 
 # 创建带命名空间的日志器
 logger = get_logger("app.module")
@@ -48,25 +48,25 @@ logger.info("订单创建", extra={
 可以在应用启动时设置全局日志配置：
 
 ```python
-from utils import setup_logging
+from leek_core.utils import setup_logging
 
 # 基本配置
 setup_logging(
-    level="INFO",           # 日志级别
-    console=True,           # 输出到控制台
-    file=False,             # 默认不输出到文件
-    format_type="TEXT"      # 使用文本格式
+    level="INFO",  # 日志级别
+    console=True,  # 输出到控制台
+    file=False,  # 默认不输出到文件
+    format_type="TEXT"  # 使用文本格式
 )
 
 # 完整配置示例
 setup_logging(
-    level="DEBUG",          # 更详细的日志级别
-    console=True,           # 控制台输出
-    file=True,              # 文件输出
-    file_path="logs/app.log", # 日志文件路径
-    format_type="JSON",     # JSON格式，便于机器处理
-    max_bytes=10485760,     # 10MB文件大小限制
-    backup_count=5          # 保留5个备份文件
+    level="DEBUG",  # 更详细的日志级别
+    console=True,  # 控制台输出
+    file=True,  # 文件输出
+    file_path="logs/app.log",  # 日志文件路径
+    format_type="JSON",  # JSON格式，便于机器处理
+    max_bytes=10485760,  # 10MB文件大小限制
+    backup_count=5  # 保留5个备份文件
 )
 ```
 
@@ -96,7 +96,8 @@ export LEEK_LOG_FILE_PATH=/var/log/leek/app.log
 ### 函数日志装饰器
 
 ```python
-from utils import log_function
+from leek_core.utils import log_function
+
 
 @log_function()
 def process_data(data):
@@ -121,7 +122,8 @@ ERROR - 函数 process_data 执行异常: ValueError: Invalid data format - 用�
 专为类方法设计的装饰器，会包含类和实例的信息：
 
 ```python
-from utils import log_method
+from leek_core.utils import log_method
+
 
 class DataService:
     @log_method(level="DEBUG")
@@ -141,7 +143,8 @@ DEBUG - 方法 DataService.update 执行完成 - 用时: 2.54ms - 返回: {'id':
 专为交易操作设计的装饰器，自动记录交易相关的重要信息：
 
 ```python
-from utils import log_trade
+from leek_core.utils import log_trade
+
 
 @log_trade()
 def place_order(symbol, quantity, price, side="BUY"):
@@ -209,8 +212,8 @@ I 日志消息
 日志系统可以与各种外部服务集成，支持将日志发送到HTTP端点或TCP服务器：
 
 ```python
-from utils import setup_logging
-from utils.logging.handlers import HttpHandler, TcpSocketHandler
+from leek_core.utils import setup_logging
+from leek_core.utils import HttpHandler, TcpSocketHandler
 
 # 发送日志到HTTP服务
 http_handler = HttpHandler(
@@ -237,7 +240,7 @@ setup_logging(
 
 ```python
 import logging
-from utils import get_logger
+from leek_core.utils import get_logger
 
 logger = get_logger("app")
 
@@ -287,7 +290,8 @@ logger.debug("这条又不会显示了")
 
 ```python
 import logging
-from utils import setup_logging
+from leek_core.utils import setup_logging
+
 
 # 自定义处理器
 class MyCustomHandler(logging.Handler):
@@ -295,6 +299,7 @@ class MyCustomHandler(logging.Handler):
         # 自定义日志处理逻辑
         formatted_message = self.format(record)
         # 处理日志...
+
 
 # 使用自定义处理器
 setup_logging(
