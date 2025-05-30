@@ -53,7 +53,7 @@ class Field:
         if self.type in [FieldType.RADIO, FieldType.SELECT, FieldType.ARRAY]:
             if self.choice_type is None:
                 return value
-            return self.covert_value(FieldType(self.choice_type.value), value)
+            return [self.covert_value(FieldType(self.choice_type.value), v) for v in value]
         return self.covert_value(self.type, value)
 
     @staticmethod

@@ -6,6 +6,10 @@ from leek_core.base import LeekContext
 from leek_core.event import EventBus, Event, EventType
 from leek_core.models import LeekComponentConfig, SubOrder, Order
 from .base import Executor
+from leek_core.utils import run_func_timeout
+from leek_core.utils import get_logger
+
+logger = get_logger(__name__)
 
 
 class ExecutorContext(LeekContext):
@@ -26,6 +30,17 @@ class ExecutorContext(LeekContext):
             bool: True 表示可执行，False 表示不可执行
         """
         return self.executor.check_order(order)
+    
+    def update(self, config: LeekComponentConfig[Executor, Dict[str, Any]]):
+        self.config = config
+        run_func_timeout(self.executor.on_stop, [], {}, 5)
+        self.executor = self.create_component()
+        self.executor.callback = self._trade_callback
+        is_finish = run_func_timeout(self.executor.on_start, [], {}, 20)
+        if not is_finish:
+            self.is_connected = False
+            logger.error(f"执行器{self.name}更新超时")
+            return
 
     def send_order(self, order: SubOrder):
         """

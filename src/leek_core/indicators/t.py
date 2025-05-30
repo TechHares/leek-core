@@ -2,14 +2,14 @@
 # -*- coding: utf-8 -*-
 from collections import deque
 
-from models.data import KLine
+from leek_core.models import KLine, TimeFrame
 
 
 class T:
     def __init__(self, max_cache=100):
         self.cache = deque(maxlen=max_cache)
 
-    def update(self, data):
+    def update(self, data: KLine):
         pass
 
     def last(self, n=100):
@@ -21,18 +21,6 @@ class MERGE(T):
     """
     K线合并(周期升级)
     """
-    _CONFIG_INTERVAL = {
-        "1m": 60 * 1000,
-        "3m": 3 * 60 * 1000,
-        "5m": 5 * 60 * 1000,
-        "15m": 15 * 60 * 1000,
-        "30m": 30 * 60 * 1000,
-        "1h": 60 * 60 * 1000,
-        "4h": 4 * 60 * 60 * 1000,
-        "6h": 6 * 60 * 60 * 1000,
-        "12h": 12 * 60 * 60 * 1000,
-        "1d": 24 * 60 * 60 * 1000,
-    }
     def __init__(self, window=9, max_cache=100):
         T.__init__(self, max_cache)
         self.window = window
@@ -40,9 +28,9 @@ class MERGE(T):
 
         self.not_start = True
 
-    def update(self, data):
+    def update(self, data: KLine):
         if self.not_start:
-            if  data.timestamp % int(self.window * self._CONFIG_INTERVAL[data.interval]) != 0:
+            if  data.start_time % int(self.window * data.timeframe.milliseconds) != 0:
                 return None
             self.not_start = False
 
@@ -53,8 +41,9 @@ class MERGE(T):
         ls = list(self.q)
         r = KLine(symbol=data.symbol,
               market=data.market,
-              interval=f"{data.interval}({self.window})",
-              timestamp=ls[0].timestamp,
+              timeframe=TimeFrame.from_milliseconds(data.timeframe.milliseconds * self.window),
+              start_time=ls[0].timestamp,
+              end_time=ls[-1].timestamp,
               current_time=data.current_time,
               open=ls[0].open,
               high=max(d.high for d in ls),
@@ -62,10 +51,13 @@ class MERGE(T):
               close=data.close,
               volume=sum(d.volume for d in ls),
               amount=sum(d.amount for d in ls),
-              finish=0
+              quote_currency=data.quote_currency,
+              ins_type=data.ins_type,
+              is_finished=False,
               )
-        if len(ls) == self.window and data.is_finished == 1:
-            r.finish = 1
+        r.merge = True
+        if len(ls) == self.window and data.is_finished:
+            r.finish = True
             self.q.clear()
             self.cache.append(r)
 

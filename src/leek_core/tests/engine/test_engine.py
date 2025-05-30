@@ -7,7 +7,7 @@ from leek_core.info_fabricator import KLineFillFabricator, DataThrottleFabricato
 from leek_core.models import StrategyPositionConfig, OrderType, PositionConfig
 from leek_core.policy import PositionStopLoss
 from leek_core.strategy import CTAStrategy
-from leek_core.strategy.base import StrategyCommand
+from leek_core.strategy import StrategyCommand
 from leek_core.sub_strategy import EnterStrategy, ExitStrategy
 from leek_core.utils import get_logger, setup_logging
 
@@ -22,7 +22,7 @@ from leek_core.data import DataSourceContext, OkxDataSource
 from leek_core.engine import *
 from leek_core.event import EventBus, Event
 from leek_core.models import LeekComponentConfig, SimpleEngineConfig, StrategyConfig, KLine, PositionSide, Field, FieldType
-
+import os
 logger = get_logger(__name__)
 
 

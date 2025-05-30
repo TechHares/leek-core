@@ -29,6 +29,8 @@ class IdGenerator:
     def __new__(cls, worker_id: int):
         if not (0 <= worker_id <= cls._max_worker_id):
             raise ValueError(f"worker_id 必须在0~{cls._max_worker_id}之间")
+        if worker_id in cls._instances:
+            return cls._instances[worker_id]
         with cls._instances_lock:
             if worker_id not in cls._instances:
                 instance = super().__new__(cls)
@@ -70,13 +72,9 @@ class IdGenerator:
             return id_
 
 
-# 用法示例：
-id_gen = IdGenerator(worker_id=0)
+def generate_str(worker_id=0):
+    return str(generate(worker_id))
 
 
-def generate_str():
-    return str(id_gen.next_id())
-
-
-def generate():
-    return id_gen.next_id()
+def generate(worker_id=0):
+    return IdGenerator(worker_id=worker_id).next_id()

@@ -5,6 +5,8 @@ from typing import TypeVar, Generic, List, Dict
 from leek_core.event import EventBus
 from leek_core.base import LeekComponent, LeekContext
 from leek_core.models import LeekComponentConfig
+from leek_core.utils import run_func_timeout, get_logger
+logger = get_logger(__name__)
 
 CTX = TypeVar('CTX', bound=LeekContext)
 T = TypeVar('T', bound=LeekComponent)
@@ -49,7 +51,12 @@ class ComponentManager(LeekContext, Generic[CTX, T, CFG]):
         if config.instance_id in self.components:
             return
         self.components[config.instance_id] = self.config.cls(self.event_bus, config)
-        self.components[config.instance_id].on_start()
+        is_finish = run_func_timeout(self.components[config.instance_id].on_start, [], {}, 20)
+        if not is_finish:
+            self.components.pop(config.instance_id)
+            logger.error(f"组件{config.name}启动超时")
+            return
+        logger.info(f"组件{config.name}启动完成")
 
     def get(self, instance_id: str) -> CTX:
         """
@@ -58,6 +65,15 @@ class ComponentManager(LeekContext, Generic[CTX, T, CFG]):
             instance_id: 要获取实例ID
         """
         return self.components.get(instance_id)
+    
+    def update(self, config: LeekComponentConfig[T, CFG]):
+        """
+        更新指定实例。
+        """
+        if config.instance_id not in self.components:
+            self.add(config)
+            return
+        self.components[config.instance_id].update(config)
 
     def remove(self, instance_id: str):
         """
@@ -69,7 +85,7 @@ class ComponentManager(LeekContext, Generic[CTX, T, CFG]):
         if instance_id not in self.components:
             return
         source = self.components[instance_id]
-        source.on_stop()
+        run_func_timeout(source.on_stop, [], {})
         self.components.pop(instance_id)
 
     def on_stop(self):
@@ -77,5 +93,5 @@ class ComponentManager(LeekContext, Generic[CTX, T, CFG]):
         停止所有实例并清空管理器。
         """
         for source in self.components.values():
-            source.on_stop()
+            run_func_timeout(source.on_stop, [], {})
         self.components.clear()

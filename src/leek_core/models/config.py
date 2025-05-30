@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Dict, Any, List, Type, Tuple, TypeVar, Generic
 
 from leek_core.base import LeekComponent
-from .constants import OrderType
+from .constants import OrderType, TradeInsType, TradeMode
 
 
 @dataclass
@@ -81,7 +81,27 @@ class PositionConfig:
     max_amount: Decimal    # 单次开仓最大仓位
     max_ratio: Decimal      # 单单次开仓最大仓位比例
 
+    default_leverage: int # 默认杠杆倍数
+    order_type: OrderType # 订单类型
+    trade_type: TradeInsType # 交易类型
+    trade_mode: TradeMode # 交易模式
+
     risk_policies: List[LeekComponentConfig["StrategyPolicy", Dict[str, Any]]] = field(default_factory=list)
+
+    def __post_init__(self):
+        # 转换 Decimal 字段
+        for field_name in ['init_amount', 'max_strategy_amount', 'max_strategy_ratio', 'max_symbol_amount', 'max_symbol_ratio', 'max_amount', 'max_ratio']:
+            value = getattr(self, field_name)
+            if isinstance(value, str):
+                setattr(self, field_name, Decimal(value))
+
+        # 转换枚举字段
+        if isinstance(self.order_type, int):
+            self.order_type = OrderType(self.order_type)
+        if isinstance(self.trade_type, int):
+            self.trade_type = TradeInsType(self.trade_type)
+        if isinstance(self.trade_mode, str):
+            self.trade_mode = TradeMode(self.trade_mode)
 
 
 @dataclass

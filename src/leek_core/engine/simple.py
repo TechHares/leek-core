@@ -15,9 +15,10 @@ logger = get_logger(__name__)
 
 
 class SimpleEngine(Engine):
-    def __init__(self, event_bus: EventBus=EventBus(), config: LeekComponentConfig[None, SimpleEngineConfig]=None):
-        super().__init__(event_bus, config)
-
+    def __init__(self, event_bus: EventBus = EventBus(), config: LeekComponentConfig[None, SimpleEngineConfig] = None):
+        super().__init__()
+        self.event_bus = event_bus
+        self.config = config
         self.data_source_manager: DataManager = DataManager(
             event_bus, LeekComponentConfig(
             instance_id=config.instance_id,

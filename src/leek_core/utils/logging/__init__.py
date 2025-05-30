@@ -142,22 +142,3 @@ def get_logger(name: str) -> logging.Logger:
         setup_logging()
 
     return logging.getLogger(name)
-
-
-# 使用环境变量进行初始配置
-if not _is_initialized:
-    # 从环境变量获取配置
-    level_env = os.environ.get('LEEK_LOG_LEVEL', 'INFO')
-    console_env = os.environ.get('LEEK_LOG_CONSOLE', 'true').lower() in ('1', 'true', 'yes', 'on')
-    file_env = os.environ.get('LEEK_LOG_FILE', 'false').lower() in ('1', 'true', 'yes', 'on')
-    file_path_env = os.environ.get('LEEK_LOG_FILE_PATH')
-    format_env = os.environ.get('LEEK_LOG_FORMAT', 'TEXT')
-
-    # 初始化日志
-    setup_logging(
-        level=level_env,
-        console=console_env,
-        file=file_env,
-        file_path=file_path_env,
-        format_type=format_env
-    )

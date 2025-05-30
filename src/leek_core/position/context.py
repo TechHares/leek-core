@@ -25,9 +25,10 @@ class PositionContext(LeekContext):
         self.policies: List[StrategyPolicy] = []
 
         position_config = config.config
-        for policy in position_config.risk_policies:
-            self.policies.append(create_component(policy.cls, **policy.config))
-        self.amount = position_config.init_amount if config is not None else Decimal(0)
+        if position_config is not None:
+            for policy in position_config.risk_policies:
+                self.policies.append(create_component(policy.cls, **policy.config))
+        self.amount = position_config.init_amount if position_config is not None else Decimal(0)
         self.activate_ratio = Decimal(1)  # 可用比例
         self.activate_amount = Decimal(1)  # 可用金额
         self.virtual_amount = self.amount

@@ -29,21 +29,15 @@ class OkxWebSocketExecutor(WebSocketExecutor):
     OKX交易所WebSocket异步执行器，支持自动重连、心跳、鉴权、频道订阅、订单推送、下单、撤单等。
     集成原OkxTrader的业务参数组装、映射和风控逻辑。
     """
-    init_params: List['Field'] = WebSocketExecutor.init_params + [
+    display_name = "OKX"
+    init_params: List['Field'] = [
         Field(name="api_key", label="API Key", type=FieldType.STRING, default="", required=True),
         Field(name="secret_key", label="API Secret Key", type=FieldType.PASSWORD, default="", required=True),
         Field(name="passphrase", label="Passphrase", type=FieldType.PASSWORD, default="", required=True),
 
         Field(name="slippage_level", label="允许滑档", type=FieldType.INT, default=4, required=True, description="限价交易允许滑档数"),
-        Field(name="td_mode", label="默认交易模式", type=FieldType.RADIO, default="isolated", required=True, description="订单不指定交易模式时的默认交易模式",
-              choices=[("isolated", "逐仓"), ("cross", "全仓"), ("cash", "现货"), ("spot_isolated", "现货带单")], choice_type=ChoiceType.STRING),
         Field(name="ccy", label="默认保证金币种", type=FieldType.STRING, default="USDT", required=True, description="交易币种"),
-        Field(name="lever", label="默认杠杆倍数", type=FieldType.INT, default=3, required=True, description="订单不指定杠杆倍数时的默认杠杆倍数"),
-        Field(name="order_type", label="默认订单类型", type=FieldType.RADIO, default="limit", required=True, description="定单不指定订单类型时的默认订单类型",
-              choices=[("limit", "限价"), ("market", "市价")], choice_type=ChoiceType.STRING),
-        Field(name="trade_ins_type", label="默认交易类型", type=FieldType.RADIO, default="3", required=True, description="订单不指定交易类型时的默认交易类型",
-              choices=[(1, "现货"), (2, "杠杆"), (3, "合约"), (4, "期货"), (5, "期权")], choice_type=ChoiceType.INT),
-    ]
+    ] + [WebSocketExecutor.init_params[2], WebSocketExecutor.init_params[3]]
 
     __Side_Map = {
         PS.LONG: "buy",
@@ -67,19 +61,15 @@ class OkxWebSocketExecutor(WebSocketExecutor):
         TradeInsType.OPTION: "OPTION",
     }
 
-    def __init__(self, api_key, secret_key, passphrase, slippage_level=4, td_mode="isolated", ccy="", leverage=3, order_type="limit", trade_ins_type=3, **kwargs):
-        super().__init__(ws_url="wss://ws.okx.com:8443/ws/v5/private", **kwargs)
+    def __init__(self, api_key, secret_key, passphrase, slippage_level=4, ccy="", **kwargs):
+        super().__init__(ws_url="wss://ws.okx.com:8443/ws/v5/private", heartbeat_interval=25, **kwargs)
         self.api_key = api_key
         self.secret_key = secret_key
         self.passphrase = passphrase
         self._login_ok = False
         self._order_cache = {}
         self.slippage_level = int(slippage_level)
-        self.td_mode = TradeMode(td_mode)
         self.ccy = ccy
-        self.lever = int(leverage)
-        self.order_type = OT.LimitOrder if order_type == "limit" else OT.MarketOrder
-        self.trade_ins_type = TradeInsType(int(trade_ins_type))
         self.market_client = MarketAPI(domain="https://www.okx.com", flag="0", debug=False, proxy=None)
         self.public_client = PublicAPI(domain="https://www.okx.com", flag="0", debug=False, proxy=None)
 
@@ -170,14 +160,6 @@ class OkxWebSocketExecutor(WebSocketExecutor):
         # 参数补全与映射
         if order.ccy is None:
             order.ccy = self.ccy
-        if order.trade_mode is None:
-            order.trade_mode = self.td_mode
-        if order.lever is None:
-            order.lever = self.lever
-        if order.type is None:
-            order.type = self.order_type
-        if order.trade_ins_type is None:
-            order.trade_ins_type = self.trade_ins_type
         if order.trade_ins_type == TradeInsType.SPOT:
             order.lever = 1
             order.trade_mode = TradeMode.CASH

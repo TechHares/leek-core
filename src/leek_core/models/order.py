@@ -51,6 +51,7 @@ class Order:
     signal_time: datetime  # 信号时间
     order_time: datetime  # 订单时间
 
+
     symbol: str  # 交易标的
     quote_currency: str  # 计价货币
     ins_type: TradeInsType  # 合约/现货类型
@@ -65,7 +66,6 @@ class Order:
     target_executor_id: str = None  # 指定的执行ID
     ratio: Decimal = Decimal(0)  # 仓位比例
 
-    sub_orders: Optional[List['SubOrder']] = None  # 子订单列表
     settle_amount: Decimal = None  # 实际成交金额
     execution_price: Decimal = None  # 实际成交价格
     fee: Decimal = None  # 手续费

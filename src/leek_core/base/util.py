@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from typing import List
-
+import importlib
 from leek_core.base import LeekComponent
 
 
@@ -25,3 +25,15 @@ def create_component(cls: type[LeekComponent], **kwargs):
 
     instance = cls(**params)
     return instance
+
+
+def load_class_from_str(class_path: str):
+    """
+    通过 'module_path|ClassName' 字符串动态加载类对象
+    """
+    if "|" not in class_path:
+        raise ValueError("class_path must be in 'module|ClassName' format")
+    module_path, class_name = class_path.split("|", 1)
+    module = importlib.import_module(module_path)
+    cls = getattr(module, class_name)
+    return cls

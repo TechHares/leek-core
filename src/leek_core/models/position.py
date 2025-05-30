@@ -101,7 +101,7 @@ class Position:
     ins_type: TradeInsType  # 合约/现货类型
     asset_type: AssetType  # 资产类型（如股票、期货、加密货币等）
 
-    side: PositionSide         # 仓位方向（多/空/平）
+    side: PositionSide         # 仓位方向（多/空）
     cost_price: Decimal        # 开仓成本价
     amount: Decimal            # 仓位数量
     ratio: Decimal             # 占资金比例

@@ -4,14 +4,14 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from typing import Any
 
 
-def run_func_timeout(func, args, kwargs, timeout) -> bool:
+def run_func_timeout(func, args, kwargs, timeout=5) -> bool:
     """
     执行函数并设置超时
     :param func: 要执行的函数
     :param args: 函数参数
     :param kwargs: 函数关键字参数
     :param timeout: 超时时间（秒）
-    :return: True if function executed within timeout, False otherwise
+    :return: 返回结果, True 表示完成，False 表示超时
     """
     func_timeout = invoke_func_timeout(func, args, kwargs, timeout)
     return func_timeout[1]
@@ -24,7 +24,7 @@ def invoke_func_timeout(func, args, kwargs, timeout) -> (Any, bool):
     :param args: 函数参数
     :param kwargs: 函数关键字参数
     :param timeout: 超时时间（秒）
-    :return: True if function executed within timeout, False otherwise
+    :return: 返回结果, True 表示完成，False 表示超时
     """
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(func, *args, **kwargs)

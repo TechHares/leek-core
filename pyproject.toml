@@ -6,12 +6,21 @@ build-backend = "setuptools.build_meta"
 name = "leek-core"
 version = "0.1.0"
 description = "Leek Core 量化交易引擎/组件化事件驱动框架"
-readme = "README.md"  # 自动读取 README.md 作为 long_description
-requires-python = ">=3.11"
-authors = [
-    { name = "shenglin.li", email = "764935704@qq.com" },
+authors = ["shenglin.li <764935704@qq.com>"]
+readme = "README.md"
+homepage = "https://github.com/shenglin-li/leek-core"
+repository = "https://github.com/shenglin-li/leek-core"
+documentation = "https://github.com/shenglin-li/leek-core"
+keywords = [
+    "quantitative trading",
+    "algorithmic trading",
+    "finance",
+    "investment",
+    "event-driven",
+    "component",
+    "okx",
+    "backtest"
 ]
-urls = { Homepage = "https://github.com/shenglin-li/leek-core" }
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -20,55 +29,52 @@ classifiers = [
     "Natural Language :: Chinese (Simplified)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Topic :: Office/Business :: Financial :: Investment",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Framework :: AsyncIO",
-    "Framework :: Sphinx",
 ]
-keywords = [
-    "quantitative trading", "algorithmic trading", "finance",
-    "investment", "event-driven", "component", "okx", "backtest"
-]
-dependencies = [  # 原 requirements.txt 内容（需按实际内容替换）
-    "cachetools",
-    "clickhouse-driver",
-    "numpy",
-    "pandas",
-    "python_okx",
-    "requests",
-    "rich",
-    "scipy",
-    "setuptools",
-    "websocket-client",
-    "websockets",
-    "zope-interface>=5",  # 原缺失的 Twisted 依赖
-]
-#optional-dependencies = {
-#    dev = [
-#        "black>=22.1.0",
-#        "isort>=5.10.0",
-#        "flake8>=4.0.0",
-#        "mypy>=0.931",
-#    ],
-#    docs = [  # 原 extras_require.docs
-#        "sphinx>=4.4.0",
-#        "sphinx-rtd-theme>=1.0.0",
-#    ],
-#    backtest = [  # 原 extras_require.backtest
-#        "vectorbt>=0.24.0",
-#        "pyfolio>=0.9.0",
-#    ],
-#    test = [  # 原 test_requirements
-#        "pytest>=6.0.0",
-#        "pytest-cov>=2.12.0",
-#    ]
-#}
-#scripts = {  # 原 entry_points.console_scripts
-#    leek = "leek_core.cli:main",
-#}
-[tool.setuptools.packages.find]
-where = ["src"]  # 包根目录
-include = ["leek_core*"]  # 包含的包名模式
+
+[tool.poetry.dependencies]
+python = "^3.11"
+cachetools = "*"
+clickhouse-driver = "*"
+numpy = "*"
+pandas = "*"
+python_okx = "*"
+requests = "*"
+rich = "*"
+scipy = "*"
+setuptools = "*"
+websocket-client = "*"
+websockets = "*"
+zope-interface = ">=5"
+
+[tool.poetry.group.dev.dependencies]
+black = "^23.0"
+isort = "^5.0"
+flake8 = "^6.0"
+mypy = "^1.0"
+pytest = "^7.0"
+pytest-cov = "^4.0"
+
+[tool.poetry.group.docs.dependencies]
+sphinx = "^4.4.0"
+sphinx-rtd-theme = "^1.0.0"
+
+[tool.poetry.group.backtest.dependencies]
+vectorbt = "^0.24.0"
+pyfolio = "^0.9.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3

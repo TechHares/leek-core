@@ -6,6 +6,10 @@ from leek_core.base import LeekContext
 from leek_core.event import EventBus, Event, EventType, EventSource
 from leek_core.models import DataType, Data, KLine, LeekComponentConfig
 from .base import DataSource
+from leek_core.utils import run_func_timeout
+from leek_core.utils import get_logger
+
+logger = get_logger(__name__)
 
 
 class DataSourceContext(LeekContext):
@@ -55,6 +59,20 @@ class DataSourceContext(LeekContext):
 
     def get_history_data(self,  *row_key,start_time: int = None, end_time: int = None, limit: int = None) -> List[Data]:
         return self._data_source.get_history_data(*row_key, start_time=start_time, end_time=end_time, limit=limit)
+    
+    def update(self, config: LeekComponentConfig[DataSource, Dict[str, Any]]):
+        self.is_connected = False
+        self.config = config
+        run_func_timeout(self._data_source.on_stop, [], {}, 5) 
+        self._data_source = self.create_component()
+        self._data_source.callback = self.send_data
+        is_finish = run_func_timeout(self.on_start, [], {}, 20)
+        if not is_finish:
+            self.is_connected = False
+            logger.error(f"数据源{self.name}更新超时")
+            return
+        for row_key in self.subscribe_info.keys():
+            self._data_source.subscribe(*row_key)
 
     def on_start(self):
         """

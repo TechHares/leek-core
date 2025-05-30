@@ -50,6 +50,14 @@ class PositionManager(ComponentManager[None, None, PositionConfig]):
         self.event_bus.subscribe_event(EventType.STRATEGY_SIGNAL, self.process_signal_event)
         self.event_bus.subscribe_event(EventType.ORDER_UPDATE, self.process_order_update)
         logger.info(f"事件订阅: 仓位管理-{self.name}@{self.instance_id} 订阅 {[e.value for e in [EventType.ORDER_UPDATE, EventType.STRATEGY_SIGNAL]]}")
+    
+    def update(self, config: LeekComponentConfig[None, PositionConfig]):
+        state = self.position_context.get_state()
+        self.position_context.on_stop()
+        self.position_context = PositionContext(self.event_bus, config)
+        print(state)
+        self.position_context.load_state(state)
+        self.position_context.on_start()
 
     def get(self, instance_id: str) -> PositionContext:
         ...

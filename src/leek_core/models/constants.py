@@ -71,6 +71,23 @@ class TimeFrame(Enum):
         """返回时间粒度的毫秒表示"""
         return TimeFrame.__milliseconds_map[self.value]
 
+    @classmethod
+    def from_milliseconds(cls, ms: int) -> "TimeFrame":
+        """
+        从毫秒数得到对应的 TimeFrame 对象。
+        如果没有匹配的毫秒数，则返回 TICK。
+
+        :param ms: 毫秒数
+        :return: 对应的 TimeFrame 对象
+        """
+        # 反转 __milliseconds_map 字典，键值对互换
+        reversed_map = {v: k for k, v in cls.__milliseconds_map.items() if v is not None}
+        # 查找匹配的时间粒度字符串
+        time_frame_str = reversed_map.get(ms)
+        if time_frame_str:
+            return cls.from_string(time_frame_str)
+        return cls.TICK
+
 
 class DataType(Enum):
     """处理的金融数据类型。"""

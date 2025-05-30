@@ -18,6 +18,7 @@ logger = get_logger(__name__)
 
 class ClickHouseKlineDataSource(DataSource):
     supported_data_type: DataType = DataType.KLINE
+    display_name = "ClickHouse K线"
     # 声明支持的资产类型
     supported_asset_type: DataType = {AssetType.STOCK, AssetType.CRYPTO}
     backtest_supported: bool = True

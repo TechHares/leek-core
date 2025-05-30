@@ -7,8 +7,11 @@
 
 from .base import Engine
 from .simple import SimpleEngine
+from.process import ProcessEngine, ProcessEngineClient
 
 __all__ = [
     "Engine",
     "SimpleEngine",
+    "ProcessEngine",
+    "ProcessEngineClient"
 ]

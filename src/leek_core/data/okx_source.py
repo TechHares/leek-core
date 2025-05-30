@@ -36,7 +36,7 @@ class OkxDataSource(WebSocketDataSource):
     """
     OKX WebSocket K 线数据源。
     """
-
+    display_name: str = "OKX行情"
     supported_data_type: DataType = DataType.KLINE
     supported_asset_type: DataType = AssetType.CRYPTO
     init_params: List[Field] = [
@@ -319,7 +319,7 @@ class OkxDataSource(WebSocketDataSource):
         ins_types = [(TradeInsType.SPOT.value, str(TradeInsType.SPOT)),
                      (TradeInsType.SWAP.value, str(TradeInsType.SWAP))]
         return [
-            Field(name='symbol', label='交易标的', type=FieldType.SELECT, required=True, choices=self.symbols,
+            Field(name='symbol', label='交易标的', type=FieldType.SELECT, required=True, choices=list(self.symbols),
                   choice_type=ChoiceType.STRING),
             Field(name='timeframe', label='时间周期', type=FieldType.SELECT, required=True,
                   choices=list(OKX_TIMEFRAME_MAP.keys()), choice_type=ChoiceType.STRING),

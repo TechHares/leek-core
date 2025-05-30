@@ -9,11 +9,11 @@ from abc import ABC, abstractmethod
 from decimal import Decimal
 from typing import List, Set
 
+from leek_core.base import LeekComponent
 from leek_core.models import Field, DataType, PositionSide
-from leek_core.strategy import Strategy
 
 
-class SubStrategy(Strategy, ABC):
+class SubStrategy(LeekComponent, ABC):
     # 声明可接受的数据类型 只有数据类型和主策略有重合， 主策略才可以绑定该附属策略
     accepted_data_types: Set[DataType] = set(DataType)
     # 声明附属策略初始化参数
@@ -62,6 +62,7 @@ class EnterStrategy(SubStrategy):
     
     入场策略负责决定何时入场以及入场的仓位比例， 默认直接进场。
     """
+    display_name = "直接入场"
 
     def __init__(self):
         """
@@ -82,6 +83,7 @@ class ExitStrategy(SubStrategy):
     
     出场策略负责决定何时出场以及出场的仓位比例， 默认直接出场。
     """
+    display_name = "直接出场"
     
     def __init__(self):
         """
