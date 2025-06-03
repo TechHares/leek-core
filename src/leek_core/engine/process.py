@@ -1,6 +1,8 @@
 from multiprocessing import Process, Pipe
 from multiprocessing.connection import Connection
 from typing import Optional, Any, Dict, List, Callable
+import uuid
+import psutil
 
 from leek_core.alarm import ErrorAlarmHandler
 from .base import Engine
@@ -34,6 +36,7 @@ class ProcessEngine(Engine):
         self.instance_id = instance_id
         self.name = name
         self.position_config = position_config
+        self.response_handlers: Dict[str, Callable] = {}  # 存储响应处理器，按消息ID索引
 
         self.event_bus = EventBus()
         self.data_source_manager: DataManager = DataManager(
@@ -98,17 +101,75 @@ class ProcessEngine(Engine):
         if not isinstance(msg, dict) or "action" not in msg:
             logger.error(f"未知消息: {msg}")
             return
+            
         action = msg["action"]
         args = msg.get("args", [])
         kwargs = msg.get("kwargs", {})
+        msg_id = msg.get("msg_id")
+        
         if hasattr(self, action):
             method = getattr(self, action)
             try:
-                method(*args, **kwargs)
+                result = method(*args, **kwargs)
+                # 如果是invoke请求（有msg_id），则发送响应
+                if msg_id:
+                    self.send_msg("response", msg_id=msg_id, result=result)
             except Exception as e:
                 logger.error(f"处理命令 {method.__name__} 时出错: {e}", exc_info=True)
+                if msg_id:
+                    self.send_msg("response", msg_id=msg_id, error=str(e))
         else:
             logger.error(f"未知action: {action}")
+            if msg_id:
+                self.send_msg("response", msg_id=msg_id, error=f"未知action: {action}")
+
+    def engine_state(self):
+        """
+        返回引擎当前状态，包括数据源、策略、仓位、执行器等
+        """
+        # 获取系统信息
+        process = psutil.Process(os.getpid())
+        process_id = process.pid
+
+        # 获取CPU使用率
+        cpu_percent = psutil.cpu_percent(interval=0)
+
+        # 获取内存使用情况
+        memory = psutil.virtual_memory()
+        mem_used = round(memory.used / (1024 ** 3), 1)  # GB
+        mem_total = round(memory.total / (1024 ** 3), 1)  # GB
+        mem_percent = round((memory.used / memory.total) * 100, 1)
+
+        # 获取磁盘使用情况
+        disk = psutil.disk_usage('/')
+        disk_used = round(disk.used / (1024 ** 3), 1)  # GB
+        disk_total = round(disk.total / (1024 ** 3), 1)  # GB
+        disk_percent = disk.percent
+        return {
+            "state": {
+                "process_id": process_id,
+                "data_source_count": len(self.data_source_manager),
+                "strategy_count": len(self.strategy_manager),
+                "executor_count": len(self.executor_manager),
+            },
+            "resources": {
+                "cpu": {
+                    "percent": cpu_percent,
+                    "value": f"{cpu_percent}%",
+                    "status": "success" if cpu_percent < 60 else "warning" if cpu_percent < 85 else "error"
+                },
+                "memory": {
+                    "percent": mem_percent,
+                    "value": f"{mem_used}G/{mem_total}G",
+                    "status": "success" if mem_percent < 60 else "warning" if mem_percent < 85 else "error"
+                },
+                "disk": {
+                    "percent": disk_percent,
+                    "value": f"{disk_used}G/{disk_total}G",
+                    "status": "success" if disk_percent < 60 else "warning" if disk_percent < 85 else "error"
+                }
+            }
+        }
 
     def on_stop(self):
         """
@@ -193,6 +254,7 @@ class ProcessEngineClient(Engine):
         self.name = name
         self.config = config
         self.message_handlers: Dict[str, List[Callable]] = {}
+        self.response_futures: Dict[str, asyncio.Future] = {}  # 存储invoke响应的Future对象
 
     def register_handler(self, action: str, handler: Callable):
         """注册消息处理器"""
@@ -272,8 +334,50 @@ class ProcessEngineClient(Engine):
         engine.run()
 
     def send_action(self, action: str, *args, **kwargs):
+        """
+        发送消息到引擎进程，不等待响应
+        """
         msg = {"action": action, "args": args, "kwargs": kwargs}
         self.parent_conn.send(msg)
+
+    async def invoke(self, action: str, *args, **kwargs) -> Any:
+        """
+        发送消息到引擎进程并等待响应，类似函数调用
+        
+        Args:
+            action: 要执行的动作
+            *args: 位置参数
+            **kwargs: 关键字参数
+            
+        Returns:
+            引擎进程返回的结果
+            
+        Raises:
+            Exception: 如果动作执行失败或超时
+        """
+        msg_id = str(uuid.uuid4())
+        future = asyncio.Future()
+        self.response_futures[msg_id] = future
+        
+        try:
+            msg = {
+                "action": action,
+                "args": args,
+                "kwargs": kwargs,
+                "msg_id": msg_id
+            }
+            self.parent_conn.send(msg)
+            
+            # 等待响应，设置30秒超时
+            try:
+                result = await asyncio.wait_for(future, timeout=30.0)
+                if isinstance(result, dict) and "error" in result:
+                    raise Exception(result["error"])
+                return result
+            except asyncio.TimeoutError:
+                raise Exception(f"调用超时: {action}")
+        finally:
+            self.response_futures.pop(msg_id, None)
 
     def stop(self):
         """
@@ -340,7 +444,7 @@ class ProcessEngineClient(Engine):
             await asyncio.sleep(poll_interval)
 
     def on_message(self, msg):
-        """处理子进程消息，路由到对应的处理器"""
+        """处理引擎进程消息，路由到对应的处理器"""
         if not isinstance(msg, dict) or "action" not in msg:
             logger.error(f"未知消息: {msg}")
             return
@@ -349,6 +453,18 @@ class ProcessEngineClient(Engine):
         args = msg.get("args", [])
         kwargs = msg.get("kwargs", {})
 
+        # 处理响应消息
+        if action == "response":
+            msg_id = kwargs.get("msg_id")
+            if msg_id in self.response_futures:
+                future = self.response_futures[msg_id]
+                if "error" in kwargs:
+                    future.set_exception(Exception(kwargs["error"]))
+                else:
+                    future.set_result(kwargs.get("result"))
+                return
+
+        # 处理普通消息
         if action in self.message_handlers:
             for handler in self.message_handlers[action]:
                 try:

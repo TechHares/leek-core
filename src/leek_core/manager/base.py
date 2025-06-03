@@ -95,3 +95,6 @@ class ComponentManager(LeekContext, Generic[CTX, T, CFG]):
         for source in self.components.values():
             run_func_timeout(source.on_stop, [], {})
         self.components.clear()
+
+    def __len__(self):
+        return len(self.components)
