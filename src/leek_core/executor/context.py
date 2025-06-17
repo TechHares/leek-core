@@ -4,10 +4,11 @@ from typing import Dict, Any
 
 from leek_core.base import LeekContext
 from leek_core.event import EventBus, Event, EventType
-from leek_core.models import LeekComponentConfig, SubOrder, Order
+from leek_core.models import LeekComponentConfig, Order, OrderUpdateMessage, OrderStatus
 from .base import Executor
 from leek_core.utils import run_func_timeout
 from leek_core.utils import get_logger
+import time
 
 logger = get_logger(__name__)
 
@@ -16,9 +17,13 @@ class ExecutorContext(LeekContext):
     def __init__(self, event_bus: EventBus, config: LeekComponentConfig[Executor, Dict[str, Any]]):
         super().__init__(event_bus, config)
 
-        self.orders: dict[str, SubOrder] = {}
+        self.orders: dict[str, Order] = {}
         self.executor: Executor = self.create_component()
+        self.executor.instance_id = self.instance_id
         self.executor.callback = self._trade_callback
+
+        self.max_retry_count = 3
+        self.retry_interval = 1
 
     def check_order(self, order: Order) -> bool:
         """
@@ -42,14 +47,38 @@ class ExecutorContext(LeekContext):
             logger.error(f"执行器{self.name}更新超时")
             return
 
-    def send_order(self, order: SubOrder):
+    def send_order(self, orders: Order):
         """
         下单
 
         参数:
             order: 订单信息
         """
-        self.executor.send_order(order)
+        for order in orders:
+            order.executor_id = self.instance_id
+            self.orders[order.order_id] = order
+        self.event_bus.publish_event(Event(EventType.ORDER_CREATED, orders))
+        retry_count = max(self.max_retry_count, 1)
+        while retry_count > 0:
+            retry_count -= 1
+            try:
+                self.executor.send_order(orders)
+                for order in orders:
+                    order.order_status = OrderStatus.SUBMITTED
+                    self.event_bus.publish_event(Event(EventType.ORDER_UPDATED, order))
+                return
+            except Exception as e:
+                if retry_count <= 1:
+                    logger.error(f"执行订单失败: {e}", exc_info=True)
+                    for order in orders:
+                        order.order_status = OrderStatus.ERROR
+                        self.event_bus.publish_event(Event(EventType.ORDER_UPDATED, order))
+                    return
+                else:
+                    logger.warning(f"执行订单失败, 重试次数: {retry_count}: {e}, ")
+                if self.retry_interval > 0:
+                    time.sleep(self.retry_interval)
+
 
 
     def cancel_order(self, order_id: str, symbol: str, **kwargs):
@@ -60,40 +89,36 @@ class ExecutorContext(LeekContext):
         """
         self.executor.cancel_order(order_id, symbol, **kwargs)
 
-    def get_order(self, order_id: str) -> 'SubOrder|None':
-        """
-        根据订单ID获取订单对象
-        """
-        return self.orders.get(order_id)
 
-    def update_order(self, order: 'SubOrder'):
-        """
-        新增或更新订单对象
-        """
-        self.orders[order.order_id] = order
-
-    def remove_order(self, order_id: str):
-        """
-        删除已完成（或撤销）订单
-        """
-        if order_id in self.orders:
-            del self.orders[order_id]
-
-
-    def _trade_callback(self, order):
+    def _trade_callback(self, msg: OrderUpdateMessage):
         """
         交易回调，反馈成交详细等信息。
         若订单已完成或撤销，则自动删除。
         """
-        # 用户自定义回调
-        self.event_bus.publish_event(Event(
-            event_type=EventType.EXECUTOR_UPDATE,
-            data=order,
-        ))
-        # 自动清理已完成订单
-        if hasattr(order, 'order_id') and hasattr(order, 'state'):
-            if order.state in ("filled", "canceled"):  # 成交或撤单即删除
-                self.remove_order(order.order_id)
+        if msg.order_id not in self.orders:
+            return
+
+        order = self.orders[msg.order_id]
+        order.order_status = msg.order_status
+        order.settle_amount = msg.settle_amount
+        order.execution_price = msg.execution_price
+        order.sz = msg.sz
+        order.fee = msg.fee
+        order.pnl = msg.pnl
+        order.unrealized_pnl = msg.unrealized_pnl
+        order.finish_time = msg.finish_time
+        order.friction = msg.friction
+        order.extra = msg.extra
+        order.market_order_id = msg.market_order_id
+        try:
+            # 用户自定义回调
+            self.event_bus.publish_event(Event(
+                event_type=EventType.ORDER_UPDATED,
+                data=order,
+            ))
+        finally:
+            if order.order_status.is_finished:
+                del self.orders[order.order_id]
 
     def on_start(self):
         self.executor.on_start()

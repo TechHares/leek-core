@@ -8,17 +8,18 @@ from .config import PositionConfig, StrategyConfig, LeekComponentConfig, SimpleE
 from .constants import TimeFrame, DataType, AssetType, MarketStatus, TradeMode, TradeInsType, OrderType, \
     PosMode, StrategyInstanceState, StrategyState, OrderStatus
 from .data import KLine, Data, InitDataPackage
-from .order import Order, SubOrder
+from .order import Order, ExecutionAsset, ExecutionContext, OrderUpdateMessage
 from .parameter import Field, FieldType, ChoiceType
-from .position import PositionSide, Position, PositionInfo
+from .position import PositionSide, Position, PositionInfo, OrderExecutionState
 from .signal import Signal, Asset
 
 __all__ = [
+    "OrderExecutionState",
+    "OrderUpdateMessage",
     "InitDataPackage",
     "StrategyPositionConfig",
     "SimpleEngineConfig",
     "LeekComponentConfig",
-    "SubOrder",
     "PositionInfo",
     "OrderStatus",
     "StrategyConfig",
@@ -41,6 +42,8 @@ __all__ = [
     "OrderType",
     "Field",
     "ChoiceType",
+    "ExecutionAsset",
+    "ExecutionContext",
     "FieldType",
     "PosMode"
 ]

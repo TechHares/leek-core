@@ -129,6 +129,17 @@ class PositionSide(Enum):
     LONG = 0    # 多头
     SHORT = 1   # 空头
     BOTH = 2    # 双向持仓
+    
+    def switch(self):
+        return PositionSide.LONG if self == PositionSide.SHORT else PositionSide.SHORT if self == PositionSide.LONG else PositionSide.BOTH
+    
+    @property
+    def is_long(self):
+        return self == PositionSide.LONG
+    
+    @property
+    def is_short(self):
+        return self == PositionSide.SHORT
 
 
 class StrategyInstanceState(Enum):
@@ -202,3 +213,7 @@ class OrderStatus(Enum):
     REJECTED = "rejected"    # 被拒绝
     EXPIRED = "expired"      # 过期未成交
     ERROR = "error"          # 异常
+
+    @property
+    def is_finished(self):
+        return self in [OrderStatus.FILLED, OrderStatus.CANCELED, OrderStatus.REJECTED, OrderStatus.EXPIRED, OrderStatus.ERROR]

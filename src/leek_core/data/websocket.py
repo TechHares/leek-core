@@ -223,6 +223,7 @@ class WebSocketDataSource(DataSource, ABC):
                 except websockets.exceptions.ConnectionClosed as e:
                     logger.error(f"WebSocket连接已关闭: {e}")
                     await self.on_connection_closed(e)
+                    self.send_data("reconnect")
                     break
         except Exception as e:
             logger.error(f"WebSocket监听循环中发生未知错误: {e}", exc_info=True)

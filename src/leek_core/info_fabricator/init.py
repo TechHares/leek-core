@@ -8,13 +8,6 @@ from leek_core.models import DataType, Field, FieldType, Data, InitDataPackage
 
 
 class KlineInitFabricator(Fabricator):
-    priority = float("-inf")
-    process_data_type = {DataType.KLINE, DataType.INIT_PACKAGE}
-    display_name = "历史K线初始化"
-    init_params = [
-        Field(name="num", type=FieldType.INT, default=100, label="初始化K线数量",
-              description="初始化K线数量"),
-    ]
     """
     历史K线初始化插件。
 
@@ -28,6 +21,13 @@ class KlineInitFabricator(Fabricator):
     参数说明：
     - num: 初始化K线数量，默认为100。
     """
+    priority = float("-inf")
+    process_data_type = {DataType.KLINE, DataType.INIT_PACKAGE}
+    display_name = "历史K线初始化"
+    init_params = [
+        Field(name="num", type=FieldType.INT, default=100, label="初始化K线数量",
+              description="初始化K线数量"),
+    ]
 
     def __init__(self, num: int=-1):
         """

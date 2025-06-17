@@ -179,7 +179,6 @@ class OkxDataSource(WebSocketDataSource):
                     # 转换时间戳
                     timestamp = int(row[0])
                     end_time = timestamp + tf.milliseconds
-
                     # 创建KLine对象
                     kline = KLine(
                         symbol=base_currency,
@@ -198,8 +197,7 @@ class OkxDataSource(WebSocketDataSource):
                         ins_type=ins_type,
                         is_finished=int(row[8]) == 1
                     )
-                    if kline.is_finished:
-                        return
+                    kline.asset_type = AssetType.CRYPTO
                     # 调用订阅的回调函数
                     self.send_data(kline)
                 except (IndexError, ValueError, TypeError) as e:
@@ -319,13 +317,13 @@ class OkxDataSource(WebSocketDataSource):
         ins_types = [(TradeInsType.SPOT.value, str(TradeInsType.SPOT)),
                      (TradeInsType.SWAP.value, str(TradeInsType.SWAP))]
         return [
-            Field(name='symbol', label='交易标的', type=FieldType.SELECT, required=True, choices=list(self.symbols),
+            Field(name='symbols', label='交易标的', type=FieldType.SELECT, required=True, choices=list(self.symbols),
                   choice_type=ChoiceType.STRING),
-            Field(name='timeframe', label='时间周期', type=FieldType.SELECT, required=True,
+            Field(name='timeframes', label='时间周期', type=FieldType.SELECT, required=True,
                   choices=list(OKX_TIMEFRAME_MAP.keys()), choice_type=ChoiceType.STRING),
-            Field(name='quote_currency', label='计价币种', type=FieldType.SELECT, required=True,
+            Field(name='quote_currencies', label='计价币种', type=FieldType.SELECT, required=True,
                   choices=["USDT"], choice_type=ChoiceType.STRING),
-            Field(name='ins_type', label='交易标的类型', type=FieldType.SELECT, required=True,
+            Field(name='ins_types', label='交易标的类型', type=FieldType.SELECT, required=True,
                   choices=ins_types, choice_type=ChoiceType.INT),
         ]
 

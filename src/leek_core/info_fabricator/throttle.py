@@ -16,13 +16,6 @@ logger = get_logger(__name__)
 
 
 class DataThrottleFabricator(Fabricator):
-    priority = -99
-    process_data_type = {DataType.KLINE}
-    display_name = "K线频率控制"
-    init_params = [
-        Field(name="price_change_ratio", type=FieldType.FLOAT, default=0.001, label="价格变化率", description="价格变化率小于阈值的K线可以过滤"),
-        Field(name="time_interval", type=FieldType.INT, default=10, label="时间间隔", description="时间间隔小于阈值的K线可以过滤"),
-    ]
     """
     K线数据频率控制插件。
 
@@ -40,6 +33,15 @@ class DataThrottleFabricator(Fabricator):
     - price_change_ratio: 价格变化率阈值，低于该阈值的K线会被过滤
     - time_interval: 时间间隔阈值，低于该间隔的K线会被过滤
     """
+    priority = -99
+    process_data_type = {DataType.KLINE}
+    display_name = "K线频率控制"
+    init_params = [
+        Field(name="price_change_ratio", type=FieldType.FLOAT, default=0.001, label="价格变化率",
+              description="价格变化率小于阈值的K线可以过滤"),
+        Field(name="time_interval", type=FieldType.INT, default=10, label="时间间隔(s)",
+              description="时间间隔小于阈值的K线可以过滤"),
+    ]
 
     def __init__(self, price_change_ratio:Decimal, time_interval:int):
         """
@@ -63,7 +65,7 @@ class DataThrottleFabricator(Fabricator):
                 yield nk
 
     def _process(self, kline: KLine) -> List[KLine]:
-        if kline.row_key not in self.pre:
+        if kline.row_key not in self.pre or kline.is_finished:
             self.pre[kline.row_key] = kline
             return [kline]
         pre_kline = self.pre[kline.row_key]

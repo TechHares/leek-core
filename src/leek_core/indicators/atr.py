@@ -3,7 +3,7 @@
 # @File    : atr.py
 # @Software: PyCharm
 
-from indicators.t import T
+from .t import T
 
 
 class TR(T):
@@ -19,7 +19,7 @@ class TR(T):
         tr = data.high - data.low
         if self.pre_close is not None:
             tr = max(tr, abs(data.high - self.pre_close), abs(data.low - self.pre_close))
-        if data.is_finished == 1:
+        if data.is_finished:
             self.cache.append(tr)
             self.pre_close = data.close
         return tr
@@ -40,14 +40,14 @@ class ATR(T):
         try:
             tr = self.tr_cal.update(data)
             ls = self.tr_cal.last(self.window)
-            if data.is_finished != 1:
+            if not data.is_finished:
                 ls.append(tr)
             if len(ls) > self.window:
                 ls = ls[-self.window:]
             atr = sum(ls) / len(ls)
             return atr
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.cache.append(atr)
 
 

@@ -68,9 +68,10 @@ class EventType(Enum):
     EXECUTOR_UPDATE = "executor_update"  # 执行器更新 todo
 
     # 订单执行事件
-    ORDER_CREATED = "order_created"  # 订单创建
-    ORDER_SENT = "order_sent"  # 订单发送 todo
-    ORDER_UPDATE = "order_update"  # 订单更新
+    EXEC_ORDER_CREATED = "exec_order_created"  # 订单创建
+    EXEC_ORDER_UPDATED = "exec_order_updated"  # 订单更新
+    ORDER_CREATED = "order_created"  # 订单路由
+    ORDER_UPDATED = "order_updated"  # 订单更新
 
     # 资金管理事件
     FUND_ALLOCATED = "fund_allocated"  # 资金分配 todo
@@ -104,7 +105,6 @@ class Event:
         """
         self.event_type = event_type
         self.data = data
-        assert source is not None, "Event source is None"
         self.source = source
 
     def __str__(self):

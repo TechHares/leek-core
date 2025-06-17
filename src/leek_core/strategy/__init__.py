@@ -9,6 +9,9 @@ from .context import StrategyContext
 from .cta import CTAStrategy
 from .strategy_mode import StrategyMode, KlineSimple, Single
 
+from .strategy_dmi import DMIStrategy
+# from.strategy_debug import DebugStrategy
+
 __all__ = [
     'StrategyCommand',
     'CTAStrategy',
@@ -16,4 +19,6 @@ __all__ = [
     'StrategyContext',
     'KlineSimple',
     'Single',
+    'DMIStrategy',
+    # 'DebugStrategy',
 ]

@@ -26,6 +26,10 @@ class DataSourceContext(LeekContext):
         self.subscribe_info: Dict[tuple, set[str]] = {}
 
     def send_data(self, data: Data):
+        if isinstance(data, str) and data == "reconnect":
+            self.update(self.config)
+            return
+
         if self.params_list is None:
             self.params_list = self._data_source.get_supported_parameters()
 

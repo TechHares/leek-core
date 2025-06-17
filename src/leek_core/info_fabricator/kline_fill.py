@@ -17,9 +17,6 @@ logger = get_logger(__name__)
 
 
 class KLineFillFabricator(Fabricator):
-    priority = -100
-    process_data_type = {DataType.KLINE}
-    display_name = "缺失K线填充"
     """
     K线数据填充处理器，用于处理缺失的K线数据。
 
@@ -37,6 +34,9 @@ class KLineFillFabricator(Fabricator):
     注意事项：
     - 填充K线为估算数据，仅用于辅助分析和保持数据流完整，不能作为真实成交依据。
     """
+    priority = -100
+    process_data_type = {DataType.KLINE}
+    display_name = "缺失K线填充"
 
     def __init__(self):
         """
@@ -119,6 +119,7 @@ class KLineFillFabricator(Fabricator):
             data_type=kline.data_type,
             metadata={"is_filled": True}  # 标记这是填充的K线
         )
+        filled_kline.asset_type = kline.asset_type
         if not last_kline.is_finished:
             r = Decimal(
                 int(kline.timeframe.milliseconds * 100 / (last_kline.current_time - last_kline.start_time + 1)) / 100)

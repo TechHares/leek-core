@@ -2,8 +2,9 @@
 # -*- coding: utf-8 -*-
 from abc import ABC
 from decimal import Decimal
+from typing import Any
 
-from leek_core.models import Data, DataType, KLine, PositionSide
+from leek_core.models import Data, DataType, KLine, PositionSide, Position
 from .base import Strategy, StrategyCommand
 
 
@@ -44,6 +45,13 @@ class CTAStrategy(Strategy, ABC):
         """
         ...
 
+    def close(self, position: Position) -> Any:
+        """
+        平仓操作，子类可以选择重写此方法
+        参数:
+            position: 当前仓位
+        """
+        return self.should_close(position.side)
 
     def should_close(self, position_side: PositionSide) -> bool | Decimal:
 

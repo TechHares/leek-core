@@ -9,12 +9,12 @@ from typing import Dict, Any
 
 from leek_core.manager import ComponentManager
 from leek_core.event import Event, EventType, EventBus
-from leek_core.models import StrategyState, LeekComponentConfig, Position
+from leek_core.models import StrategyState, LeekComponentConfig, Position, StrategyConfig
 from leek_core.strategy import StrategyContext, Strategy
 from leek_core.utils import get_logger
 logger = get_logger(__name__)
 
-class StrategyManager(ComponentManager[StrategyContext, Strategy, Dict[str, Any]]):
+class StrategyManager(ComponentManager[StrategyContext, Strategy, StrategyConfig]):
     """
     管理多个策略上下文（StrategyContext）并提供统一接口。
 
@@ -32,6 +32,18 @@ class StrategyManager(ComponentManager[StrategyContext, Strategy, Dict[str, Any]
         super().__init__(event_bus, config)
         self.event_bus = event_bus
         self.executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="StrategyManager-")
+
+    def update(self, config: LeekComponentConfig[Strategy, StrategyConfig]):
+        """
+        更新指定实例。
+        """
+        ins_id = str(config.instance_id)
+        strategy_ctx = self.components.pop(ins_id, None)
+        if strategy_ctx:
+            state = strategy_ctx.get_state()
+            config.config.runtime_data = state
+            strategy_ctx.on_stop()
+        self.add(config)
 
     def on_data_event(self, event: Event):
         """
@@ -66,8 +78,16 @@ class StrategyManager(ComponentManager[StrategyContext, Strategy, Dict[str, Any]
     def on_start(self):
         self.event_bus.subscribe_event(EventType.DATA_RESPONSE, self.on_data_event)
         self.event_bus.subscribe_event(EventType.DATA_RECEIVED, self.on_data_event)
+        self.event_bus.subscribe_event(EventType.POSITION_UPDATE, self.on_position_update_event)
         logger.info(
             f"事件订阅: 策略管理-{self.name}@{self.instance_id} 订阅 {[e.value for e in [EventType.DATA_RESPONSE, EventType.DATA_RECEIVED]]}")
+        
+    def on_stop(self):
+        self.event_bus.unsubscribe_event(EventType.DATA_RESPONSE, self.on_data_event)
+        self.event_bus.unsubscribe_event(EventType.DATA_RECEIVED, self.on_data_event)
+        self.event_bus.unsubscribe_event(EventType.DATA_RECEIVED, self.on_position_update_event)
+        self.executor.shutdown(wait=True)
+        super().on_stop()
 
 
 if __name__ == '__main__':

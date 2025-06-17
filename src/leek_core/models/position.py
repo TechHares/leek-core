@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 from .constants import TradeInsType, AssetType
 from .order import Order
@@ -65,8 +65,19 @@ class PositionSide(Enum):
 
 
 @dataclass
+class OrderExecutionState:
+    """订单执行状态"""
+    order_id: str
+    is_open: bool = True
+    settle_amount: Decimal = Decimal('0')
+    fee: Decimal = Decimal('0')
+    friction: Decimal = Decimal('0')
+    pnl: Decimal = Decimal('0')
+    sz: Decimal = Decimal('0')
+
+
+@dataclass
 class Position:
-    from .signal import Signal
     """
     表示一个策略在一个交易器下、一个单独标的的仓位。
 
@@ -75,7 +86,6 @@ class Position:
         strategy_id:      策略ID
         signal_id:        信号ID
         executor_id:      执行器ID
-        order_id:         主订单ID
         is_fake:          是否是假仓位
         symbol:           交易对符号
         quote_currency:   计价币种（如"USDT"）
@@ -88,13 +98,11 @@ class Position:
         friction:         摩擦成本
         leverage:         杠杆倍数
         open_time:        开仓时间
-        orders:           相关订单列表
-        signals:          相关信号列表
     """
     position_id: str  # 仓位ID
 
     strategy_id: str  # 策略ID
-    strategy_instant_id: str       # 策略实例ID
+    strategy_instance_id: str       # 策略实例ID
 
     symbol: str  # 交易标的
     quote_currency: str  # 计价货币
@@ -103,13 +111,15 @@ class Position:
 
     side: PositionSide         # 仓位方向（多/空）
     cost_price: Decimal        # 开仓成本价
-    amount: Decimal            # 仓位数量
+    amount: Decimal            # 当前价值
     ratio: Decimal             # 占资金比例
-    executing_amount: Decimal = None  # 仓位数量
-    executing_ratio: Decimal = None   # 占资金比例
+
+    close_price: Decimal = None        # 平仓成本价
+    total_amount: Decimal = Decimal("0")  # 累计价值
+    total_back_amount: Decimal = Decimal("0")  # 累计回款金额
+    total_sz: Decimal = Decimal("0")  # 累计仓位数量
 
     executor_id: str = None # 执行器ID
-    order_id: str = None  # 主订单ID
     is_fake: bool = False # 是否是假仓位
 
     pnl: Decimal = Decimal("0")  # 盈亏
@@ -117,9 +127,14 @@ class Position:
     friction: Decimal = Decimal("0")  # 摩擦成本 特指合约资金费之类的磨损， 冲击成本不算
     leverage: Decimal = Decimal("1")  # 杠杆倍数，默认1倍
     open_time: datetime = datetime.now()  # 开仓时间
-    orders: Optional[List[Order]] = field(default=list)  # 相关订单列表
-    signals: Optional[List["Signal"]] = field(default=list)  # 相关信号列表
 
+    # 订单执行状态跟踪
+    executor_sz: Dict[str, Decimal] = field(default_factory=dict)  # 执行器的仓位大小
+    order_states: Dict[str, OrderExecutionState] = field(default_factory=dict)  # 订单ID -> 执行状态
+
+    @property
+    def sz(self):
+        return sum(Decimal(s) for s in self.executor_sz.values()) if self.executor_sz else Decimal('0')
 
 @dataclass
 class PositionInfo:

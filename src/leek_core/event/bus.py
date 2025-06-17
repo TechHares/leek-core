@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from typing import Dict, Set, Callable
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import functools
 
 from leek_core.utils import get_logger
 from .types import EventType, Event
@@ -18,6 +21,7 @@ class EventBus:
         """初始化事件总线"""
         self._subscribers: Dict[EventType, Set[Callable]] = {}
         self._all_event_subscribers: Set[Callable] = set()
+        self._executor = ThreadPoolExecutor(max_workers=10)
 
     def subscribe_event(self, event_type: EventType, callback: Callable) -> bool:
         """
@@ -57,20 +61,30 @@ class EventBus:
             return True
         return False
 
+    def _run_callback(self, cb, event):
+        """在线程池中执行回调函数"""
+        try:
+            return cb(event)
+        except Exception as e:
+            logger.error(f"事件处理异常: {e}", exc_info=True)
+
     def publish_event(self, event: Event):
         """
         发布事件，支持分发给所有订阅者（包括订阅所有事件的回调）
+        使用线程池非阻塞执行所有回调
         """
-        # 先分发给具体类型订阅者
+        callbacks = []
+        
+        # 收集具体类型订阅者
         if event.event_type in self._subscribers:
-            for cb in list(self._subscribers[event.event_type]):
-                try:
-                    cb(event)
-                except Exception as e:
-                    logger.error(f"事件处理异常: {e}", exc_info=True)
-        # 再分发给全局订阅者
-        for cb in self._all_event_subscribers:
-            try:
-                cb(event)
-            except Exception as e:
-                logger.error(f"全局事件处理异常: {e}", exc_info=True)
+            callbacks.extend(list(self._subscribers[event.event_type]))
+        
+        # 收集全局订阅者
+        callbacks.extend(list(self._all_event_subscribers))
+        
+        if not callbacks:
+            return
+
+        # 在线程池中执行所有回调
+        for cb in callbacks:
+            self._executor.submit(self._run_callback, cb, event)

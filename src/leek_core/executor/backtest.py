@@ -8,7 +8,7 @@
 import random
 from decimal import Decimal
 
-from leek_core.models import Data, Field, OrderType, SubOrder, FieldType, ChoiceType
+from leek_core.models import Data, Field, OrderType, Order, FieldType, ChoiceType
 from leek_core.utils import get_logger, decimal_quantize
 from .base import Executor
 
@@ -68,7 +68,7 @@ class BacktestExecutor(Executor):
             self.limit_order_execution_rate = 100
 
 
-    def send_order(self, order: SubOrder) -> SubOrder:
+    def send_order(self, order: Order) -> Order:
         """
         处理订单（参数补全、风控、成交模拟、推送）
         """

@@ -8,11 +8,12 @@ import asyncio
 import threading
 from abc import abstractmethod, ABC
 from enum import Enum, auto
+from typing import List
 
 import websockets
 
 from leek_core.base import LeekComponent
-from leek_core.models import SubOrder, Order, Field, FieldType
+from leek_core.models import Order, Field, FieldType, OrderUpdateMessage
 from leek_core.utils import get_logger
 
 logger = get_logger(__name__)
@@ -38,6 +39,7 @@ class Executor(LeekComponent, ABC):
         参数:
             callback: 回调函数，用于处理订单状态变化等信息
         """
+        self.instance_id = None
         self.callback = None
 
     def check_order(self, order: Order) -> bool:
@@ -52,7 +54,7 @@ class Executor(LeekComponent, ABC):
         return True
 
     @abstractmethod
-    def send_order(self, order: SubOrder):
+    def send_order(self, order: Order|List[Order]):
         """
         下单
 
@@ -71,14 +73,14 @@ class Executor(LeekComponent, ABC):
         """
         raise NotImplementedError()
 
-    def _trade_callback(self, order):
+    def _trade_callback(self, order_update_message: OrderUpdateMessage):
         """
         交易回调，反馈成交详细等信息。
         若订单已完成或撤销，则自动删除。
         """
         # 用户自定义回调
         if self.callback:
-            self.callback(order)
+            self.callback(order_update_message)
 
 
 class WebSocketExecutor(Executor, ABC):
@@ -159,12 +161,16 @@ class WebSocketExecutor(Executor, ABC):
                     self._current_retries = 0
                     logger.info(f"[WebSocketExecutor] _run: 连接成功 {self.ws_url}")
                     self._conn_event.set()
-                    await asyncio.gather(
-                        self.on_open(),
-                        self._recv_loop(),
-                        self._heartbeat_loop(),
-                        return_exceptions=True
-                    )
+                    try:
+                        await asyncio.gather(
+                            self.on_open(),
+                            self._recv_loop(),
+                            self._heartbeat_loop()
+                        )
+                    except Exception as e:
+                        logger.warning(f"[WebSocketExecutor] _run: 任务异常 {e}, 当前重试次数: {self._current_retries}")
+                        await self.on_error(e)
+                        raise  # 重新抛出异常以触发重连
             except Exception as e:
                 logger.warning(f"[WebSocketExecutor] _run: 连接异常 {e}, 当前重试次数: {self._current_retries}")
                 await self.on_error(e)
@@ -203,12 +209,8 @@ class WebSocketExecutor(Executor, ABC):
             return
         logger.debug(f"[WebSocketExecutor] _heartbeat_loop: 启动心跳循环，间隔 {self.heartbeat_interval}s")
         while not self._stop_event.is_set() and self._ws:
-            try:
-                await self.send_heartbeat()
-                logger.debug("[WebSocketExecutor] _heartbeat_loop: 已发送心跳")
-            except Exception as e:
-                logger.error(f"[WebSocketExecutor] _heartbeat_loop: 心跳异常: {e}")
-                await self.on_error(e)
+            await self.send_heartbeat()
+            logger.debug("[WebSocketExecutor] _heartbeat_loop: 已发送心跳")
             await asyncio.sleep(self.heartbeat_interval)
 
     async def _close_ws(self):
@@ -260,3 +262,27 @@ class WebSocketExecutor(Executor, ABC):
         """
         logger.error(f"[WebSocketExecutor] on_error: {error}")
         ...
+
+    def async_send(self, message: str) -> bool:
+        """
+        从同步上下文发送消息到WebSocket服务器。
+
+        参数:
+            message: 要发送的消息
+
+        返回:
+            bool: 发送成功返回True，否则返回False
+        """
+        if self._loop is None:
+            logger.error("WebSocket未连接，无法发送消息")
+            return False
+
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self.send(message),
+                self._loop
+            )
+            return future.result(timeout=5.0)
+        except Exception as e:
+            logger.error(f"异步发送WebSocket消息时出错: {e}", exc_info=True)
+            return False

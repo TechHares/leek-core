@@ -45,6 +45,12 @@ class StrategyPositionConfig:
     order_type: OrderType = None  # 订单类型
     executor_id: str = None  # 指定执行器ID
 
+    def __post_init__(self):
+        self.order_type = OrderType(self.order_type) if self.order_type else None
+        self.leverage = Decimal(self.leverage) if self.leverage else None
+        self.principal = Decimal(self.principal) if self.principal else None
+        self.executor_id = str(self.executor_id) if self.executor_id else None
+
 
 @dataclass
 class StrategyConfig:

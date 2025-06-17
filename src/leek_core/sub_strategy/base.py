@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import List, Set
 
 from leek_core.base import LeekComponent
-from leek_core.models import Field, DataType, PositionSide
+from leek_core.models import Field, DataType, PositionSide, Data
 
 
 class SubStrategy(LeekComponent, ABC):
@@ -32,6 +32,9 @@ class SubStrategy(LeekComponent, ABC):
         super().__init__()
         self.progress = Decimal('0')  # 进度，0-1之间的小数
     
+    def on_data(self, data: Data):
+        ...
+
     @abstractmethod
     def ratio(self, position_side: PositionSide):
         """
@@ -75,6 +78,7 @@ class EnterStrategy(SubStrategy):
 
     def ratio(self, position_side: PositionSide):
         self.progress = Decimal('1')
+        return self.progress
 
 
 class ExitStrategy(SubStrategy):
@@ -93,3 +97,4 @@ class ExitStrategy(SubStrategy):
 
     def ratio(self, position_side: PositionSide):
         self.progress = Decimal('1')
+        return self.progress

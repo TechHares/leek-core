@@ -48,12 +48,13 @@ class ComponentManager(LeekContext, Generic[CTX, T, CFG]):
         参数：
             data_source_config: 需要添加的配置
         """
-        if config.instance_id in self.components:
+        ins_id = str(config.instance_id)
+        if ins_id in self.components:
             return
-        self.components[config.instance_id] = self.config.cls(self.event_bus, config)
-        is_finish = run_func_timeout(self.components[config.instance_id].on_start, [], {}, 20)
+        self.components[ins_id] = self.config.cls(self.event_bus, config)
+        is_finish = run_func_timeout(self.components[ins_id].on_start, [], {}, 20)
         if not is_finish:
-            self.components.pop(config.instance_id)
+            self.components.pop(ins_id)
             logger.error(f"组件{config.name}启动超时")
             return
         logger.info(f"组件{config.name}启动完成")
@@ -64,16 +65,17 @@ class ComponentManager(LeekContext, Generic[CTX, T, CFG]):
         参数：
             instance_id: 要获取实例ID
         """
-        return self.components.get(instance_id)
+        return self.components.get(str(instance_id))
     
     def update(self, config: LeekComponentConfig[T, CFG]):
         """
         更新指定实例。
         """
-        if config.instance_id not in self.components:
+        ins_id = str(config.instance_id)
+        if ins_id not in self.components:
             self.add(config)
             return
-        self.components[config.instance_id].update(config)
+        self.components[ins_id].update(config)
 
     def remove(self, instance_id: str):
         """
@@ -82,11 +84,12 @@ class ComponentManager(LeekContext, Generic[CTX, T, CFG]):
         参数：
             instance_id: 要移除实例ID
         """
-        if instance_id not in self.components:
+        ins_id = str(instance_id)
+        if ins_id not in self.components:
             return
-        source = self.components[instance_id]
+        source = self.components[ins_id]
         run_func_timeout(source.on_stop, [], {})
-        self.components.pop(instance_id)
+        self.components.pop(ins_id)
 
     def on_stop(self):
         """

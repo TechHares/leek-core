@@ -8,7 +8,7 @@ from decimal import Decimal
 
 import numpy as np
 
-from indicators.t import T
+from .t import T
 
 
 class MA(T):
@@ -31,7 +31,7 @@ class MA(T):
             ma = sum([self.vfunc(d) for d in ls], self.vfunc(data)) / self.window
             return ma
         finally:
-            if finish_v or (finish_v is None and data.is_finished == 1):
+            if finish_v or (finish_v is None and data.is_finished):
                 self.q.append(data)
                 self.cache.append(ma)
 
@@ -57,7 +57,7 @@ class EMA(T):
             ma = self.alpha * self.vfunc(data) + (1 - self.alpha) * self.pre_ma
             return ma
         finally:
-            if finish_v or (finish_v is None and data.is_finished == 1):
+            if finish_v or (finish_v is None and data.is_finished):
                 self.pre_ma = ma
                 self.cache.append(ma)
 
@@ -88,7 +88,7 @@ class WMA(T):
             ma = w_sum / self.weights
             return ma
         finally:
-            if finish_v or (finish_v is None and data.is_finished == 1):
+            if finish_v or (finish_v is None and data.is_finished):
                 self.q.append(self.vfunc(data))
                 self.cache.append(ma)
 
@@ -113,10 +113,10 @@ class HMA(T):
             if wma1 is None or wma2 is None:
                 return ma
             hma_noo_smooth = (wma1 * 2 - wma2)
-            ma = self.wma3.update(hma_noo_smooth, data.is_finished == 1)
+            ma = self.wma3.update(hma_noo_smooth, data.is_finished)
             return ma
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.cache.append(ma)
 
 
@@ -152,7 +152,7 @@ class KAMA(T):
             ma = c_squared * data.close + (1 - c_squared) * self.pre_ama
             return ma
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.q.append(data)
                 self.cache.append(ma)
                 self.pre_ama = data.close if ma is None else ma
@@ -187,7 +187,7 @@ class FRAMA(T):
             ma = a * (data.high + data.low) / 2 + (1 - a) * self.pre_ama
             return ma
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.q.append(data)
                 self.cache.append(ma)
                 self.pre_ama = data.close if ma is None else ma
@@ -219,7 +219,7 @@ class LLT(T):
         llt = None
         try:
             if self.pre_close is None:
-                if data.is_finished != 1 or self.pre_pre_close is None:
+                if not data.is_finished or self.pre_pre_close is None:
                     llt = data.close
                     return llt
                 self.pre_close = data.close
@@ -230,7 +230,7 @@ class LLT(T):
             llt = self.m1 * data.close + self.m2 * self.pre_close - self.m3 * self.pre_pre_close + self.n1 * self.pre_llt - self.n2 * self.pre_pre_llt
             return llt
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.cache.append(llt)
                 if self.pre_pre_close is None:
                     self.pre_pre_close = data.close
@@ -273,7 +273,7 @@ class SuperSmoother(T):
                 ss = self.c1 * (data.close + self.pre_close) / 2 + self.c2 * lst[-1] + self.c3 * lst[-2]
             return ss
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.cache.append(ss)
                 self.pre_close = data.close
 
@@ -309,7 +309,7 @@ class UltimateOscillator(T):
                       * prices[-2] + us[-1] * self.c2 + us[-2] * self.c3)
             return ss
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.cache.append(ss)
                 self.q.append(data.close)
 

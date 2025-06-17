@@ -41,6 +41,7 @@ class Signal:
     每个信号包含其来源、相关配置、产生时间、约束条件及扩展信息。
     该模型作为策略与执行、风控等组件之间的标准数据结构。
     """
+    signal_id: str                # 信号ID
     data_source_instance_id: str  # 数据源实例ID，用于标识信号来源的数据源组件
     strategy_id: str              # 策略实例ID，标识产生该信号的策略实例
     strategy_instance_id: str     # 策略实例ID，标识产生该信号的策略实例

@@ -66,15 +66,28 @@ class IdGenerator:
             else:
                 self._sequence = 0
             self._last_timestamp = timestamp
-            id_ = ((timestamp - self._epoch) << (self._worker_id_bits + self._sequence_bits)) | \
+            
+            # 确保时间戳部分不超过41位
+            timestamp_bits = (timestamp - self._epoch) & ((1 << self._timestamp_bits) - 1)
+            
+            # 组合ID
+            id_ = (timestamp_bits << (self._worker_id_bits + self._sequence_bits)) | \
                   (self.worker_id << self._sequence_bits) | \
                   self._sequence
             return id_
 
 
-def generate_str(worker_id=0):
+_id_generator = IdGenerator(worker_id=0)
+def set_worker_id(worker_id=0):
+    global _id_generator
+    _id_generator = IdGenerator(worker_id=worker_id)
+
+def generate_str(worker_id=None):
     return str(generate(worker_id))
 
 
 def generate(worker_id=0):
+    if worker_id is None:
+        return _id_generator.next_id()
+
     return IdGenerator(worker_id=worker_id).next_id()

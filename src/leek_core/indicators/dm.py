@@ -1,10 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# @File    : dm.py
-# @Software: PyCharm
-from leek.t.atr import TR
-from leek.t.ma import EMA, MA
-from leek.t.t import T
+from .atr import TR
+from .ma import EMA, MA
+from .t import T
 
 
 class DMI(T):
@@ -28,21 +26,21 @@ class DMI(T):
         self.dx_smooth = EMA(adx_smoothing, vfunc=lambda x: x)
         self.pre = None
 
-    def update(self, data):
+    def update(self, kline):
         d = None
         try:
             if self.pre is None:
                 return None, None, None, None
-            tr = self.tr_cal.update(data)
-            up_dm = max(data.high - self.pre.high, 0)
-            up_di = self.up_di_smooth.update((100 * up_dm / tr) if tr != 0 else 100, data.is_finished == 1)
-            down_dm = max(self.pre.low - data.low, 0)
-            down_di = self.down_di_smooth.update((100 * down_dm / tr) if tr != 0 else 100, data.is_finished == 1)
+            tr = self.tr_cal.update(kline)
+            up_dm = max(kline.high - self.pre.high, 0)
+            up_di = self.up_di_smooth.update((100 * up_dm / tr) if tr != 0 else 100, kline.is_finished)
+            down_dm = max(self.pre.low - kline.low, 0)
+            down_di = self.down_di_smooth.update((100 * down_dm / tr) if tr != 0 else 100, kline.is_finished)
             if up_di is None or down_di is None:
                 return None, None, None, None
 
             dx = (abs(up_di - down_di) / (up_di + down_di) * 100) if up_di + down_di > 0 else 100
-            adx = self.dx_smooth.update(dx, data.is_finished == 1)
+            adx = self.dx_smooth.update(dx, kline.is_finished)
             last = self.last(self.adx_smoothing + 1)
             adxr = adx
             if len(last) >= self.adx_smoothing:
@@ -50,8 +48,8 @@ class DMI(T):
             d = (adx, up_di, down_di, adxr)
             return adx, up_di, down_di, adxr
         finally:
-            if data.is_finished == 1:
-                self.pre = data
+            if kline.is_finished:
+                self.pre = kline
                 if d:
                     self.cache.append(d)
 

@@ -5,14 +5,14 @@
 策略基础模块，提供策略的抽象基类和通用功能。
 """
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from decimal import Decimal
 from logging import Logger
 from typing import Any, Set, List
 
 from leek_core.base import LeekComponent
-from leek_core.models import PositionSide, Field, Data, DataType
+from leek_core.models import PositionSide, Field, Data, DataType, Position
 from leek_core.utils import get_logger
 from .strategy_mode import StrategyMode, KlineSimple
 
@@ -80,13 +80,7 @@ class Strategy(LeekComponent, ABC):
             是否应该开仓 PositionSide 表示全仓开， StrategyCommand 可以自定义比例
         """
         ...
-    
-    def should_close(self, position_side:PositionSide) -> Any:
-        """
-        判断是否应该平仓
-        参数:
-            position_side: 当前仓位方向
-        返回:
-            是否应该平仓 True 表示平仓，False 表示不平仓，Decimal 表示平仓比例
-        """
-        return False
+
+    @abstractmethod
+    def close(self, position: Position) -> Any:
+        ...

@@ -1,13 +1,17 @@
 from multiprocessing import Process, Pipe
 from multiprocessing.connection import Connection
-from typing import Optional, Any, Dict, List, Callable
+import time
+from typing import Optional, Any, Dict, List, Callable, Set
 import uuid
+import inspect
 import psutil
+from threading import Lock
+from functools import wraps
 
 from leek_core.alarm import ErrorAlarmHandler
 from .base import Engine
 from leek_core.data import DataSource, DataSourceContext
-from leek_core.event import EventBus
+from leek_core.event import EventBus, Event, EventType
 from leek_core.executor import Executor, ExecutorContext
 from leek_core.manager import DataManager, StrategyManager, PositionManager, ExecutorManager
 from leek_core.models import LeekComponentConfig, StrategyConfig, PositionConfig
@@ -16,9 +20,10 @@ from leek_core.utils import get_logger, run_func_timeout
 from leek_core.alarm import AlarmSender, alarm_manager
 from leek_core.base import create_component, load_class_from_str
 import asyncio
-from leek_core.utils import setup_logging
+from leek_core.utils import setup_logging, set_worker_id
 import sys
 import os
+import pickle
 
 logger = get_logger(__name__)
 
@@ -29,7 +34,7 @@ class ProcessEngine(Engine):
     主进程挂掉时，Pipe断开，子进程自动退出。
     """
 
-    def __init__(self, conn: Connection, instance_id: str, name: str, position_config: PositionConfig = None):
+    def __init__(self, conn: Connection, instance_id: str, name: str, position_config: PositionConfig = None, event_hook: Set[EventType] = None):
         super().__init__()
         self.conn = conn  # 用于收发主进程消息
         self.running = True
@@ -37,8 +42,10 @@ class ProcessEngine(Engine):
         self.name = name
         self.position_config = position_config
         self.response_handlers: Dict[str, Callable] = {}  # 存储响应处理器，按消息ID索引
+        self.__send_lock = Lock()
 
         self.event_bus = EventBus()
+        self.event_hook = event_hook or set()
         self.data_source_manager: DataManager = DataManager(
             self.event_bus, LeekComponentConfig(
                 instance_id=instance_id,
@@ -72,6 +79,10 @@ class ProcessEngine(Engine):
             ))
         self.executor_manager.on_start()
 
+    def handle_event(self, event: Event):
+        if event.event_type in self.event_hook:
+            self.send_msg("event", event=event)
+
     def start(self) -> None:
         pass
 
@@ -81,16 +92,17 @@ class ProcessEngine(Engine):
         收到'shutdown'或管道断开时自动退出。
         """
         self.running = True
+        self.event_bus.subscribe_event(None, self.handle_event)
         self.start()
         try:
             while self.running:
                 if self.conn.poll(5):  # 1秒超时，非阻塞检查
                     msg = self.conn.recv()
                     self.handle_message(msg)
-        except (EOFError, KeyboardInterrupt):
-            ...
+        except (EOFError, KeyboardInterrupt) as e:
+            logger.warning(f"引擎退出: {e}")
         except Exception as e:
-            logger.error(f"引擎运行时出错: {e}")
+            logger.error(f"引擎运行时出错: {e}", exc_info=True)
         
         self.on_stop()
 
@@ -107,6 +119,10 @@ class ProcessEngine(Engine):
         kwargs = msg.get("kwargs", {})
         msg_id = msg.get("msg_id")
         
+        # 反序列化参数
+        args = [arg for arg in args]
+        kwargs = {k: v for k, v in kwargs.items()}
+        
         if hasattr(self, action):
             method = getattr(self, action)
             try:
@@ -115,7 +131,7 @@ class ProcessEngine(Engine):
                 if msg_id:
                     self.send_msg("response", msg_id=msg_id, result=result)
             except Exception as e:
-                logger.error(f"处理命令 {method.__name__} 时出错: {e}", exc_info=True)
+                logger.error(f"处理命令 {action} 时出错，参数{args} {kwargs}，错误信息: {e}", exc_info=True)
                 if msg_id:
                     self.send_msg("response", msg_id=msg_id, error=str(e))
         else:
@@ -234,7 +250,8 @@ class ProcessEngine(Engine):
         """发送消息到主进程"""
         msg = {"action": action, "args": args, "kwargs": kwargs}
         try:
-            self.conn.send(msg)
+            # with self.__send_lock:
+            self.conn.send(msg) 
         except Exception as e:
             logger.error(f"发送消息失败: {e}")
 
@@ -245,7 +262,7 @@ class ProcessEngineClient(Engine):
     负责启动/关闭引擎子进程，发送指令，接收结果。
     """
 
-    def __init__(self, instance_id: str, name: str, config = None):
+    def __init__(self, instance_id: str, name: str, config = None, event_hook: Set[EventType] = None):
         super().__init__()
         # 创建双向管道，parent_conn 用于主进程发送消息，child_conn 用于子进程接收消息
         self.parent_conn, self.child_conn = Pipe()
@@ -253,6 +270,7 @@ class ProcessEngineClient(Engine):
         self.instance_id = instance_id
         self.name = name
         self.config = config
+        self.event_hook = event_hook or set()
         self.message_handlers: Dict[str, List[Callable]] = {}
         self.response_futures: Dict[str, asyncio.Future] = {}  # 存储invoke响应的Future对象
 
@@ -261,7 +279,7 @@ class ProcessEngineClient(Engine):
         if action not in self.message_handlers:
             self.message_handlers[action] = []
         self.message_handlers[action].append(handler)
-        logger.debug(f"注册消息处理器: {action} -> {handler.__name__}")
+        logger.info(f"注册消息处理器: {action} -> {handler.__name__}")
 
     def unregister_handler(self, action: str, handler: Callable):
         """删除消息处理器"""
@@ -278,15 +296,16 @@ class ProcessEngineClient(Engine):
         if self.process is None or not self.process.is_alive():
             # 只传 child_conn 给子进程
             self.process = Process(target=self._start_engine,
-                                 args=(self.child_conn, self.instance_id, self.name, self.config), name=f"ProcessEngine-{self.instance_id}-{self.name}")
+                                 args=(self.child_conn, self.instance_id, self.name, self.config, self.event_hook), name=f"ProcessEngine-{self.instance_id}-{self.name}")
             self.process.start()
             logger.info(f"[ProcessEngineClient] Engine process started. ({self.instance_id}, {self.name})")
 
-    def _start_engine(self, conn: Connection, instance_id: str, name: str, config=None):
+    def _start_engine(self, conn: Connection, instance_id: str, name: str, config=None, event_hook: Set[EventType] = None):
         # 设置日志格式
         log_level = config.get('log_level', 'INFO')
         log_format = config.get('log_format', 'json')
         log_alarm = config.get('log_alarm', False)
+        set_worker_id(int(instance_id))
 
         # 准备 external_handlers
         external_handlers = []
@@ -313,6 +332,8 @@ class ProcessEngineClient(Engine):
         # 加载 mount_dirs
         mount_dirs = config.get('mount_dirs', [])
         for dir_path in mount_dirs:
+            if dir_path == "default":
+                continue
             if os.path.exists(dir_path) and os.path.isdir(dir_path):
                 if dir_path not in sys.path:
                     sys.path.append(dir_path)
@@ -327,9 +348,9 @@ class ProcessEngineClient(Engine):
                 name=policy.get('name'),
                 cls=load_class_from_str(policy.get('class_name')),
                 config=policy.get('params')) for policy in position_setting['risk_policies'] if policy.get('enabled')]
-            engine = ProcessEngine(conn, instance_id, name, PositionConfig(**position_setting))
+            engine = ProcessEngine(conn, instance_id, name, PositionConfig(**position_setting), event_hook)
         except Exception as e:
-            logger.error(f"设置仓位配置时出错: {e}")
+            logger.error(f"设置仓位配置时出错: {e}", exc_info=True)
             return
         engine.run()
 
@@ -338,7 +359,10 @@ class ProcessEngineClient(Engine):
         发送消息到引擎进程，不等待响应
         """
         msg = {"action": action, "args": args, "kwargs": kwargs}
-        self.parent_conn.send(msg)
+        try:
+            self.parent_conn.send(msg)
+        except Exception as e:
+            logger.error(f"发送消息失败: {e}")
 
     async def invoke(self, action: str, *args, **kwargs) -> Any:
         """
@@ -367,7 +391,6 @@ class ProcessEngineClient(Engine):
                 "msg_id": msg_id
             }
             self.parent_conn.send(msg)
-            
             # 等待响应，设置30秒超时
             try:
                 result = await asyncio.wait_for(future, timeout=30.0)
@@ -425,23 +448,39 @@ class ProcessEngineClient(Engine):
                 config=policy.get('params')) for policy in position_config['risk_policies'] if policy.get('enabled')]
         self.send_action("update_position_config", PositionConfig(**position_config))
 
-    async def listen(self, poll_interval=0.2):
+    def listen(self, poll_interval=0.2):
         """
         异步轮询接收子进程消息，收到消息时调用 self.on_message。
         """
+        retry_count = 0
+        max_retries = 3
+        
         while self.process and self.process.is_alive():
-            has_msg = await asyncio.to_thread(self.parent_conn.poll, poll_interval)
-            if has_msg:
-                try:
-                    msg = await asyncio.to_thread(self.parent_conn.recv)
-                    self.on_message(msg)
-                except EOFError:
-                    logger.error("管道已断开")
-                    break
-                except Exception as e:
-                    logger.error(f"接收消息时出错: {e}")
-                    break
-            await asyncio.sleep(poll_interval)
+            try:
+                has_msg = self.parent_conn.poll(poll_interval)
+                if has_msg:
+                    try:
+                        msg = self.parent_conn.recv()
+                        self.on_message(msg)
+                        retry_count = 0  # 重置重试计数
+                    except (EOFError, ConnectionError) as e:
+                        logger.error(f"管道连接错误: {e}", exc_info=True)
+                        break
+                    except (pickle.UnpicklingError, UnicodeDecodeError) as e:
+                        retry_count += 1
+                        if retry_count >= max_retries:
+                            logger.error(f"接收消息失败，已达到最大重试次数: {e}")
+                            break
+                        logger.warning(f"接收消息失败，正在重试 ({retry_count}/{max_retries}): {e}")
+                        continue
+                    except Exception as e:
+                        logger.error(f"接收消息时出错: {e}", exc_info=True)
+                        break
+            except Exception as e:
+                logger.error(f"轮询时出错: {e}", exc_info=True)
+                break
+                
+            time.sleep(poll_interval)
 
     def on_message(self, msg):
         """处理引擎进程消息，路由到对应的处理器"""
@@ -452,6 +491,10 @@ class ProcessEngineClient(Engine):
         action = msg["action"]
         args = msg.get("args", [])
         kwargs = msg.get("kwargs", {})
+
+        # 反序列化参数
+        args = [arg for arg in args]
+        kwargs = {k: v for k, v in kwargs.items()}
 
         # 处理响应消息
         if action == "response":
@@ -468,8 +511,11 @@ class ProcessEngineClient(Engine):
         if action in self.message_handlers:
             for handler in self.message_handlers[action]:
                 try:
-                    handler(*args, **kwargs)
+                    if "project_id" in inspect.signature(handler).parameters:
+                        handler(project_id=int(self.instance_id), *args, **kwargs)
+                    else:
+                        handler(*args, **kwargs)
                 except Exception as e:
-                    logger.error(f"处理消息 {action} 时出错: {e}")
+                    logger.error(f"处理消息 {action} 时出错: {e}", exc_info=True)
         else:
             logger.info(f"未注册的消息处理器: {action}")
