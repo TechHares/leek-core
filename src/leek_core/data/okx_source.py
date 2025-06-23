@@ -59,6 +59,8 @@ class OkxDataSource(WebSocketDataSource):
         self._ping_task: Optional[asyncio.Task] = None
         self.subscribed_channels: Dict[str, int] = {}
 
+        self.pre_time = {}
+
     def on_connect(self):
         """连接成功后启动心跳任务"""
         if self._ping_task:
@@ -198,8 +200,15 @@ class OkxDataSource(WebSocketDataSource):
                         is_finished=int(row[8]) == 1
                     )
                     kline.asset_type = AssetType.CRYPTO
+
+                    if kline.start_time <= self.pre_time.get(kline.row_key, 0):
+                        continue
+                    if kline.is_finished:
+                        self.pre_time[kline.row_key] = kline.start_time
                     # 调用订阅的回调函数
-                    self.send_data(kline)
+                    if kline.is_finished:
+                        kline.is_finished = False
+                        self.send_data(kline)
                 except (IndexError, ValueError, TypeError) as e:
                     logger.error(f"解析OKX K线数据时出错: {e}, 原始数据: {row}", exc_info=True)
                     continue
@@ -302,7 +311,7 @@ class OkxDataSource(WebSocketDataSource):
         if key in self.subscribed_channels and self.subscribed_channels[key] > 1:
             self.subscribed_channels[key] -= 1
             return True
-        self.subscribed_channels.pop(key)
+        self.subscribed_channels.pop(key, None)
         return self.async_send(json.dumps(msg))
 
     def get_supported_parameters(self) -> List[Field]:
@@ -363,6 +372,8 @@ class OkxDataSource(WebSocketDataSource):
         before = ""
         if start_time is not None and isinstance(start_time, datetime):
             before = int(start_time.timestamp() * 1000)
+        if start_time is not None and isinstance(start_time, int):
+            before = start_time
         after = int(time.time() * 1000)
         if end_time is not None and isinstance(end_time, datetime):
             after = int(end_time.timestamp() * 1000)

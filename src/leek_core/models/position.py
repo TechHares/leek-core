@@ -75,6 +75,27 @@ class OrderExecutionState:
     pnl: Decimal = Decimal('0')
     sz: Decimal = Decimal('0')
 
+    def __post_init__(self):
+        if not self.order_id or not isinstance(self.order_id, str):
+            raise ValueError("order_id is required and must be a string")
+        if not isinstance(self.is_open, bool):
+            self.is_open = bool(self.is_open)
+        
+        if self.settle_amount and not isinstance(self.settle_amount, Decimal):
+            self.settle_amount = Decimal(self.settle_amount)
+        
+        if self.fee and not isinstance(self.fee, Decimal):
+            self.fee = Decimal(self.fee)
+        
+        if self.friction and not isinstance(self.friction, Decimal):
+            self.friction = Decimal(self.friction)
+        
+        if self.pnl and not isinstance(self.pnl, Decimal):
+            self.pnl = Decimal(self.pnl)
+        
+        if self.sz and not isinstance(self.sz, Decimal):
+            self.sz = Decimal(self.sz)
+
 
 @dataclass
 class Position:
@@ -115,6 +136,7 @@ class Position:
     ratio: Decimal             # 占资金比例
 
     close_price: Decimal = None        # 平仓成本价
+    current_price: Decimal = None      # 当前价格
     total_amount: Decimal = Decimal("0")  # 累计价值
     total_back_amount: Decimal = Decimal("0")  # 累计回款金额
     total_sz: Decimal = Decimal("0")  # 累计仓位数量
@@ -135,6 +157,60 @@ class Position:
     @property
     def sz(self):
         return sum(Decimal(s) for s in self.executor_sz.values()) if self.executor_sz else Decimal('0')
+
+    def __post_init__(self):
+        # Required string fields validation
+        if not self.position_id or not isinstance(self.position_id, str):
+            raise ValueError("position_id is required and must be a string")
+        if not self.strategy_id or not isinstance(self.strategy_id, str):
+            raise ValueError("strategy_id is required and must be a string")
+        if not self.symbol or not isinstance(self.symbol, str):
+            raise ValueError("symbol is required and must be a string")
+        if not self.quote_currency or not isinstance(self.quote_currency, str):
+            raise ValueError("quote_currency is required and must be a string")
+
+        self.strategy_instance_id = tuple(self.strategy_instance_id)
+        # Optional string field
+        self.executor_id = str(self.executor_id) if self.executor_id is not None else None
+
+        # Boolean field
+        self.is_fake = bool(self.is_fake) if self.is_fake is not None else False
+
+        # Convert enum types with null check
+        self.ins_type = TradeInsType(self.ins_type) if self.ins_type is not None else None
+        self.asset_type = AssetType(self.asset_type) if self.asset_type is not None else None
+        self.side = PositionSide(self.side) if self.side is not None else None
+
+        # Convert required decimal fields with null check
+        self.ratio = Decimal(str(self.ratio)) if self.ratio is not None else Decimal('0')
+        self.cost_price = Decimal(str(self.cost_price)) if self.cost_price is not None else Decimal('0')
+        self.amount = Decimal(str(self.amount)) if self.amount is not None else Decimal('0')
+        self.leverage = Decimal(str(self.leverage)) if self.leverage is not None else Decimal('1')
+        
+        # Convert optional decimal fields
+        self.close_price = Decimal(str(self.close_price)) if self.close_price is not None else None
+        self.total_amount = Decimal(str(self.total_amount)) if self.total_amount is not None else Decimal('0')
+        self.total_back_amount = Decimal(str(self.total_back_amount)) if self.total_back_amount is not None else Decimal('0')
+        self.total_sz = Decimal(str(self.total_sz)) if self.total_sz is not None else Decimal('0')
+        self.pnl = Decimal(str(self.pnl)) if self.pnl is not None else Decimal('0')
+        self.fee = Decimal(str(self.fee)) if self.fee is not None else Decimal('0')
+        self.friction = Decimal(str(self.friction)) if self.friction is not None else Decimal('0')
+
+        # Ensure datetime type
+        self.open_time = self.open_time if isinstance(self.open_time, datetime) else datetime.now()
+
+        # Initialize default collections if None
+        self.executor_sz = self.executor_sz if isinstance(self.executor_sz, dict) else {}
+        self.order_states = self.order_states if isinstance(self.order_states, dict) else {}
+
+        # Ensure all values in executor_sz are Decimal
+        self.executor_sz = {k: Decimal(str(v)) if v is not None else Decimal('0') 
+                           for k, v in self.executor_sz.items()}
+
+        # Ensure all values in order_states are OrderExecutionState
+        self.order_states = {k: v if isinstance(v, OrderExecutionState) else OrderExecutionState(k)
+                            for k, v in self.order_states.items()}
+
 
 @dataclass
 class PositionInfo:

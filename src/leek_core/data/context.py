@@ -7,10 +7,10 @@ from leek_core.event import EventBus, Event, EventType, EventSource
 from leek_core.models import DataType, Data, KLine, LeekComponentConfig
 from .base import DataSource
 from leek_core.utils import run_func_timeout
-from leek_core.utils import get_logger
-
+from leek_core.utils import get_logger, thread_lock
+from threading import Lock
 logger = get_logger(__name__)
-
+_lock = Lock()
 
 class DataSourceContext(LeekContext):
     """
@@ -44,6 +44,7 @@ class DataSourceContext(LeekContext):
             extra={"params": [p.name for p in self.params_list]}
         )))
 
+    @thread_lock(_lock)
     def subscribe(self, instance_id, **kwargs):
         for row_key in self._data_source.parse_row_key(**kwargs):
             if row_key not in self.subscribe_info:
@@ -51,6 +52,7 @@ class DataSourceContext(LeekContext):
                 self._data_source.subscribe(*row_key)
             self.subscribe_info[row_key].add(instance_id)
 
+    @thread_lock(_lock)
     def unsubscribe(self, instance_id, **kwargs):
         for row_key in self._data_source.parse_row_key(**kwargs):
             if row_key not in self.subscribe_info:

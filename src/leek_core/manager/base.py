@@ -52,6 +52,9 @@ class ComponentManager(LeekContext, Generic[CTX, T, CFG]):
         if ins_id in self.components:
             return
         self.components[ins_id] = self.config.cls(self.event_bus, config)
+        if config.data:
+            self.components[ins_id].load_state(config.data)
+
         is_finish = run_func_timeout(self.components[ins_id].on_start, [], {}, 20)
         if not is_finish:
             self.components.pop(ins_id)

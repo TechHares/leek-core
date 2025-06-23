@@ -67,7 +67,8 @@ class ProcessEngine(Engine):
                 instance_id=instance_id,
                 name=name + "-仓位管理",
                 cls=None,
-                config=position_config
+                config=position_config,
+                data=position_config.data
             ))
         self.position_manager.on_start()
         self.executor_manager: ExecutorManager = ExecutorManager(
@@ -105,6 +106,27 @@ class ProcessEngine(Engine):
             logger.error(f"引擎运行时出错: {e}", exc_info=True)
         
         self.on_stop()
+
+    def storage_postion(self):
+        """
+        存储仓位
+        """
+        state = self.position_manager.get_state()
+        self.send_msg("position_data", data=state)
+
+    def storage_strategy(self):
+        """
+        存储策略
+        """
+        for instance_id, strategy in self.strategy_manager.components.items():
+            state = strategy.get_state()
+            self.send_msg("strategy_data", strategy_id=instance_id, data=state)
+    
+    def update_strategy_state(self, instance_id: str, state: Dict):
+        """
+        更新策略
+        """
+        self.strategy_manager.update_state(instance_id, state)
 
     def handle_message(self, msg: Dict):
         """
@@ -238,7 +260,7 @@ class ProcessEngine(Engine):
         self.data_source_manager.remove(instance_id)
 
     def update_position_config(self, position_config: PositionConfig) -> None:
-        print(f"更新仓位配置: {position_config}")
+        logger.info(f"更新仓位配置: {position_config}")
         self.position_config = position_config
 
     def ping(self, instance_id: str):
@@ -250,10 +272,22 @@ class ProcessEngine(Engine):
         """发送消息到主进程"""
         msg = {"action": action, "args": args, "kwargs": kwargs}
         try:
-            # with self.__send_lock:
             self.conn.send(msg) 
         except Exception as e:
             logger.error(f"发送消息失败: {e}")
+    
+    def close_position(self, position_id: str):
+        position = self.position_manager.get_position(position_id)
+        if position:
+            self.strategy_manager.close_position(position)
+            return True
+        return False
+
+    def reset_position_state(self):
+        """
+        重置仓位状态
+        """
+        self.position_manager.reset_position_state()
 
 
 class ProcessEngineClient(Engine):
@@ -342,6 +376,7 @@ class ProcessEngineClient(Engine):
 
         # 设置仓位配置
         position_setting = config.get('position_setting', {})
+        position_setting['data'] = config.get('position_data', None)
         try:
             position_setting['risk_policies'] = [LeekComponentConfig(
                 instance_id=instance_id,
@@ -440,12 +475,13 @@ class ProcessEngineClient(Engine):
     def remove_data_source(self, instance_id):
         self.send_action("remove_data_source", instance_id)
 
-    def update_position_config(self, position_config) -> None:
+    def update_position_config(self, position_config, data=None) -> None:
         position_config['risk_policies'] = [LeekComponentConfig(
                 instance_id=self.instance_id,
                 name=policy.get('name'),
                 cls=load_class_from_str(policy.get('class_name')),
                 config=policy.get('params')) for policy in position_config['risk_policies'] if policy.get('enabled')]
+        position_config['data'] = data
         self.send_action("update_position_config", PositionConfig(**position_config))
 
     def listen(self, poll_interval=0.2):

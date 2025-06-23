@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 from datetime import datetime
 from decimal import Decimal
-import time
+from threading import Lock
 from typing import Dict, List
 
 from leek_core.base import LeekContext, create_component
@@ -13,7 +13,7 @@ from leek_core.models.order import ExecutionContext
 from leek_core.policy import StrategyPolicy
 from leek_core.utils import get_logger, generate_str, decimal_quantize
 from leek_core.utils import thread_lock
-
+_position_lock = Lock()
 logger = get_logger(__name__)
 
 class PositionContext(LeekContext):
@@ -32,28 +32,41 @@ class PositionContext(LeekContext):
             for policy in self.position_config.risk_policies:
                 self.policies.append(create_component(policy.cls, **policy.config))
 
-        self.activate_amount = self.position_config.init_amount  # 可用金额
-        self.activate_ratio = Decimal(1)  # 可用比例
         self.pnl = Decimal(0)
+        self.friction = Decimal(0)
+        self.fee = Decimal(0)
         self.virtual_pnl = Decimal(0)
+
+
+        self.activate_amount = self.position_config.init_amount
 
         self.positions: Dict[str, Position] = {}  # 仓位字典，键为仓位ID
         self.strategy_positions: Dict[str, List[Position]] = {}  # 策略仓位字典，键为策略ID
         self.execution_positions: Dict[str, List[Position]] = {}  # 执行仓位字典，键为执行器ID
 
+        self.load_state(config.data)
+
+    @property
+    def total_amount(self) -> Decimal:
+        return self.position_config.init_amount + self.pnl + self.friction + self.fee
+    
+    @property
+    def profit(self) -> Decimal:
+        return self.pnl + self.friction + self.fee
+    
     def evaluate_amount(self, signal: Signal) -> List[ExecutionAsset]:
         if not signal.assets:
             return []
         
-        if self.activate_amount <= 0 or self.activate_ratio <= 0:
+        if self.activate_amount <= 0:
             return []
 
         strategy_used_principal, strategy_used_ratio = self._get_strategy_current_principal(signal.strategy_id)
         strategy_ratio = min(self.position_config.max_strategy_ratio - strategy_used_ratio, self.position_config.max_ratio)
 
         # 单次开仓最大金额 单次开仓最大比例 策略最大金额 策略最大比例 策略本金 取最小
-        principal = decimal_quantize(self.activate_amount / self.activate_ratio * strategy_ratio, 8)
-        principal = min(self.position_config.max_amount, principal, self.position_config.max_strategy_amount - strategy_used_principal)
+        principal = decimal_quantize(self.total_amount * strategy_ratio, 8)
+        principal = min(self.position_config.max_amount, principal, self.position_config.max_strategy_amount - strategy_used_principal, self.activate_amount)
         if signal.config:
             principal = min(signal.config.principal, principal)
 
@@ -78,7 +91,7 @@ class PositionContext(LeekContext):
             symbol_used_principal, symbol_used_ratio = self._get_symbol_current_principal(asset.symbol, asset.quote_currency)
             symbol_amount = self.position_config.max_symbol_amount - symbol_used_principal
 
-            symbol_amount = min(symbol_amount, decimal_quantize(self.activate_amount / self.activate_ratio * (self.position_config.max_symbol_ratio - symbol_used_ratio), 8))
+            symbol_amount = min(symbol_amount, decimal_quantize(self.total_amount * (self.position_config.max_symbol_ratio - symbol_used_ratio), 8))
             max_amounts.append(symbol_amount)
         
         # 计算单位金额
@@ -105,7 +118,7 @@ class PositionContext(LeekContext):
                     side=asset.side,
                     price=asset.price,
                     ratio=asset.ratio,
-                    amount=unit_amount,
+                    amount=unit_amount * asset.ratio,
                     is_open=False,
                     is_fake=False,
                     quote_currency=asset.quote_currency,
@@ -119,15 +132,18 @@ class PositionContext(LeekContext):
             if current_position and current_position.side != asset.side: # 减仓
                 execution_asset.is_fake = current_position.is_fake
                 execution_asset.position_id = current_position.position_id
-                execution_asset.sz = current_position.sz if current_position.ratio <= asset.ratio else current_position.sz / current_position.ratio * asset.ratio
+                close_ratio = min(1, asset.ratio / current_position.ratio)
+                execution_asset.sz = current_position.sz * close_ratio
+                execution_asset.amount = decimal_quantize(current_position.amount * close_ratio, 8)
                 continue
             
             execution_asset.is_open = True
             execution_asset.amount = decimal_quantize(unit_amount * asset.ratio, 8)
-            execution_asset.ratio = decimal_quantize(execution_asset.amount / self.activate_amount * self.activate_ratio, 8)
+            execution_asset.ratio = decimal_quantize(execution_asset.amount / self.total_amount, 8)
 
         return execution_assets
 
+    @thread_lock(_position_lock)
     def process_signal(self, signal: Signal):
         """
         处理信号 PositionManager 核心职责
@@ -158,6 +174,8 @@ class PositionContext(LeekContext):
             for asset in execution_context.execution_assets:
                 if asset.is_open:
                     asset.is_fake = True
+        else:
+            self.activate_amount -= execution_context.open_amount
         
         self.event_bus.publish_event(Event(
             event_type=EventType.EXEC_ORDER_CREATED,
@@ -174,6 +192,9 @@ class PositionContext(LeekContext):
                     position.quote_currency == quote_currency and position.ins_type == ins_type and position.asset_type == asset_type):
                 return position
         return None
+    
+    def get_position(self, position_id: str) -> Position:
+        return self.positions.get(position_id, None)
 
     def _get_symbol_current_principal(self, symbol: str, quote_currency: str) -> (Decimal, Decimal):
         matching_positions = [p for p in self.positions.values() if p.symbol == symbol and p.quote_currency == quote_currency]
@@ -243,33 +264,41 @@ class PositionContext(LeekContext):
         :return: dict
         """
         return {
-            'amount': str(self.amount),
-            'activate_ratio': str(self.activate_ratio),
-            'activate_amount': str(self.activate_amount),
-            'virtual_amount': str(self.virtual_amount),
-            'positions': {pid: p.__dict__ for pid, p in self.positions.items()},
-            'strategy_positions': {k: [p.position_id for p in v] for k, v in self.strategy_positions.items()},
-            'execution_positions': {k: [p.position_id for p in v] for k, v in self.execution_positions.items()},
-            'policies': [getattr(policy, 'policy_id', None) for policy in self.policies],
-            'config': self.config.__dict__ if hasattr(self.config, '__dict__') else str(self.config),
+            'activate_amount': self.activate_amount,
+            'pnl': self.pnl,
+            'friction': self.friction,
+            'fee': self.fee,
+            'total_amount': self.total_amount,
+            'virtual_pnl': self.virtual_pnl,
+            'positions': list(self.positions.values()),
         }
-
+    
+    
     def load_state(self, state: dict):
         """
         根据外部传入的状态字典恢复仓位管理器的状态。
         :param state: 状态字典
         """
-        self.amount = Decimal(state.get('amount', self.amount))
-        self.activate_ratio = Decimal(state.get('activate_ratio', self.activate_ratio))
+        if not state:
+            return
+
+        if state.get("reset_position_state", False):
+            self.pnl = Decimal(0)
+            self.friction = Decimal(0)
+            self.fee = Decimal(0)
+            self.activate_amount = self.position_config.init_amount
+            self.positions = {}
+            self.strategy_positions = {}
+            self.execution_positions = {} 
+            logger.info("重置仓位状态完成")
+            return
+
+        self.pnl = Decimal(state.get('pnl', self.pnl))
+        self.friction = Decimal(state.get('friction', self.friction))
+        self.fee = Decimal(state.get('fee', self.fee))
         self.activate_amount = Decimal(state.get('activate_amount', self.activate_amount))
-        self.virtual_amount = Decimal(state.get('virtual_amount', self.virtual_amount))
-        # positions、strategy_positions、execution_positions 的恢复需结合具体序列化方案
-        # 这里只做简单占位，实际使用时建议结合模型反序列化
-        # self.positions = ...
-        # self.strategy_positions = ...
-        # self.execution_positions = ...
-        # self.policies = ...
-        # self.config = ...
+        for p in state.get('positions', []):
+            self._add_position(Position(**p))
 
     def do_risk_policy(self, execution_context: ExecutionContext) -> bool:
         pos_ctx = PositionInfo(
@@ -319,9 +348,11 @@ class PositionContext(LeekContext):
         更新仓位管理器配置。
         :param config: PositionConfig 实例
         """
+        delta_amount = config.init_amount - self.config.init_amount
+        self.activate_amount += delta_amount
         self.config = config
 
-    @thread_lock()
+    @thread_lock(_position_lock)
     def order_update(self, order: Order):
         """
         根据订单更新更新仓位信息
@@ -331,6 +362,12 @@ class PositionContext(LeekContext):
         """
         if order.order_status == OrderStatus.SUBMITTED or order.order_status == OrderStatus.CREATED:
             return
+        
+        if order.order_status.is_failed:
+            self.activate_amount += order.order_amount
+            if not order.position_id:
+                return
+
         # 如果是开仓订单且没有position_id，创建新仓位
         if order.is_open and not order.position_id:
             position = Position(
@@ -345,6 +382,7 @@ class PositionContext(LeekContext):
                 cost_price=0,
                 amount=0,
                 ratio=order.ratio,
+                current_price=order.execution_price,
                 executor_id=order.executor_id,
                 is_fake=order.is_fake,
                 fee=0,
@@ -355,7 +393,7 @@ class PositionContext(LeekContext):
             order.position_id = position.position_id
             self._add_position(position)
             self.event_bus.publish_event(Event(
-                event_type=EventType.ORDER_UPDATED,
+                event_type=EventType.POSITION_INIT,
                 data=order
             ))
 
@@ -366,6 +404,7 @@ class PositionContext(LeekContext):
             logger.warning(f"Position {order.position_id} not found for order {order.order_id}")
             return
         try:
+            position.current_price = order.execution_price
             # 获取或创建订单执行状态
             order_state = position.order_states.get(order.order_id)
             if not order_state:
@@ -388,13 +427,21 @@ class PositionContext(LeekContext):
 
             position.friction += delta_friction
             position.fee += delta_fee
-            
+            if position.is_fake:
+                self.virtual_pnl += delta_pnl
+            else:
+                self.pnl += delta_pnl
+                self.activate_amount += (delta_friction + delta_fee)
+                self.friction += delta_friction
+                self.fee += delta_fee
             if order.is_open: # 如果是开仓订单
                 position.executor_sz[order.executor_id] = position.executor_sz.get(order.executor_id, Decimal('0')) + delta_sz
                 position.total_amount += delta_amount
                 position.total_sz += delta_sz
                 if position.total_sz > 0:
                     position.cost_price = (position.total_amount - (position.pnl or Decimal('0')) - (position.fee or Decimal('0')) - (position.friction or Decimal('0'))) / position.total_sz
+                if order.order_status == OrderStatus.FILLED and not position.is_fake:
+                    self.activate_amount += (order.order_amount - order.settle_amount)
             else:
                 position.total_back_amount += delta_amount
                 position.executor_sz[order.executor_id] = position.executor_sz.get(order.executor_id, Decimal('0')) - delta_sz
@@ -402,6 +449,7 @@ class PositionContext(LeekContext):
                 closed_sz = (position.total_sz - position.sz)
                 if closed_sz > 0:
                     position.close_price = position.total_back_amount / closed_sz
+                self.activate_amount += delta_amount
             
             position.amount = position.sz * position.cost_price
             if position.sz <= 0:

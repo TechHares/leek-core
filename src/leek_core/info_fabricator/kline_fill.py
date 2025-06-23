@@ -9,7 +9,7 @@ from collections import deque
 from decimal import Decimal
 from typing import List, Dict, Tuple
 
-from leek_core.models import DataType, KLine
+from leek_core.models import DataType, KLine, FieldType, Field, ChoiceType
 from leek_core.utils import get_logger
 from .base import Fabricator
 
@@ -37,16 +37,28 @@ class KLineFillFabricator(Fabricator):
     priority = -100
     process_data_type = {DataType.KLINE}
     display_name = "缺失K线填充"
+    init_params: List[Field] = [
+        Field(name="fill_method", label="填充方法", type=FieldType.RADIO, default="okx",
+              choices=[
+                  ("okx", "OKX市场数据"),
+                  ("algorithm", "算法填充"),
+              ],
+              choice_type=ChoiceType.STRING),
+    ]
 
-    def __init__(self):
+    def __init__(self, fill_method: str = "okx"):
         """
         初始化K线填充处理器
         """
         super().__init__()
+        self.fill_method = fill_method
         # 使用字典存储不同交易对的历史数据
         # key: (data_source_id, symbol, quote_currency, ins_type, timeframe)
         # value: deque of KLine
         self.history: Dict[Tuple, deque] = {}
+        if self.fill_method == "okx":
+            from leek_core.data import OkxDataSource
+            self.okx_data_source = OkxDataSource()
 
     def _get_history(self, kline: KLine) -> deque:
         """
@@ -74,30 +86,67 @@ class KLineFillFabricator(Fabricator):
             处理后的K线列表，如果不需要填充则只包含输入的K线
         """
         for k in kline:
-            for nk in self._process(k):
+            for nk in self._fill(k):
                 yield nk
 
-    def _process(self, kline: KLine) -> List[KLine]:
+    def _fill(self, kline: KLine) -> List[KLine]:
+        last_kline = self._check_kline_seq(kline)
+        if last_kline is None:
+            return [kline]
+        if self.fill_method == "okx":
+            return self._okx_fill(last_kline, kline)
+        return self._algorithm_fill(last_kline,kline)
+    
+    def _check_kline_seq(self, kline: KLine) -> bool:
         history = self._get_history(kline)
-
-        # 如果没有历史数据，直接添加当前K线并返回
         if len(history) == 0:
             history.append(kline)
-            return [kline]
+            return None
 
         last_kline = history[-1]
         if not history[-1].is_finished:
             history.pop()
-
         # 计算时间间隔（毫秒）
         time_diff = kline.start_time - last_kline.start_time
 
         # 历史数据为空，或者时间间隔为0， 或者 新K线开启
-        if len(history) == 0 or time_diff == 0 or (
-                time_diff <= kline.timeframe.milliseconds and last_kline.is_finished):
+        if time_diff == 0 or (time_diff <= kline.timeframe.milliseconds and last_kline.is_finished):
             history.append(kline)
-            return [kline]
+            return None
+        return last_kline
 
+    def _okx_fill(self, last_kline: KLine, kline: KLine) -> List[KLine]:
+        """
+        填充OKX的K线数据
+        """
+        last_start_time = last_kline.start_time
+        if not last_kline.is_finished:
+            last_start_time = last_kline.start_time - kline.timeframe.milliseconds
+        
+        klines = list(self.okx_data_source.get_history_data(
+            symbol=kline.symbol,
+            quote_currency=kline.quote_currency,
+            ins_type=kline.ins_type,
+            timeframe=kline.timeframe,
+            start_time=last_start_time,
+            end_time=kline.end_time,
+            limit=100,
+        ))
+        r = []
+        for k in klines:
+            if kline.start_time >= k.start_time > last_start_time:
+                k.metadata = {"is_filled": True}
+                if k.is_finished:
+                    logger.warning(f"OKX填充K线{k}")
+                r.append(k)
+        if r[-1].start_time < kline.start_time:
+            r.append(kline)
+        for k in r:
+            self._get_history(kline).append(k)
+        return r
+
+    def _algorithm_fill(self, last_kline: KLine, kline: KLine) -> List[KLine]:
+        history = self._get_history(kline)
         filled_kline = KLine(
             symbol=kline.symbol,
             market=kline.market,
@@ -132,9 +181,9 @@ class KLineFillFabricator(Fabricator):
             filled_kline.close = kline.open
         filled_kline.high = max(filled_kline.open, filled_kline.close, filled_kline.high)
         filled_kline.low = min(filled_kline.open, filled_kline.close, filled_kline.low)
-        logger.warning(f"填充K线{filled_kline}")
         # 添加当前K线到历史数据
         history.append(kline)
+        logger.warning(f"算法填充K线{filled_kline}")
         if filled_kline.end_time == kline.start_time:
             return [filled_kline, kline]
-        return [filled_kline] + self._process(kline)
+        return [filled_kline] + self._algorithm_fill(filled_kline, kline)

@@ -69,7 +69,7 @@ class DataThrottleFabricator(Fabricator):
             self.pre[kline.row_key] = kline
             return [kline]
         pre_kline = self.pre[kline.row_key]
-        if (kline.is_finished or pre_kline.start_time != kline.start_time # 收k线或者k线时间发生变化 不能过滤
+        if ((pre_kline.start_time != kline.start_time and not pre_kline.is_finished) # 收k线或者k线时间发生变化 不能过滤
                 or kline.current_time - pre_kline.current_time > self.time_interval # 时间间隔超过阈值 不能过滤
                 or abs(1-kline.close/pre_kline.close) > self.price_change_ratio): # 价格变化率超过阈值 不能过滤
             self.pre[kline.row_key] = kline

@@ -10,7 +10,7 @@ from .cta import CTAStrategy
 from .strategy_mode import StrategyMode, KlineSimple, Single
 
 from .strategy_dmi import DMIStrategy
-# from.strategy_debug import DebugStrategy
+from.strategy_debug import DebugStrategy
 
 __all__ = [
     'StrategyCommand',
@@ -20,5 +20,5 @@ __all__ = [
     'KlineSimple',
     'Single',
     'DMIStrategy',
-    # 'DebugStrategy',
+    'DebugStrategy',
 ]

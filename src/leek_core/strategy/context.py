@@ -7,6 +7,7 @@
 
 from decimal import Decimal
 from datetime import datetime
+import json
 from threading import Lock
 from typing import Dict, Any, List, Tuple, Optional
 
@@ -14,13 +15,14 @@ from leek_core.base import LeekContext, create_component, LeekComponent
 from leek_core.event import EventBus, EventType, Event, EventSource
 from leek_core.info_fabricator import FabricatorContext
 from leek_core.models import PositionSide, StrategyState, Signal, StrategyConfig, LeekComponentConfig, Data, \
-    StrategyInstanceState, Position, Asset
+    StrategyInstanceState, Position, Asset, OrderType, StrategyPositionConfig
 from leek_core.policy import PositionPolicy
 from leek_core.utils import get_logger
 from leek_core.utils import generate_str, thread_lock
 from .base import Strategy, StrategyCommand
 from .cta import CTAStrategy
 from leek_core.sub_strategy import EnterStrategy, ExitStrategy
+from leek_core.utils.func import LeekJSONEncoder
 
 logger = get_logger(__name__)
 
@@ -100,11 +102,47 @@ class StrategyContext(LeekContext):
             assets=assets
         )
 
-    def  on_position_update(self, position: Position):
+    def on_position_update(self, position: Position):
         """
         处理仓位更新
         """
         self.strategies.get(position.strategy_instance_id).on_position_update(position)
+
+
+    def close_position(self, position: Position):
+        """
+        处理仓位关闭
+        """
+        if self.strategies.get(position.strategy_instance_id):
+            self.strategies.get(position.strategy_instance_id).close_position(position)
+        cfg = self.config.config.strategy_position_config or StrategyPositionConfig()
+        cfg.order_type = OrderType.MarketOrder
+        self.event_bus.publish_event(
+                Event(
+                    event_type=EventType.STRATEGY_SIGNAL,
+                    source=EventSource(self.instance_id, self.name, self.config.cls.__name__, {
+                        "class_name": f"{self.config.cls.__module__}|{self.config.cls.__name__}",
+                    }),
+                    data=Signal(
+                        signal_id=generate_str(),
+                        data_source_instance_id=0,
+                        strategy_id=self.instance_id,
+                        strategy_instance_id=position.strategy_instance_id,
+                        config=cfg,
+                        signal_time=datetime.now(),
+                        assets=[Asset(
+                            asset_type=position.asset_type,
+                            ins_type=position.ins_type,
+                            symbol=position.symbol,
+                            quote_currency=position.quote_currency,
+                            side=position.side.switch(),
+                            ratio=Decimal("1"),
+                            price=position.current_price,
+                        )]
+                    )
+                )
+            )
+        
 
 
 
@@ -165,7 +203,7 @@ class StrategyContext(LeekContext):
         """
         序列化策略状态
         """
-        return {k:v.get_state() for k,v in self.strategies.items()}
+        return {json.dumps(k, cls=LeekJSONEncoder): json.loads(json.dumps(v.get_state(), cls=LeekJSONEncoder)) for k, v in self.strategies.items()}
 
     def load_state(self, state: Dict[Tuple, Dict[str, Any]]):
         """
@@ -176,6 +214,8 @@ class StrategyContext(LeekContext):
         if data is None:
             return
         for k, v in data.items():
+            if isinstance(k, str):
+                    k = tuple(json.loads(k))
             if k not in self.strategies:
                 self.strategies[k] = self.create_component()
             self.strategies[k].load_state(v)
@@ -212,7 +252,7 @@ class StrategyWrapper(LeekComponent):
         self.position_rate: Decimal = Decimal("0")  # 仓位比例，0-1之间的小数
         self.current_command: StrategyCommand = None  # 当前命令
 
-        self.position: List[Position] = []
+        self.position: Dict[str, Position] = {}
 
     @thread_lock(try_lock=True)
     def on_data(self, data: Data = None) -> Optional[List[Asset]]:
@@ -251,10 +291,10 @@ class StrategyWrapper(LeekComponent):
         if data.get("history_data", False):
             return None
         if len(self.position) > 0: # 有仓位 暂时支持单策略单仓位， 后续有需要在扩展
-            res = [p.evaluate(data, self.position[0]) for p in self.policies]
+            res = [p.evaluate(data, list(self.position.values())[0]) for p in self.policies]
             if not all(res):
                 self.state = StrategyInstanceState.STOPPED if self.state == StrategyInstanceState.STOPPING else StrategyInstanceState.READY
-                return self.position[0].side.switch(), Decimal("1")
+                return list(self.position.values())[0].side.switch(), Decimal("1")
 
         if self.state == StrategyInstanceState.READY:  # 无仓位
             return self.ready_handler()
@@ -284,24 +324,27 @@ class StrategyWrapper(LeekComponent):
     def entering_handler(self):
         rt = self.enter_strategy.ratio(self.current_command.side)
         if rt > 0:
-            position_change = self.current_command.ratio * rt
-            self.position_rate += position_change
-            if self.enter_strategy.is_finished:
-                self.state = StrategyInstanceState.HOLDING
-                self.enter_strategy.reset()
-            return self.current_command.side, position_change
+            try:
+                position_change = self.current_command.ratio * rt
+                self.position_rate += position_change
+                return self.current_command.side, position_change
+            finally:
+                if self.enter_strategy.is_finished:
+                    self.state = StrategyInstanceState.HOLDING
+                    self.enter_strategy.reset()
+                    self.current_command = None
 
     def holding_handler(self):
         if len(self.position) == 0:
             return
-        res = self.strategy.close(self.position[0])
+        res = self.strategy.close(list(self.position.values())[0])
         if res is not None and res is not False:
             if isinstance(res, bool):
                 res = Decimal("1")
             if not isinstance(res, Decimal):
                 raise ValueError("should_close return value must be Decimal or bool")
             self.state = StrategyInstanceState.EXITING
-            self.current_command = StrategyCommand(self.position[0].side.switch(), res)
+            self.current_command = StrategyCommand(list(self.position.values())[0].side.switch(), res)
             return self.exiting_handler()
 
         # 策略要求重复开仓
@@ -311,12 +354,15 @@ class StrategyWrapper(LeekComponent):
     def exiting_handler(self):
         rt = self.exit_strategy.ratio(self.current_command.side)
         if rt > 0:
-            position_change = self.current_command.ratio * rt
-            self.position_rate -= position_change
-            if self.exit_strategy.is_finished:
-                self.state = StrategyInstanceState.HOLDING if self.position_rate > 0 else StrategyInstanceState.READY
-                self.enter_strategy.reset()
-            return self.current_command.side, position_change
+            try:
+                position_change = self.current_command.ratio * rt
+                self.position_rate -= position_change
+                return self.current_command.side, position_change
+            finally:
+                if self.exit_strategy.is_finished:
+                    self.state = StrategyInstanceState.HOLDING if self.position_rate > 0 else StrategyInstanceState.READY
+                    self.enter_strategy.reset()
+                    self.current_command = None
 
     def stopping_handler(self):
         if self.state == StrategyInstanceState.READY or self.position_rate == 0:
@@ -335,15 +381,17 @@ class StrategyWrapper(LeekComponent):
         返回:
             状态字典
         """
-        return {
+        state = {
             "strategy_state": self.strategy.get_state(),
-            "state": self.state.value,
-            "position_rate": str(self.position_rate),
+            "state": self.state,
+            "position_rate": self.position_rate,
             "current_command": {
-                "side": self.current_command.side.value,
+                "side": self.current_command.side,
                 "ratio": self.current_command.ratio,
             } if self.current_command else None,
+            "position": [json.loads(json.dumps(p, cls=LeekJSONEncoder)) for p in self.position.values()]
         }
+        return json.loads(json.dumps(state, cls=LeekJSONEncoder))
 
     def load_state(self, state: Dict[str, Any]) -> None:
         """
@@ -352,35 +400,46 @@ class StrategyWrapper(LeekComponent):
         参数:
             state: 状态字典
         """
-        self.strategy.load_state(state.get("strategy_state", {}))
         self.state = StrategyInstanceState(state.get("state", self.state))
         self.position_rate = Decimal(state.get("position_rate", str(self.position_rate)))
-        if "side" in state.get("current_command", {}) and "ratio" in state.get("current_command", {}):
+        current_command = state.get("current_command", {})
+        if current_command and "side" in state.get("current_command", {}) and "ratio" in state.get("current_command", {}):
             self.current_command = StrategyCommand(
                 side=PositionSide(state["current_command"]["side"]),
                 ratio=Decimal(state["current_command"]["ratio"])
             )
-        position = state.get("position", [])
+        position = [Position(**p) for p in state.get("position", [])]
         assert len(position) < 1 or all(isinstance(p, Position) for p in position), "position must be Position"
-        self.position = position
+        self.position = {str(p.position_id): p for p in position}
+        self.strategy.load_state(state.get("strategy_state", {}))
 
-    def  on_position_update(self, position: Position):
+    def on_position_update(self, position: Position):
         """
         处理仓位更新
         """
         # 更新策略仓位信息
-        if position not in self.position:
-            self.position.append(position)
-
-        if position.sz <= 0 and position in self.position:
-            self.position.remove(position)
-
+        self.position[position.position_id] = position
+        print(f"on_position_update {position.position_id} {position.sz} {position.sz <= 0}")
+        if position.sz <= 0:
+            self.position.pop(position.position_id)
+        print(f"on_position_update {self.position.keys()}")
+    
+    def close_position(self, position: Position):
+        """
+        处理仓位关闭
+        """
+        potion = self.position.get(position.position_id, None)
+        if potion:
+            self.position_rate -= (position.ratio / sum(p.ratio for p in self.position.values()))
+            self.state = StrategyInstanceState.READY if self.position_rate == 0 else StrategyInstanceState.HOLDING
+    
     def on_start(self):
         """
         启动组件
         """
         self.strategy.on_start()
-        self.state = StrategyInstanceState.READY
+        if self.state == StrategyInstanceState.CREATED:
+            self.state = StrategyInstanceState.READY
 
     def on_stop(self):
         """

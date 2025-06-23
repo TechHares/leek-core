@@ -2,6 +2,11 @@
 # -*- coding: utf-8 -*-
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from typing import Any
+from decimal import Decimal
+from enum import Enum
+from datetime import datetime
+from dataclasses import asdict, is_dataclass
+import json
 
 
 def run_func_timeout(func, args, kwargs, timeout=5) -> bool:
@@ -35,3 +40,20 @@ def invoke_func_timeout(func, args, kwargs, timeout) -> (Any, bool):
             # 取消任务避免资源泄露
             future.cancel()
             return None, False
+
+
+class LeekJSONEncoder(json.JSONEncoder):
+    """
+    Custom JSON encoder for Leek objects.
+    Handles Enum, Decimal, datetime, and dataclass types.
+    """
+    def default(self, obj):
+        if isinstance(obj, Enum):
+            return obj.value
+        if isinstance(obj, Decimal):
+            return str(obj)
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        if is_dataclass(obj):
+            return asdict(obj)
+        return super().default(obj)

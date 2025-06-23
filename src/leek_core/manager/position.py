@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+import json
 from typing import Dict, Any
 
 from leek_core.data import DataSource
 from leek_core.event import EventBus, Event, EventType
 from leek_core.models import LeekComponentConfig, PositionConfig, Signal, Order
+from leek_core.models import Position
 from leek_core.position import PositionContext
-from leek_core.utils import get_logger
+from leek_core.utils import get_logger, LeekJSONEncoder
 logger = get_logger(__name__)
 
 from .base import ComponentManager
@@ -52,10 +54,9 @@ class PositionManager(ComponentManager[None, None, PositionConfig]):
         logger.info(f"事件订阅: 仓位管理-{self.name}@{self.instance_id} 订阅 {[e.value for e in [EventType.ORDER_UPDATED, EventType.STRATEGY_SIGNAL]]}")
     
     def update(self, config: LeekComponentConfig[None, PositionConfig]):
-        state = self.position_context.get_state()
         self.position_context.on_stop()
         self.position_context = PositionContext(self.event_bus, config)
-        self.position_context.load_state(state)
+        self.position_context.load_state(config.position_data or {})
         self.position_context.on_start()
 
     def get(self, instance_id: str) -> PositionContext:
@@ -66,3 +67,15 @@ class PositionManager(ComponentManager[None, None, PositionConfig]):
 
     def remove(self, instance_id: str):
         ...
+
+    def get_state(self) -> dict:
+        return json.loads(json.dumps(self.position_context.get_state(), cls=LeekJSONEncoder))
+    
+    def load_state(self, state: dict):
+        self.position_context.load_state(state)
+
+    def get_position(self, position_id: str) -> Position:
+        return self.position_context.get_position(position_id)
+    
+    def reset_position_state(self):
+        self.position_context.load_state({"reset_position_state": True})

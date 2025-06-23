@@ -56,10 +56,10 @@ class EventType(Enum):
     # 仓位管理事件
     POSITION_POLICY_ADD = "POSITION_POLICY_ADD"  # 仓位风控添加 todo
     POSITION_POLICY_DEL = "POSITION_POLICY_DEL"  # 仓位风控删除 todo
-    POSITION_INIT = "position_init"  # 仓位管理初始化 todo
+    POSITION_INIT = "position_init"  # 仓位管理初始化
     POSITION_OPEN = "position_open"  # 开仓 todo
     POSITION_CLOSE = "position_close"  # 平仓 todo
-    POSITION_UPDATE = "position_update"  # 仓位更新 todo
+    POSITION_UPDATE = "position_update"  # 仓位更新
 
     # 执行器事件
     EXECUTOR_INIT = "executor_load_data"  # 执行器初始化 todo

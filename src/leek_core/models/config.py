@@ -32,8 +32,7 @@ class LeekComponentConfig(Generic[T, CFG]):
     name: str = None
     cls: type[T] = None
     config: CFG = None
-
-
+    data: Dict[str, Any] = None  # 存储组件的额外数据
 
 @dataclass
 class StrategyPositionConfig:
@@ -91,6 +90,7 @@ class PositionConfig:
     order_type: OrderType # 订单类型
     trade_type: TradeInsType # 交易类型
     trade_mode: TradeMode # 交易模式
+    data: Dict[str, Any] = None
 
     risk_policies: List[LeekComponentConfig["StrategyPolicy", Dict[str, Any]]] = field(default_factory=list)
 

@@ -5,13 +5,17 @@
 """
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+from datetime import datetime
+from decimal import Decimal
 from typing import Dict, Any
 
+from leek_core.event.types import EventSource
 from leek_core.manager import ComponentManager
 from leek_core.event import Event, EventType, EventBus
-from leek_core.models import StrategyState, LeekComponentConfig, Position, StrategyConfig
+from leek_core.models import StrategyState, LeekComponentConfig, Position, StrategyConfig, StrategyPositionConfig, OrderType, Asset, Signal
 from leek_core.strategy import StrategyContext, Strategy
 from leek_core.utils import get_logger
+from leek_core.utils.id_generator import generate_str
 logger = get_logger(__name__)
 
 class StrategyManager(ComponentManager[StrategyContext, Strategy, StrategyConfig]):
@@ -44,6 +48,14 @@ class StrategyManager(ComponentManager[StrategyContext, Strategy, StrategyConfig
             config.config.runtime_data = state
             strategy_ctx.on_stop()
         self.add(config)
+    
+    def update_state(self, instance_id: str, state: Dict):
+        """
+        更新指定实例。
+        """
+        strategy_ctx = self.get(instance_id)
+        if strategy_ctx:
+            strategy_ctx.load_state(state)
 
     def on_data_event(self, event: Event):
         """
@@ -67,6 +79,38 @@ class StrategyManager(ComponentManager[StrategyContext, Strategy, StrategyConfig
             return
         for task in tasks:
             self.executor.submit(task, deepcopy(data))
+
+    def close_position(self, position: Position):
+        strategy_context = self.get(position.strategy_id)
+        if strategy_context is None:
+            logger.info(f"策略上下文不存在: {position.strategy_id}， 直接平仓{position.position_id}")
+            self.event_bus.publish_event(
+                Event(
+                    event_type=EventType.STRATEGY_SIGNAL,
+                    source=EventSource(position.strategy_id, self.name, self.__class__.__name__, {
+                        "class_name": f"{self.__class__.__module__}|{self.__class__.__name__}",
+                    }),
+                    data=Signal(
+                        signal_id=generate_str(),
+                        data_source_instance_id=0,
+                        strategy_id=self.instance_id,
+                        strategy_instance_id=position.strategy_instance_id,
+                        config=StrategyPositionConfig(order_type=OrderType.MarketOrder),
+                        signal_time=datetime.now(),
+                        assets=[Asset(
+                            asset_type=position.asset_type,
+                            ins_type=position.ins_type,
+                            symbol=position.symbol,
+                            quote_currency=position.quote_currency,
+                            side=position.side.switch(),
+                            ratio=Decimal("1"),
+                            price=position.current_price,
+                        )]
+                    )
+                )
+            )
+            return
+        strategy_context.close_position(position)
 
     def on_position_update_event(self, event: Event):
         assert isinstance(event.data, Position)

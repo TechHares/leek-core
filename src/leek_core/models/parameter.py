@@ -50,7 +50,11 @@ class Field:
         """
         将字符串值转换为指定类型。
         """
-        if self.type in [FieldType.RADIO, FieldType.SELECT, FieldType.ARRAY]:
+        if self.type == FieldType.RADIO:
+            if self.choice_type is None:
+                return value
+            return self.covert_value(FieldType(self.choice_type.value), value)
+        if self.type in [FieldType.SELECT, FieldType.ARRAY]:
             if self.choice_type is None:
                 return value
             return [self.covert_value(FieldType(self.choice_type.value), v) for v in value]

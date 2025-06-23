@@ -217,3 +217,7 @@ class OrderStatus(Enum):
     @property
     def is_finished(self):
         return self in [OrderStatus.FILLED, OrderStatus.CANCELED, OrderStatus.REJECTED, OrderStatus.EXPIRED, OrderStatus.ERROR]
+
+    @property
+    def is_failed(self):
+        return self in [OrderStatus.REJECTED, OrderStatus.EXPIRED, OrderStatus.ERROR, OrderStatus.CANCELED]
