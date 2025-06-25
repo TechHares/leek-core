@@ -184,6 +184,6 @@ class KLineFillFabricator(Fabricator):
         # 添加当前K线到历史数据
         history.append(kline)
         logger.warning(f"算法填充K线{filled_kline}")
-        if filled_kline.end_time == kline.start_time:
+        if filled_kline.end_time >= kline.start_time:
             return [filled_kline, kline]
         return [filled_kline] + self._algorithm_fill(filled_kline, kline)

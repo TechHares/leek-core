@@ -5,7 +5,7 @@
 from copy import copy
 from typing import List
 
-from leek.t.chan.comm import ChanUnion
+from .comm import ChanUnion
 
 
 class ChanZS(ChanUnion):

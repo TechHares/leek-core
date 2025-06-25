@@ -4,9 +4,9 @@
 # @Software: PyCharm
 from decimal import Decimal
 
-from indicators.ma import MA
-from indicators.t import T
-from models.data import KLine
+from .ma import MA
+from .t import T
+from leek_core.models import KLine
 
 
 class MACD(T):

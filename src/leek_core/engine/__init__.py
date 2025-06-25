@@ -8,10 +8,12 @@
 from .base import Engine
 from .simple import SimpleEngine
 from.process import ProcessEngine, ProcessEngineClient
+from .indicator_view import IndicatorView
 
 __all__ = [
     "Engine",
     "SimpleEngine",
     "ProcessEngine",
-    "ProcessEngineClient"
+    "ProcessEngineClient",
+    "IndicatorView"
 ]

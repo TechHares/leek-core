@@ -4,7 +4,7 @@
 # @Software: PyCharm
 import abc
 
-from leek.t.chan.enums import ChanDirection
+from .enums import ChanDirection
 
 
 class ChanUnion(metaclass=abc.ABCMeta):

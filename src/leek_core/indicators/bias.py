@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 # @File    : bias.py
 # @Software: PyCharm
-from indicators.ma import MA
-from indicators.t import T
+from .ma import MA
+from .t import T
 
 
 class BiasRatio(T):

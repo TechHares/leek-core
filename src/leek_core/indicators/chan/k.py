@@ -4,9 +4,9 @@
 # @Software: PyCharm
 from typing import List, overload
 
-from leek.common import G
-from leek.common.utils import DateTime
-from leek.t.chan.comm import ChanUnion, Merger, mark_data
+from leek_core.models import KLine
+from leek_core.utils import DateTimeUtils
+from .comm import ChanUnion, Merger, mark_data
 
 
 class ChanK(ChanUnion):
@@ -17,7 +17,7 @@ class ChanK(ChanUnion):
     def __init__(self, k):
         super().__init__(high=k.high, low=k.low)
         self._klines = [k]  # 实际包含的k
-        self.is_finish = k.finish == 1
+        self.is_finish = k.is_finished
 
         self.image = None
 
@@ -46,15 +46,15 @@ class ChanK(ChanUnion):
 
     @property
     def start_timestamp(self):
-        return self.klines[0].timestamp
+        return self.klines[0].start_time
 
     @property
     def end_timestamp(self):
         if self.next is not None:
             return self.next.start_timestamp
         if len(self.klines) > 1:
-            return int(2 * self.klines[-1].timestamp - self.klines[-2].timestamp)
-        return self.klines[-1].timestamp
+            return int(2 * self.klines[-1].start_time - self.klines[-2].start_time)
+        return self.klines[-1].start_time
 
     def mark_on_data(self):
         mark_data(self.klines[-1], "is_finish", self.is_finish)
@@ -113,7 +113,7 @@ class ChanKManager:
     def is_empty(self):
         return len(self) == 0
 
-    def update(self, k: G) -> ChanK:
+    def update(self, k: KLine) -> ChanK:
         """
         处理K线数据
         :param k: K线数据

@@ -4,11 +4,12 @@
 # @Software: PyCharm
 from typing import List, overload
 
-from leek.common import G
-from leek.t.chan.comm import ChanUnion, mark_data
-from leek.t.chan.enums import ChanDirection
-from leek.t.chan.fx import ChanFXManager
-from leek.t.chan.k import ChanK, ChanKManager
+from leek_core.models import KLine
+
+from .comm import ChanUnion, mark_data
+from .enums import ChanDirection
+from .fx import ChanFXManager
+from .k import ChanK, ChanKManager
 
 
 class ChanBI(ChanUnion):
@@ -202,7 +203,7 @@ class ChanBIManager:
     def is_empty(self):
         return len(self) == 0
 
-    def update(self, k: G) -> ChanBI | None:
+    def update(self, k: KLine) -> ChanBI | None:
         """
         处理K线数据
         :param k: K线数据

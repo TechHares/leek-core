@@ -4,8 +4,8 @@
 # @Software: PyCharm
 from decimal import Decimal
 
-from indicators.ma import MA
-from indicators.t import T
+from .ma import MA
+from .t import T
 
 
 class DK(T):
@@ -14,9 +14,9 @@ class DK(T):
     """
     def __init__(self, ma_type=MA, max_cache=1000):
         T.__init__(self, max_cache)
-        self.ma5 = ma_type(5, max_cache)
-        self.ma10 = ma_type(10, max_cache)
-        self.ma20 = ma_type(20, max_cache)
+        self.ma5 = ma_type(5, max_cache=max_cache)
+        self.ma10 = ma_type(10, max_cache=max_cache)
+        self.ma20 = ma_type(20, max_cache=max_cache)
 
     def update(self, data):
         rc = False
@@ -39,7 +39,7 @@ class DK(T):
 
             return rc
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.cache.append(rc)
 
 

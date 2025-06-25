@@ -4,9 +4,9 @@
 # @Software: PyCharm
 from decimal import Decimal
 
-from leek.t.chan.comm import ChanUnion, mark_data
-from leek.t.chan.k import ChanK
-from leek.t.chan.zs import ChanZS
+from .comm import ChanUnion, mark_data
+from .k import ChanK
+from .zs import ChanZS
 
 
 class ChanBSPoint:

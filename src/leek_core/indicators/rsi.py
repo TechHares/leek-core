@@ -4,8 +4,7 @@
 # @Software: PyCharm
 from collections import deque
 
-from indicators.common import logger
-from indicators.t import T
+from .t import T
 
 
 class RSI(T):
@@ -44,10 +43,9 @@ class RSI(T):
             # 计算平滑增益和损失
             if pre_gain+pre_loss != 0:
                 rsi = pre_gain/(pre_gain+pre_loss) * 100
-            logger.debug(f"RSI计算[{self.window}]：pre_gain:{pre_gain}, pre_loss:{pre_loss}, delta:{data.delta} => rsi:{rsi}")
             return rsi
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.q.append(data)
                 self.pre_gain = pre_gain
                 self.pre_loss = pre_loss
@@ -80,7 +78,6 @@ class StochRSI(T):
 
             num = []
             devno = []
-            logger.debug(f"RSI:{last}, {rsi}, => {data.is_finished}")
             for i in range(self.k_smoothing_factor, 0, -1):
                 i -= 1
                 d = last[-i - self.period:-i] if i > 0 else last[-i - self.period:]
@@ -91,14 +88,13 @@ class StochRSI(T):
                 stoch_rsi[0] = sum(num) / sum(devno) * 100
 
             c = self.last(max(self.d_smoothing_factor+1, 10))
-            logger.debug(f"STOCH RSI:{self.last(10)}, {stoch_rsi[0]}")
             if data.is_finished != 1:
                 c.append(stoch_rsi)
             if len(c) > self.d_smoothing_factor and c[-self.d_smoothing_factor+1][0] is not None:
                 stoch_rsi[1] = (sum([x[0] for x in c[-self.d_smoothing_factor+1:]]) + stoch_rsi[0]) / self.d_smoothing_factor
             return stoch_rsi
         finally:
-            if data.is_finished == 1 and stoch_rsi[0]:
+            if data.is_finished and stoch_rsi[0]:
                 self.cache.append(stoch_rsi)
 
 

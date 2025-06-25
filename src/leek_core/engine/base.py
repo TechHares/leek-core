@@ -23,48 +23,37 @@ class Engine(LeekComponent, ABC):
     def __init__(self):
         self.running = False
 
-    @abstractmethod
     def add_strategy(self, config: LeekComponentConfig[Strategy, StrategyConfig]) -> None:
-        ...
+        raise NotImplementedError
 
-    @abstractmethod
     def update_strategy(self, config: LeekComponentConfig[Strategy, StrategyConfig]) -> None:
-        ...
+        raise NotImplementedError
 
-    @abstractmethod
     def remove_strategy(self, instance_id: str) -> None:
-        ...
+        raise NotImplementedError
 
-    @abstractmethod
     def add_executor(self, config: LeekComponentConfig[Executor, Dict[str, Any]]) -> None:
-        ...
+        raise NotImplementedError
 
-    @abstractmethod
     def update_executor(self, config: LeekComponentConfig[Executor, Dict[str, Any]]) -> None:
-        ...
+        raise NotImplementedError
 
-    @abstractmethod
     def remove_executor(self, instance_id: str) -> None:
-        ...
+        raise NotImplementedError
 
-    @abstractmethod
     def add_data_source(self, config: LeekComponentConfig[DataSource, Dict[str, Any]]) -> None:
-        ...
+        raise NotImplementedError
 
-    @abstractmethod
     def update_data_source(self, config: LeekComponentConfig[DataSource, Dict[str, Any]]) -> None:
-        ...
+        raise NotImplementedError
 
-    @abstractmethod
     def remove_data_source(self, instance_id: str) -> None:
-        ...
+        raise NotImplementedError
 
-    @abstractmethod
     def start(self) -> None:
-        ...
+        raise NotImplementedError
 
-    @abstractmethod
     def update_position_config(self, position_config: PositionConfig) -> None:
-        ...
+        raise NotImplementedError
     
 

@@ -9,10 +9,10 @@ from collections import deque
 from dataclasses import dataclass
 from decimal import Decimal
 
-from indicators.atr import ATR
-from indicators.ma import MA
-from indicators.t import T
-from models.position import PositionSide
+from .atr import ATR
+from .ma import MA
+from .t import T
+from leek_core.models import PositionSide, KLine
 
 
 class DeMarker(T):
@@ -34,8 +34,8 @@ class DeMarker(T):
                 return de_mark
             de_mmax = max(data.high - self.pre.high, 0)
             de_mmin = max(self.pre.low - data.low, 0)
-            sma_max = self.d_mmax.update(G(close=de_mmax, finish=data.is_finished))
-            sma_min = self.d_mmax.update(G(close=de_mmin, finish=data.is_finished))
+            sma_max = self.d_mmax.update(KLine(close=de_mmax, is_finished=data.is_finished))
+            sma_min = self.d_mmax.update(KLine(close=de_mmin, is_finished=data.is_finished))
             if sma_max is None or sma_min is None:
                 return de_mark
             if sma_max + sma_min > 0:
@@ -137,7 +137,7 @@ class TDSequence(T):
                 if not self._setup():
                     self._count_down()
                 res = self
-            return res
+            return res.countdown
         finally:
             ...
 
@@ -421,11 +421,11 @@ class TDTrendLine(T):
             d_low = min(lst, key=lambda x: x[0].low)
             p_low = TDPoint(k=d_low[0], value=d_low[0].low, idx=d_low[1], is_low=True)
 
-            self.add_point(self.high_td_points, p_high, data.is_finished == 1)
-            self.add_point(self.low_td_points, p_low, data.is_finished == 1)
+            self.add_point(self.high_td_points, p_high, data.is_finished)
+            self.add_point(self.low_td_points, p_low, data.is_finished)
             return self.calculate(data)
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.data_list.append((data, self.idx))
             # 删除过多的点 避免内存溢出
             if len(self.high_td_points) > 100:
@@ -460,7 +460,7 @@ class TDTrendLine(T):
             self.down_line.end = data.timestamp
             return True
 
-        if data.is_finished == 1 and (data.close > high or data.close < low):
+        if data.is_finished and (data.close > high or data.close < low):
             self.up_line.end = data.timestamp
             self.down_line.end = data.timestamp
             return True

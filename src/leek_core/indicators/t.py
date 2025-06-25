@@ -34,7 +34,7 @@ class MERGE(T):
                 return None
             self.not_start = False
 
-        if len(self.q) > 0 and self.q[-1].finish == 0:
+        if len(self.q) > 0 and self.q[-1].is_finished:
             self.q.pop()
 
         self.q.append(data)
@@ -57,11 +57,9 @@ class MERGE(T):
               )
         r.merge = True
         if len(ls) == self.window and data.is_finished:
-            r.finish = True
+            r.is_finished = True
             self.q.clear()
             self.cache.append(r)
 
         return r
 
-if __name__ == '__main__':
-    pass

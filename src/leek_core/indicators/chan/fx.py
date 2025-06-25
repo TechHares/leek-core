@@ -4,8 +4,8 @@
 # @Software: PyCharm
 from collections import deque
 
-from leek.t.chan.comm import ChanUnion
-from leek.t.chan.enums import ChanFX
+from .comm import ChanUnion
+from .enums import ChanFX
 
 
 class ChanFXManager:

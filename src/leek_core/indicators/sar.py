@@ -4,7 +4,7 @@
 # @Software: PyCharm
 from decimal import Decimal
 
-from leek.t.t import T
+from .t import T
 
 
 class SAR(T):
@@ -41,10 +41,5 @@ class SAR(T):
             self.af = min(self.af + self.step_increment, self.af_max)
             return self.sar, self.is_long
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.cache.append(self.sar)
-
-
-if __name__ == '__main__':
-    pass
-

@@ -4,8 +4,8 @@
 # @Software: PyCharm
 from typing import List
 
-from leek.t.chan.comm import ChanUnion, mark_data
-from leek.t.chan.zs import ChanZS
+from .comm import ChanUnion, mark_data
+from .zs import ChanZS
 
 
 class ChanDR(ChanUnion):

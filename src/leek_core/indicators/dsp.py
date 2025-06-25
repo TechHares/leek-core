@@ -7,8 +7,8 @@ from decimal import Decimal
 
 import numpy as np
 
-from leek.t.ma import SuperSmoother
-from leek.t.t import T
+from .ma import SuperSmoother
+from .t import T
 """
 数字信号处理指标(DSP)
 """
@@ -104,7 +104,7 @@ class TrendFlex(T):
 
             return trend_flex
         finally:
-            if data.is_finished == 1 and trend_flex:
+            if data.is_finished and trend_flex:
                 self.cache.append(trend_flex)
 
 

@@ -59,7 +59,7 @@ class ClickHouseKlineDataSource(DataSource):
             enable_mixed_granularity_parts=1;
     """
 
-    def __init__(self, host: str, port: int = 9000, user: str = 'default',
+    def __init__(self, host: str="127.0.0.1", port: int = 9000, user: str = 'default',
                  password: str = '', database: str = 'default'):
         """
         初始化 ClickHouse 数据源。
@@ -100,7 +100,7 @@ class ClickHouseKlineDataSource(DataSource):
         返回:
             bool: 连接成功返回 True，否则返回 False
         """
-        if self.is_connected:
+        if self._client:
             return True
 
         from clickhouse_driver import Client
@@ -121,8 +121,27 @@ class ClickHouseKlineDataSource(DataSource):
             return True
         except ClickHouseError as e:
             logger.error(f"连接 ClickHouse 数据库失败: {e}")
-            self.is_connected = False
+            self._client = None
             return False
+
+    def parse_row_key(self, **kwargs) -> List[tuple]:
+        """
+        解析行键。
+
+        参数:
+            kwargs: 包含 market、timeframe、symbol、quote_currency 和 ins_type 的字典
+        返回:
+            List[tuple]: 解析后的行键列表
+        """
+
+        def parse_row_key(self, symbols: List[str] = list, timeframes: List[Union[TimeFrame, str]] = list,
+                          ins_types: List[TradeInsType] = list, quote_currencies: List[str] = list, **kwargs) -> List[
+            tuple]:
+            for s in symbols:
+                for q in quote_currencies:
+                    for i in ins_types:
+                        for t in timeframes:
+                            yield s, q, i, t
 
     def disconnect(self) -> bool:
         """
@@ -138,7 +157,6 @@ class ClickHouseKlineDataSource(DataSource):
                 logger.error(f"断开 ClickHouse 数据库连接时出错: {e}")
 
         self._client = None
-        self.is_connected = False
         return True
 
     def _scan_data(self):
@@ -221,7 +239,7 @@ class ClickHouseKlineDataSource(DataSource):
         返回:
             Iterator[KLine]: K线对象的迭代器
         """
-        if not self.is_connected or not self._client:
+        if not self._client:
             logger.warning("未连接到 ClickHouse 数据库")
             # 生成器函数应直接返回，不需要创建迭代器
             return
@@ -294,6 +312,7 @@ class ClickHouseKlineDataSource(DataSource):
                 query += f" LIMIT {limit}"
 
             # 执行查询
+            logger.info(f"执行查询: {query % params}")
             result = self._client.execute(query, params)
 
             # 如果没有结果，返回空迭代器

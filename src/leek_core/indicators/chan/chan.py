@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 # @File    : chan.py
 # @Software: PyCharm
-from leek.t.chan.bi import ChanBIManager
-from leek.t.chan.dr import ChanDRManager
-from leek.t.chan.seg import ChanSegmentManager
-from leek.t.chan.zs import ChanZSManager
-from leek.t.t import T
+from .bi import ChanBIManager
+from .dr import ChanDRManager
+from .seg import ChanSegmentManager
+from .zs import ChanZSManager
+from ..t import T
 
 
 class Chan(T):

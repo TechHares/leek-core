@@ -4,7 +4,7 @@
 # @Software: PyCharm
 from collections import deque
 
-from leek.t.t import T
+from .t import T
 
 
 class IchimokuCloud(T):
@@ -68,7 +68,7 @@ class IchimokuCloud(T):
             if len(lst) >= self.base_period:
                 res[1] =  (max(x.high for x in lst[-self.base_period:]) + min(x.low for x in lst[-self.base_period:])) / 2
 
-            if data.is_finished == 1:
+            if data.is_finished:
                 # 云顶
                 if res[0] is not None and res[1] is not None:
                     self.leading_span_a.append((res[0] + res[1]) / 2)
@@ -82,7 +82,7 @@ class IchimokuCloud(T):
                 res[3] = self.leading_span_b[-self.leading_shift_period]
             return res
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.q.append(data)
                 if res[3] is not None:
                     self.cache.append(res)

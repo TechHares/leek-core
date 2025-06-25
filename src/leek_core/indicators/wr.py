@@ -4,7 +4,7 @@
 # @Software: PyCharm
 from collections import deque
 
-from leek.t.t import T
+from .t import T
 
 
 class WR(T):
@@ -34,9 +34,6 @@ class WR(T):
                 wr = float(100 * (high - data.close) / (high - low))
             return wr
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.q.append(data)
                 self.cache.append(wr)
-
-if __name__ == '__main__':
-    pass

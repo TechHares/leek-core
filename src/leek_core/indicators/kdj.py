@@ -4,7 +4,7 @@
 # @Software: PyCharm
 from collections import deque
 
-from indicators.t import T
+from .t import T
 
 
 class KDJ(T):
@@ -44,7 +44,7 @@ class KDJ(T):
             kdj = (k, d, j)
             return kdj
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.q.append(data)
                 self.cache.append(kdj)
 

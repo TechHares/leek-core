@@ -4,10 +4,8 @@
 # @Software: PyCharm
 from typing import List, overload
 
-from rich.segment import Segment
-
-from leek.t.chan.bi import ChanBI, ChanBIManager
-from leek.t.chan.comm import ChanUnion, Merger, mark_data
+from .bi import ChanBI, ChanBIManager
+from .comm import ChanUnion, Merger, mark_data
 
 
 class ChanFeature(ChanUnion):

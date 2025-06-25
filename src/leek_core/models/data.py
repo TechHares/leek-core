@@ -126,6 +126,8 @@ class Data(metaclass=ABCMeta):
         """
         将各种数值类型转换为Decimal
         """
+        if value is None:
+            return None
         if isinstance(value, Decimal):
             return value
         return Decimal(str(value))  # 通过字符串转换避免浮点精度问题

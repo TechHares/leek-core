@@ -50,6 +50,3 @@ class ATR(T):
             if data.is_finished:
                 self.cache.append(atr)
 
-
-if __name__ == '__main__':
-    pass

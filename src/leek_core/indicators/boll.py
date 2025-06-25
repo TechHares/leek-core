@@ -7,8 +7,8 @@ from decimal import Decimal
 
 import numpy as np
 
-from indicators.ma import MA
-from indicators.t import T
+from .ma import MA
+from .t import T
 
 
 class BollBand(T):
@@ -35,7 +35,7 @@ class BollBand(T):
             boll_band = (lower_band, middle, upper_band)
             return boll_band
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.q.append(data.close)
                 self.cache.append(boll_band)
 

@@ -5,8 +5,8 @@
 from collections import deque
 from decimal import Decimal
 
-from indicators.ma import MA
-from indicators.t import T
+from .ma import MA
+from .t import T
 
 
 class CCI(T):
@@ -26,7 +26,7 @@ class CCI(T):
         cci = None
         tp = (data.high + data.low + data.close) / 3
         try:
-            tp_ma = self.ma.update(tp, data.is_finished == 1)
+            tp_ma = self.ma.update(tp, data.is_finished)
 
             if tp_ma is None:
                 return cci
@@ -40,7 +40,7 @@ class CCI(T):
 
             return cci
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.cache.append(cci)
                 self.q.append(tp)
 
@@ -60,20 +60,17 @@ class CCIV2(T):
         cci = None
         tp = (data.high + data.low + data.close) / 3
         try:
-            tp_ma = self.ma.update(tp, data.is_finished == 1)
+            tp_ma = self.ma.update(tp, data.is_finished)
             if tp_ma is None:
                 return cci
 
-            md = self.md_ma.update(abs(tp - tp_ma), data.is_finished == 1)
+            md = self.md_ma.update(abs(tp - tp_ma), data.is_finished)
             if md is None:
                 return cci
             cci = (tp - tp_ma) / (Decimal("0.015") * md)
             return cci
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.cache.append(cci)
                 self.q.append(tp)
 
-
-if __name__ == '__main__':
-    pass
