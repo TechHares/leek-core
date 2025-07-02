@@ -64,8 +64,9 @@ class ExecutorContext(LeekContext):
             try:
                 self.executor.send_order(orders)
                 for order in orders:
-                    order.order_status = OrderStatus.SUBMITTED
-                    self.event_bus.publish_event(Event(EventType.ORDER_UPDATED, order))
+                    if order.order_status == OrderStatus.CREATED:
+                        order.order_status = OrderStatus.SUBMITTED
+                        self.event_bus.publish_event(Event(EventType.ORDER_UPDATED, order))
                 return
             except Exception as e:
                 if retry_count <= 1:

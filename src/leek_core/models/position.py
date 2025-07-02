@@ -155,6 +155,10 @@ class Position:
     order_states: Dict[str, OrderExecutionState] = field(default_factory=dict)  # 订单ID -> 执行状态
 
     @property
+    def value(self):
+        return self.sz * self.current_price
+
+    @property
     def sz(self):
         return sum(Decimal(s) for s in self.executor_sz.values()) if self.executor_sz else Decimal('0')
 

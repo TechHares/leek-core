@@ -86,7 +86,7 @@ class ChanSegment(ChanUnion):
         lst.extend(self.bi_list[0].klines)
         for bi in self.bi_list[1:]:
             for k in bi.klines:
-                if k.timestamp > lst[-1].timestamp:
+                if k.start_time > lst[-1].start_time:
                     lst.append(k)
         return lst
 

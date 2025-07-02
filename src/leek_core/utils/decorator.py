@@ -30,7 +30,7 @@ def thread_lock(lock: Optional[threading.Lock] = None, try_lock: bool = False, o
         Callable: 装饰后的函数
     """
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        _lock = lock or threading.Lock()
+        _lock = lock or threading.RLock()
 
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> T:

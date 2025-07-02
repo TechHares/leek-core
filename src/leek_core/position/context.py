@@ -2,18 +2,19 @@
 # -*- coding: utf-8 -*-
 from datetime import datetime
 from decimal import Decimal
-from threading import Lock
+from threading import Lock, RLock
 from typing import Dict, List
 
 from leek_core.base import LeekContext, create_component
 from leek_core.event import EventBus, Event, EventType
 from leek_core.models import (TradeInsType, Position, Signal, Order, PositionConfig, AssetType,
-                    OrderStatus, PositionInfo, LeekComponentConfig, ExecutionAsset, OrderExecutionState)
-from leek_core.models.order import ExecutionContext
+                              OrderStatus, PositionInfo, LeekComponentConfig, ExecutionAsset, OrderExecutionState,
+                              DataType, KLine, Data)
+from leek_core.models import ExecutionContext
 from leek_core.policy import StrategyPolicy
 from leek_core.utils import get_logger, generate_str, decimal_quantize
 from leek_core.utils import thread_lock
-_position_lock = Lock()
+_position_lock = RLock()
 logger = get_logger(__name__)
 
 class PositionContext(LeekContext):
@@ -43,6 +44,7 @@ class PositionContext(LeekContext):
         self.positions: Dict[str, Position] = {}  # 仓位字典，键为仓位ID
         self.strategy_positions: Dict[str, List[Position]] = {}  # 策略仓位字典，键为策略ID
         self.execution_positions: Dict[str, List[Position]] = {}  # 执行仓位字典，键为执行器ID
+        self.asset_positions: Dict[tuple, List[Position]] = {}
 
         self.load_state(config.data)
 
@@ -53,6 +55,10 @@ class PositionContext(LeekContext):
     @property
     def profit(self) -> Decimal:
         return self.pnl + self.friction + self.fee
+
+    @property
+    def value(self) -> Decimal: # 实时仓位价值
+        return sum(p.value for p in self.positions.values()) + self.activate_amount
     
     def evaluate_amount(self, signal: Signal) -> List[ExecutionAsset]:
         if not signal.assets:
@@ -63,13 +69,12 @@ class PositionContext(LeekContext):
 
         strategy_used_principal, strategy_used_ratio = self._get_strategy_current_principal(signal.strategy_id)
         strategy_ratio = min(self.position_config.max_strategy_ratio - strategy_used_ratio, self.position_config.max_ratio)
-
         # 单次开仓最大金额 单次开仓最大比例 策略最大金额 策略最大比例 策略本金 取最小
         principal = decimal_quantize(self.total_amount * strategy_ratio, 8)
         principal = min(self.position_config.max_amount, principal, self.position_config.max_strategy_amount - strategy_used_principal, self.activate_amount)
-        if signal.config:
+        if signal.config and signal.config.principal:
             principal = min(signal.config.principal, principal)
-
+        
         # 计算每个资产的最大可投入金额
         ratios = []
         max_amounts = []
@@ -165,8 +170,8 @@ class PositionContext(LeekContext):
             target_executor_id=signal.config.executor_id if signal.config else None,
             execution_assets=execution_assets,
             created_time=signal.signal_time,
-            leverage=signal.config.leverage if signal.config else self.position_config.default_leverage,
-            order_type=signal.config.order_type if signal.config else self.position_config.order_type,
+            leverage=signal.config.leverage if signal.config and signal.config.leverage else self.position_config.default_leverage,
+            order_type=signal.config.order_type if signal.config and signal.config.order_type else self.position_config.order_type,
             trade_type=self.position_config.trade_type,
             trade_mode=self.position_config.trade_mode,
         )
@@ -232,6 +237,8 @@ class PositionContext(LeekContext):
         # 更新执行器仓位字典
         if position.executor_id:
             self.execution_positions.setdefault(position.executor_id, []).append(position)
+
+        self.asset_positions.setdefault((position.symbol, position.quote_currency, position.ins_type, position.asset_type), []).append(position)
         
 
     def _remove_position(self, position_id: str):
@@ -256,6 +263,12 @@ class PositionContext(LeekContext):
                                                                   p.position_id != position_id]
                 if not self.execution_positions[position.executor_id]:
                     del self.execution_positions[position.executor_id]
+            # 从资产仓位字典移除
+            assert_key = (position.symbol, position.quote_currency, position.ins_type, position.asset_type)
+            if assert_key in self.asset_positions:
+                self.asset_positions[assert_key] = [p for p in self.asset_positions[assert_key] if p.position_id != position_id]
+                if not self.asset_positions[assert_key]:
+                    del self.asset_positions[(position.symbol, position.quote_currency, position.ins_type, position.asset_type)]
 
     def get_state(self) -> dict:
         """
@@ -272,7 +285,11 @@ class PositionContext(LeekContext):
             'virtual_pnl': self.virtual_pnl,
             'positions': list(self.positions.values()),
         }
-    
+
+    def on_data(self, data: Data):
+        if data.data_type == DataType.KLINE and isinstance(data, KLine):
+            for position in self.asset_positions.get((data.symbol, data.quote_currency, data.ins_type, data.asset_type), []):
+                position.current_price = data.close
     
     def load_state(self, state: dict):
         """
@@ -458,7 +475,8 @@ class PositionContext(LeekContext):
                 event_type=EventType.POSITION_UPDATE,
                 data=position
             ))
-
+            logger.info(f"仓位更新完成，当前可用余额: {self.activate_amount}, 资产仓位: {len(self.asset_positions)}, "
+                        f"总价值: {self.total_amount}, 总仓位: {len(self.positions)}")
         except Exception as e:
             logger.error(f"更新仓位信息失败: {e}", exc_info=True)
             

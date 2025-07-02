@@ -325,6 +325,7 @@ class ClickHouseKlineDataSource(DataSource):
 
                 # 创建并生成 KLine 对象
                 yield KLine(
+                    data_type=DataType.KLINE,
                     symbol=symbol,
                     market=market,
                     open=Decimal(str(open_val)),

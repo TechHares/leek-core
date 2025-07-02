@@ -6,9 +6,11 @@ __all__ = [
     "EventType",
     "Event",
     "EventSource",
+    "SerializableEventBus",
 ]
 
 from .bus import EventBus
+from.single_bus import SerializableEventBus
 from .types import EventType, Event, EventSource
 
 if __name__ == '__main__':

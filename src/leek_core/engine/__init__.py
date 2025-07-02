@@ -6,14 +6,13 @@
 """
 
 from .base import Engine
-from .simple import SimpleEngine
 from.process import ProcessEngine, ProcessEngineClient
 from .indicator_view import IndicatorView
-
+from .stategy_debug import StrategyDebugView
 __all__ = [
     "Engine",
-    "SimpleEngine",
     "ProcessEngine",
     "ProcessEngineClient",
+    "StrategyDebugView",
     "IndicatorView"
 ]

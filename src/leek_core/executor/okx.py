@@ -308,6 +308,7 @@ class OkxWebSocketExecutor(WebSocketExecutor):
             num = order.order_amount / Decimal(ct_val)
         else:
             num = order.order_amount * order.leverage / (order.order_price * Decimal(ct_val))
+        logger.info(f"okx size计算: amount: {order.order_amount}, num: {num}, lot_sz: {lot_sz}, ct_val: {ct_val}, tail: {num % Decimal(lot_sz)}")
         sz = num - (num % Decimal(lot_sz))
         min_sz = instrument["minSz"]
         if sz < Decimal(min_sz):

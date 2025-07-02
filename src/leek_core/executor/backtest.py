@@ -7,9 +7,11 @@
 
 import random
 from decimal import Decimal
+from typing import List
 
-from leek_core.models import Data, Field, OrderType, Order, FieldType, ChoiceType
-from leek_core.utils import get_logger, decimal_quantize
+from leek_core.models import Data, Field, OrderType, Order, FieldType, ChoiceType, OrderUpdateMessage,OrderStatus
+from leek_core.utils import get_logger, decimal_quantize, generate_str
+
 from .base import Executor
 
 logger = get_logger(__name__)
@@ -37,7 +39,7 @@ class BacktestExecutor(Executor):
     ]
     init_params += Executor.init_params
 
-    def __init__(self, instance_id: str=None, name: str=None, slippage: Decimal = 0.0, fee_type: int = 0, fee: Decimal = 0,
+    def __init__(self, slippage: Decimal = 0.0, fee_type: int = 0, fee: Decimal = 0,
                  limit_order_execution_rate: int = 100):
         """
         初始化回测交易器
@@ -49,7 +51,6 @@ class BacktestExecutor(Executor):
             fee: 费率， 费用收取方式类型 0 时无效， 1 时表示固定费用， 2 时表示固定比例
             limit_order_execution_rate: 限价单成交率， 1 - 100, 仅针对限价单有效, 成交额=报单额*random(limit_order_execution_rate% ~ 1)
         """
-        super().__init__(instance_id, name)
         self.slippage = Decimal(slippage)
         if self.slippage > 1:
             self.slippage = Decimal(1)
@@ -67,72 +68,79 @@ class BacktestExecutor(Executor):
         if self.limit_order_execution_rate > 100:
             self.limit_order_execution_rate = 100
 
+        self._holder_size = {}
+        self._holder_price = {}
 
-    def send_order(self, order: Order) -> Order:
+
+    def send_order(self, orders: List[Order]):
         """
         处理订单（参数补全、风控、成交模拟、推送）
         """
-        # 参数补全与风控（风格与实盘一致）
-        if getattr(order, 'lever', None) is None:
-            order.lever = 1
-        if getattr(order, 'type', None) is None:
-            order.type = OrderType.LimitOrder
-        if getattr(order, 'trade_ins_type', None) is None:
-            order.trade_ins_type = 3
-        if getattr(order, 'trade_mode', None) is None:
-            order.trade_mode = 'isolated'
+        for order in orders:
+            logger.info(f"回测交易处理订单: {order.symbol} {order.side} {order.order_price} {order.order_amount}")
+            key = (order.symbol, order.quote_currency, order.asset_type, order.ins_type)
+            # 1. 计算成交价
+            transaction_price = order.order_price
+            if order.order_type == OrderType.MarketOrder and self.slippage > 0:
+                slippage = Decimal(random.random()) * (2 * self.slippage) + (1 - self.slippage)
+                transaction_price = decimal_quantize(transaction_price * slippage, 18)
 
-        logger.info(f"回测交易处理订单: {order.symbol} {order.side} {order.price} {order.amount}")
-
-        pos_trade = Data()
-        pos_trade.order_id = getattr(order, 'order_id', None)
-        pos_trade.strategy_id = getattr(order, 'strategy_id', None)
-        pos_trade.symbol = order.symbol
-        pos_trade.lever = order.lever
-        pos_trade.side = order.side
-        pos_trade.ct_val = 1
-        pos_trade.cancel_source = ""
-        pos_trade.state = "filled"  # 默认全部成交
-
-        # 1. 计算成交价
-        pos_trade.transaction_price = order.price
-        if order.type == OrderType.MarketOrder and self.slippage > 0:
-            slippage = Decimal(random.random()) * (2 * self.slippage) + (1 - self.slippage)
-            pos_trade.transaction_price = decimal_quantize(order.price * slippage, 8)
-
-        # 2. 计算成交量
-        if getattr(order, 'sz', None) is None:
-            if pos_trade.transaction_price == 0:
-                pos_trade.sz = 0
+            # 2. 计算成交量
+            if order.is_open:
+                transaction_volume = decimal_quantize(order.order_amount / transaction_price, 6)
             else:
-                pos_trade.sz = decimal_quantize(order.amount / pos_trade.transaction_price, 6)
-        else:
-            pos_trade.sz = Decimal(order.sz)
-        pos_trade.transaction_volume = pos_trade.sz
-        if order.type == OrderType.LimitOrder:
-            random_num = random.randint(int(self.limit_order_execution_rate), 100)
-            pos_trade.transaction_volume = decimal_quantize(pos_trade.sz * random_num / 100, 6)
+                transaction_volume = Decimal(order.sz)
+            if order.order_type == OrderType.LimitOrder:
+                random_num = random.randint(int(self.limit_order_execution_rate), 100)
+                transaction_volume = decimal_quantize(transaction_volume * random_num / 100, 6)
 
-        # 3. 计算成交额
-        pos_trade.transaction_amount = decimal_quantize(pos_trade.transaction_volume * pos_trade.transaction_price, 2,
-                                                        1)
+            pnl = 0
+            if order.is_open:
+                hold_size = self._holder_size.get(key, Decimal(0))
+                hold_price = self._holder_price.get(key, Decimal(0))
 
-        # 4. 计算手续费
-        fee = Decimal(0)
-        if self.fee_type == 0:
+                self._holder_price[key] =decimal_quantize((transaction_price * transaction_volume + hold_size * hold_price) / (hold_size + transaction_volume), 18)
+                self._holder_size[key] = hold_size + transaction_volume
+            else:
+                self._holder_size[key] -= transaction_volume
+                assert self._holder_size[key] >= 0, "交易数量不能大于持仓数量"
+                pnl = (transaction_price - self._holder_price[key]) * transaction_volume * (1 if order.side.is_short else -1)
+            
+            # 3. 计算成交额
+            transaction_amount = decimal_quantize(transaction_volume * transaction_price, 2, 1) if order.is_open else order.order_amount + pnl
+
+            # 4. 计算手续费
             fee = Decimal(0)
-        elif self.fee_type == 1:
-            fee = self.fee
-        elif self.fee_type == 2:
-            fee = pos_trade.transaction_amount * self.fee
-        elif self.fee_type == 3:
-            fee = pos_trade.transaction_volume * self.fee
-        pos_trade.fee = abs(decimal_quantize(fee, 10, 1))
-        pos_trade.pnl = 0
+            if self.fee_type == 0:
+                fee = Decimal(0)
+            elif self.fee_type == 1:
+                fee = self.fee
+            elif self.fee_type == 2:
+                fee = transaction_amount * self.fee
+            elif self.fee_type == 3:
+                fee = transaction_volume * self.fee
 
-        logger.info(f"回测交易结果: {pos_trade.__dict__}")
-        self._trade_callback(pos_trade)
-        return order
+            assert transaction_amount > 0, "交易金额不能为0"
+            assert transaction_volume > 0, "交易数量不能为0"
+            assert transaction_price > 0, "交易价格不能为0"
+
+            
+            msg = OrderUpdateMessage(
+                order_id=order.order_id,
+                order_status=OrderStatus.FILLED,
+                market_order_id="F" + generate_str(),
+                settle_amount=transaction_amount,
+                execution_price=transaction_price,
+                sz=transaction_volume,
+                fee=-abs(decimal_quantize(fee, 10, 1)),
+                pnl=pnl,
+                unrealized_pnl=Decimal(0),
+                friction=Decimal(0),
+                finish_time=order.order_time,
+                sz_value=Decimal("1"),
+            )
+            logger.info(f"回测交易结果: {msg.__dict__}")
+            self._trade_callback(msg)
 
     def cancel_order(self, order_id: str, symbol: str, **kwargs):
         """

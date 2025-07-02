@@ -4,7 +4,7 @@
 """
 数据模型模块，包含各模块间交互的DTO和通用数据结构。
 """
-from .config import PositionConfig, StrategyConfig, LeekComponentConfig, SimpleEngineConfig, StrategyPositionConfig
+from .config import PositionConfig, StrategyConfig, LeekComponentConfig, BacktestEngineConfig, StrategyPositionConfig
 from .constants import TimeFrame, DataType, AssetType, MarketStatus, TradeMode, TradeInsType, OrderType, \
     PosMode, StrategyInstanceState, StrategyState, OrderStatus
 from .data import KLine, Data, InitDataPackage
@@ -18,7 +18,7 @@ __all__ = [
     "OrderUpdateMessage",
     "InitDataPackage",
     "StrategyPositionConfig",
-    "SimpleEngineConfig",
+    "BacktestEngineConfig",
     "LeekComponentConfig",
     "PositionInfo",
     "OrderStatus",

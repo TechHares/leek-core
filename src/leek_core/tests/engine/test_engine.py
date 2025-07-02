@@ -21,7 +21,7 @@ from typing import List
 from leek_core.data import DataSourceContext, OkxDataSource
 from leek_core.engine import *
 from leek_core.event import EventBus, Event
-from leek_core.models import LeekComponentConfig, SimpleEngineConfig, StrategyConfig, KLine, PositionSide, Field, FieldType
+from leek_core.models import LeekComponentConfig, BacktestEngineConfig, StrategyConfig, KLine, PositionSide, Field, FieldType
 import os
 logger = get_logger(__name__)
 
@@ -82,7 +82,7 @@ class TestEngine(unittest.TestCase):
 
         event_bus.subscribe_event(None, on_event)
 
-        cfg = SimpleEngineConfig(
+        cfg = BacktestEngineConfig(
             data_sources=LeekComponentConfig(
                 instance_id="data_manager",
                 name="数据管理",

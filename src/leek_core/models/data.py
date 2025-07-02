@@ -12,7 +12,7 @@ from decimal import Decimal, getcontext
 from typing import Optional, Union, Dict, Any, Set, List, ClassVar
 
 from leek_core.utils import DecimalEncoder
-from .constants import TimeFrame, TradeInsType, DataType
+from .constants import TimeFrame, TradeInsType, DataType, AssetType
 
 # 设置Decimal精度
 getcontext().prec = 28  # 设置足够高的精度以处理金融数据
@@ -170,6 +170,7 @@ class KLine(Data):
     timeframe: TimeFrame = None  # K线时间粒度
     quote_currency: str = "USDT"  # 计价币种，默认为USDT
     ins_type: TradeInsType = TradeInsType.SPOT  # 交易品种类型，默认为现货
+    asset_type: AssetType = AssetType.CRYPTO  # 资产类型，默认为加密货币
     is_finished: bool = False
 
     # 保护的字段名称，这些字段不能被动态属性覆盖（类字段）

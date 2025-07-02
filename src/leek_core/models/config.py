@@ -86,10 +86,10 @@ class PositionConfig:
     max_amount: Decimal    # 单次开仓最大仓位
     max_ratio: Decimal      # 单单次开仓最大仓位比例
 
-    default_leverage: int # 默认杠杆倍数
-    order_type: OrderType # 订单类型
-    trade_type: TradeInsType # 交易类型
-    trade_mode: TradeMode # 交易模式
+    default_leverage: int = 1 # 默认杠杆倍数
+    order_type: OrderType = OrderType.MarketOrder # 订单类型
+    trade_type: TradeInsType = TradeInsType.SPOT # 交易类型
+    trade_mode: TradeMode = TradeMode.CROSS # 交易模式
     data: Dict[str, Any] = None
 
     risk_policies: List[LeekComponentConfig["StrategyPolicy", Dict[str, Any]]] = field(default_factory=list)
@@ -111,7 +111,7 @@ class PositionConfig:
 
 
 @dataclass
-class SimpleEngineConfig:
+class BacktestEngineConfig:
     """
     引擎配置 包含引擎启动所有组件的配置
     """

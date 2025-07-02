@@ -206,9 +206,7 @@ class OkxDataSource(WebSocketDataSource):
                     if kline.is_finished:
                         self.pre_time[kline.row_key] = kline.start_time
                     # 调用订阅的回调函数
-                    if kline.is_finished:
-                        kline.is_finished = False
-                        self.send_data(kline)
+                    self.send_data(kline)
                 except (IndexError, ValueError, TypeError) as e:
                     logger.error(f"解析OKX K线数据时出错: {e}, 原始数据: {row}", exc_info=True)
                     continue

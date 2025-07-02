@@ -419,11 +419,9 @@ class StrategyWrapper(LeekComponent):
         """
         # 更新策略仓位信息
         self.position[position.position_id] = position
-        print(f"on_position_update {position.position_id} {position.sz} {position.sz <= 0}")
         if position.sz <= 0:
             self.position.pop(position.position_id)
-        print(f"on_position_update {self.position.keys()}")
-    
+
     def close_position(self, position: Position):
         """
         处理仓位关闭

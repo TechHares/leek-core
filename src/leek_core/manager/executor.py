@@ -64,7 +64,7 @@ class ExecutorManager(ComponentManager[ExecutorContext, Executor, Dict[str, Any]
             execution_order = self.execution_order_map[order.exec_order_id]
             if execution_order.actual_amount is None:
                 execution_order.actual_amount = Decimal(0)
-            execution_order.actual_amount += order.settle_amount
+            execution_order.actual_amount += order.settle_amount or 0
             if order.is_open:
                 execution_order.actual_ratio = (execution_order.actual_ratio or 0) + order.ratio
             

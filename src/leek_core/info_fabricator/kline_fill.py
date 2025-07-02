@@ -136,8 +136,6 @@ class KLineFillFabricator(Fabricator):
         for k in klines:
             if kline.start_time >= k.start_time > last_start_time:
                 k.metadata = {"is_filled": True}
-                if k.is_finished:
-                    logger.warning(f"OKX填充K线{k}")
                 r.append(k)
         if r[-1].start_time < kline.start_time:
             r.append(kline)
@@ -183,7 +181,6 @@ class KLineFillFabricator(Fabricator):
         filled_kline.low = min(filled_kline.open, filled_kline.close, filled_kline.low)
         # 添加当前K线到历史数据
         history.append(kline)
-        logger.warning(f"算法填充K线{filled_kline}")
         if filled_kline.end_time >= kline.start_time:
             return [filled_kline, kline]
         return [filled_kline] + self._algorithm_fill(filled_kline, kline)

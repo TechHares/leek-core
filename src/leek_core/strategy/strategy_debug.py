@@ -25,13 +25,13 @@ class DebugStrategy(CTAStrategy):
         self.sell = False
 
     def on_kline(self, kline: KLine):
-        print("on_kline", kline.start_time, kline.is_finished)
+        ...
 
     def should_open(self) -> PositionSide | StrategyCommand:
         print("should_open", self.open)
         if self.open:
             self.open = False
-            return PositionSide.LONG
+            return PositionSide.SHORT
         return None
 
     def should_close(self, position_side: PositionSide) -> bool | Decimal:
