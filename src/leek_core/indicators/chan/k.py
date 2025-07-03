@@ -83,8 +83,8 @@ class ChanK(ChanUnion):
         return self._klines
 
     def __str__(self):
-        return (f"ChanK[{self.idx}]({DateTime.to_date_str(self.start_timestamp)}~{DateTime.to_date_str(self.end_timestamp)},"
-                f" {self.size}, {self.start_value}-{self.end_value}, {"完成" if self.is_finish else "未完成"})")
+        return (f"ChanK[{self.idx}]({DateTimeUtils.to_date_str(self.start_timestamp)}~{DateTimeUtils.to_date_str(self.end_timestamp)},"
+                f" {self.size}, {self.start_value}-{self.end_value}, {'完成' if self.is_finish else '未完成'})")
 
 
 class ChanKManager:

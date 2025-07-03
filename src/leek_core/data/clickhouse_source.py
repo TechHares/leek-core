@@ -37,7 +37,6 @@ class ClickHouseKlineDataSource(DataSource):
     支持从 ClickHouse 数据库中读取 K 线数据，
     表结构示例：
     CREATE TABLE klines (
-        id UInt64,
         market String,
         timeframe String,
         timestamp UInt64,
@@ -276,7 +275,7 @@ class ClickHouseKlineDataSource(DataSource):
 
             # 构建查询语句
             query = f"""
-                SELECT id, market, timestamp, symbol, quote_currency, ins_type, timeframe, open, high, low, close, volume, amount
+                SELECT market, timestamp, symbol, quote_currency, ins_type, timeframe, open, high, low, close, volume, amount
                 FROM {self.config['table']}
                 WHERE symbol = %(symbol)s 
                   AND timeframe = %(timeframe)s
@@ -321,7 +320,7 @@ class ClickHouseKlineDataSource(DataSource):
 
             # 使用生成器直接返回 KLine 对象
             for row in result:
-                id_val, market, timestamp, symbol, quote_currency, ins_type, timeframe, open_val, high, low, close, volume, amount = row
+                market, timestamp, symbol, quote_currency, ins_type, timeframe, open_val, high, low, close, volume, amount = row
 
                 # 创建并生成 KLine 对象
                 yield KLine(
