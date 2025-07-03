@@ -34,7 +34,7 @@ pip install leek-core(暂无发布)
 ```
 或源码安装：
 ```bash
-git clone https://github.com/shenglin-li/leek-core.git
+git clone https://github.com/TechHares/leek-core.git
 cd leek-core
 pip install .
 ```
