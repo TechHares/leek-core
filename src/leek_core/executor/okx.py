@@ -12,6 +12,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import List
 
+import websockets
+
 from cachetools import TTLCache, cached
 from okx.MarketData import MarketAPI
 from okx.PublicData import PublicAPI
@@ -65,7 +67,7 @@ class OkxWebSocketExecutor(WebSocketExecutor):
     }
 
     def __init__(self, api_key, secret_key, passphrase, slippage_level=4, ccy="", **kwargs):
-        super().__init__(ws_url="wss://ws.okx.com:8443/ws/v5/private", heartbeat_interval=25, **kwargs)
+        super().__init__(ws_url="wss://ws.okx.com:8443/ws/v5/private", heartbeat_interval=22, **kwargs)
         self.api_key = api_key
         self.secret_key = secret_key
         self.passphrase = passphrase
@@ -176,11 +178,6 @@ class OkxWebSocketExecutor(WebSocketExecutor):
         if "data" in msg and "arg" in msg:
             # 订单/持仓/成交等
             await self.callback(msg)
-
-    async def send_heartbeat(self):
-        # OKX心跳采用ping
-        await self.send("ping")
-        logger.debug("[OKX] 发送心跳ping")
 
     def send_order(self, orders: Order | List[Order]):
         """

@@ -27,6 +27,7 @@ class DataSourceContext(LeekContext):
 
     def send_data(self, data: Data):
         if isinstance(data, str) and data == "reconnect":
+            logger.info(f"数据源 {self.name} 收到重连信号，开始重新连接...")
             self.update(self.config)
             return
 

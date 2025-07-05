@@ -42,7 +42,6 @@ class OkxDataSource(WebSocketDataSource):
     init_params: List[Field] = [
         Field(name="symbols", label="标的", type=FieldType.ARRAY, default=[], choice_type=ChoiceType.STRING),
     ]
-    verbose_name = "OKX K线"
 
     def __init__(self, symbols: List[str] = None):
         """
@@ -53,50 +52,19 @@ class OkxDataSource(WebSocketDataSource):
             instance_id: 数据源实例ID
         """
         self.ws_domain = "wss://ws.okx.com:8443/ws/v5/business"
-        super().__init__(ws_url=self.ws_domain)
+        super().__init__(ws_url=self.ws_domain, ping_interval=25, ping_timeout=10)
         self.symbols = symbols or []
-        self._ping_interval = 25
-        self._ping_task: Optional[asyncio.Task] = None
         self.subscribed_channels: Dict[str, int] = {}
 
         self.pre_time = {}
 
     def on_connect(self):
-        """连接成功后启动心跳任务"""
-        if self._ping_task:
-            self._ping_task.cancel()
-
-        if self._loop:
-            self._ping_task = asyncio.run_coroutine_threadsafe(
-                self._send_ping_loop(),
-                self._loop
-            )
-            logger.info(f"OKX心跳任务已启动")
+        """连接成功后调用"""
+        logger.info(f"OKX数据源连接成功，使用websockets内置心跳")
 
     def on_disconnect(self):
-        """断开连接前取消心跳任务"""
-        if self._ping_task:
-            self._ping_task.cancel()
-            self._ping_task = None
-            logger.info(f"OKX心跳任务已停止")
-
-    async def _send_ping_loop(self):
-        """OKX心跳任务"""
-        while self._connection:
-            try:
-                await asyncio.sleep(self._ping_interval)
-                if self._connection:
-                    logger.debug(f"发送心跳到OKX")
-                    await self._connection.send("ping")
-            except asyncio.CancelledError:
-                logger.info("OKX心跳循环已取消")
-                break
-            except websockets.exceptions.ConnectionClosed:
-                logger.warning("发送心跳时连接已关闭")
-                break
-            except Exception as e:
-                logger.error(f"OKX心跳循环出错: {e}", exc_info=True)
-                await asyncio.sleep(5)
+        """断开连接前调用"""
+        logger.info(f"OKX数据源断开连接")
 
     async def on_message(self, message: str):
         """

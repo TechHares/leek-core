@@ -155,7 +155,18 @@ class WebSocketExecutor(Executor, ABC):
         logger.info(f"[WebSocketExecutor] _run: 尝试连接 {self.ws_url}")
         while not self._stop_event.is_set():
             try:
-                async with websockets.connect(self.ws_url, ping_interval=None) as ws:
+                # 使用 websockets 内置心跳功能
+                ping_interval = self.heartbeat_interval if self.heartbeat_interval > 0 else None
+                ping_timeout = 10  # 心跳超时时间
+                
+                async with websockets.connect(
+                    self.ws_url, 
+                    ping_interval=ping_interval,
+                    ping_timeout=ping_timeout,
+                    close_timeout=10,
+                    max_size=2**20,  # 1MB
+                    compression=None
+                ) as ws:
                     self._ws = ws
                     self._status = WSStatus.CONNECTED
                     self._current_retries = 0
@@ -164,8 +175,7 @@ class WebSocketExecutor(Executor, ABC):
                     try:
                         await asyncio.gather(
                             self.on_open(),
-                            self._recv_loop(),
-                            self._heartbeat_loop()
+                            self._recv_loop()
                         )
                     except Exception as e:
                         logger.warning(f"[WebSocketExecutor] _run: 任务异常 {e}, 当前重试次数: {self._current_retries}")
@@ -188,80 +198,78 @@ class WebSocketExecutor(Executor, ABC):
         logger.debug("[WebSocketExecutor] _recv_loop: 启动消息接收循环")
         while not self._stop_event.is_set() and self._ws:
             try:
-                msg = await asyncio.wait_for(self._ws.recv(), timeout=self.heartbeat_interval+5)
+                msg = await self._ws.recv()
                 logger.debug(f"[WebSocketExecutor] _recv_loop: 收到消息 {msg}")
                 await self.on_message(msg)
-            except asyncio.TimeoutError:
-                logger.debug("[WebSocketExecutor] _recv_loop: 接收超时，继续监听")
-                continue
-            except websockets.ConnectionClosed as e:
+            except websockets.exceptions.ConnectionClosed as e:
                 logger.info(f"[WebSocketExecutor] _recv_loop: WebSocket连接关闭: {e}")
+                break
+            except websockets.exceptions.ConnectionClosedError as e:
+                logger.warning(f"[WebSocketExecutor] _recv_loop: WebSocket连接异常关闭: {e}")
                 break
             except Exception as e:
                 logger.error(f"[WebSocketExecutor] _recv_loop: 接收异常: {e}", exc_info=True)
                 await self.on_error(e)
                 break
 
-    async def _heartbeat_loop(self):
-        if self.heartbeat_interval is None or self.heartbeat_interval < 0:
-            # 心跳间隔<0则不发心跳
-            logger.warning("[WebSocketExecutor] _heartbeat_loop: 心跳功能关闭")
-            return
-        logger.debug(f"[WebSocketExecutor] _heartbeat_loop: 启动心跳循环，间隔 {self.heartbeat_interval}s")
-        while not self._stop_event.is_set() and self._ws:
-            await self.send_heartbeat()
-            logger.debug("[WebSocketExecutor] _heartbeat_loop: 已发送心跳")
-            await asyncio.sleep(self.heartbeat_interval)
-
     async def _close_ws(self):
         if self._ws:
             try:
-                await self._ws.close()
-                logger.warning("[WebSocketExecutor] _close_ws: WebSocket已关闭")
+                # websockets 库使用 state 属性，OPEN = 1 表示连接打开
+                if self._ws.state == 1:  # websockets.protocol.State.OPEN
+                    await self._ws.close()
+                    logger.warning("[WebSocketExecutor] _close_ws: WebSocket已关闭")
+                else:
+                    logger.debug(f"[WebSocketExecutor] _close_ws: WebSocket状态为 {self._ws.state}，无需关闭")
+            except websockets.exceptions.ConnectionClosed:
+                logger.debug("[WebSocketExecutor] _close_ws: WebSocket连接已关闭")
             except Exception as e:
                 logger.error(f"[WebSocketExecutor] _close_ws: 关闭异常: {e}")
-            await self.on_close()
-            self._ws = None
+            finally:
+                await self.on_close()
+                self._ws = None
 
     async def send(self, msg):
         if self._ws and self._status == WSStatus.CONNECTED:
-            logger.debug(f"[WebSocketExecutor] send: 发送消息 {msg}")
-            await self._ws.send(msg)
-
-    async def send_heartbeat(self):
-        """
-        发送心跳包，子类可重写实现具体心跳内容。
-        """
-        logger.debug("[WebSocketExecutor] send_heartbeat: 默认心跳，未实现")
-        ...
+            # 检查连接状态
+            # websockets 库使用 state 属性，OPEN = 1 表示连接打开
+            if self._ws.state != 1:  # websockets.protocol.State.OPEN
+                logger.warning(f"[WebSocketExecutor] send: WebSocket连接状态为 {self._ws.state}，无法发送消息")
+                raise websockets.exceptions.ConnectionClosed(self._ws, None, None)
+            
+            try:
+                logger.debug(f"[WebSocketExecutor] send: 发送消息 {msg}")
+                await self._ws.send(msg)
+            except websockets.exceptions.ConnectionClosed as e:
+                logger.warning(f"[WebSocketExecutor] send: 连接已关闭，无法发送消息: {e}")
+                raise
+            except Exception as e:
+                logger.error(f"[WebSocketExecutor] send: 发送消息异常: {e}")
+                raise
 
     async def on_message(self, msg):
         """
         收到消息时的回调，需由子类实现。
         """
         logger.debug(f"[WebSocketExecutor] on_message: 收到消息 {msg}")
-        ...
 
     async def on_open(self):
         """
         连接建立时回调，子类可选实现。
         """
         logger.info("[WebSocketExecutor] on_open: 连接建立")
-        ...
 
     async def on_close(self):
         """
         连接关闭时回调，子类可选实现。
         """
         logger.info("[WebSocketExecutor] on_close: 连接关闭")
-        ...
 
     async def on_error(self, error):
         """
         错误处理回调，默认打印日志，子类可重写。
         """
         logger.error(f"[WebSocketExecutor] on_error: {error}")
-        ...
 
     def async_send(self, message: str) -> bool:
         """

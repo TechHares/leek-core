@@ -32,7 +32,7 @@ class WebSocketDataSource(DataSource, ABC):
               description="WebSocket服务器地址"),
     ]
 
-    def __init__(self, ws_url: str):
+    def __init__(self, ws_url: str, ping_interval: int = 25, ping_timeout: int = 10):
         """
         初始化WebSocket数据源。
 
@@ -43,6 +43,8 @@ class WebSocketDataSource(DataSource, ABC):
         """
         super().__init__()
         self.ws_url = ws_url
+        self.ping_interval = ping_interval
+        self.ping_timeout = ping_timeout
         self._connection = None
         self._listener_task = None
         self._loop = None
@@ -86,7 +88,12 @@ class WebSocketDataSource(DataSource, ABC):
     async def _async_connect(self):
         """异步连接实现"""
         try:
-            self._connection = await websockets.connect(self.ws_url)
+            # 使用 websockets 内置心跳功能
+            self._connection = await websockets.connect(
+                self.ws_url,
+                ping_interval=self.ping_interval,
+                ping_timeout=self.ping_timeout
+            )
             # 启动监听任务
             self._listener_task = asyncio.create_task(self._listen())
             logger.info(f"WebSocket数据源连接成功: {self.ws_url}")
@@ -129,15 +136,6 @@ class WebSocketDataSource(DataSource, ABC):
             self._listener_task.cancel()
             logger.debug(f"已取消WebSocket监听任务: {self.ws_url}")
 
-        # 尝试关闭WebSocket连接
-        if self._connection:
-            try:
-                # 在主线程中无法使用await，但可以检查是否已关闭
-                if hasattr(self._connection, "closed") and not self._connection.closed:
-                    logger.debug(f"WebSocket连接未关闭，将在事件循环停止时自动关闭: {self.ws_url}")
-            except Exception as e:
-                logger.error(f"检查WebSocket连接状态时出错: {e}", exc_info=True)
-
         # 停止事件循环
         if self._loop and self._loop.is_running():
             try:
@@ -174,7 +172,7 @@ class WebSocketDataSource(DataSource, ABC):
             logger.debug(f"正在取消{len(tasks)}个任务")
 
             # 关闭WebSocket连接（如果存在）
-            if self._connection and hasattr(self._connection, "close"):
+            if self._connection and self._connection.state == 1: 
                 try:
                     await self._connection.close()
                     logger.debug(f"已关闭WebSocket连接: {self.ws_url}")
@@ -221,7 +219,7 @@ class WebSocketDataSource(DataSource, ABC):
                     except Exception as e:
                         logger.error(f"处理WebSocket消息时出错: {e}", exc_info=True)
                 except websockets.exceptions.ConnectionClosed as e:
-                    logger.error(f"WebSocket连接已关闭: {e}")
+                    logger.warning(f"WebSocket连接已关闭: {e}")
                     await self.on_connection_closed(e)
                     self.send_data("reconnect")
                     break
