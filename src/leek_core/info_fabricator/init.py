@@ -60,7 +60,7 @@ class KlineInitFabricator(Fabricator):
         if kline[0].data_type == DataType.INIT_PACKAGE:
             self.init_data[kline[0].row_key] = True
             assert isinstance(kline[0], InitDataPackage)
-            logger.info(f"初始化K线数据: {kline[0].row_key}")
+            logger.info(f"初始化K线数据: {kline[0].row_key} - {len(kline[0].history_datas)}")
             for d in kline[0].history_datas:
                 d.data_source_id = kline[0].data_source_id
                 d.history_data = True

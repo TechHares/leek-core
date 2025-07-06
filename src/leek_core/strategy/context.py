@@ -253,24 +253,29 @@ class StrategyWrapper(LeekComponent):
         self.current_command: StrategyCommand = None  # 当前命令
 
         self.position: Dict[str, Position] = {}
+        self.lock = Lock()
 
-    @thread_lock(try_lock=True)
     def on_data(self, data: Data = None) -> Optional[List[Asset]]:
-        if isinstance(self.strategy, CTAStrategy):
-            r = self.on_cta_data(data)
-            if r:
-                return [Asset(
-                    asset_type=data.asset_type,
-                    ins_type=data.ins_type,
-                    symbol=data.symbol,
-                    quote_currency=data.quote_currency,
-                    side=r[0],
-                    ratio=min(r[1], Decimal("1")),
-                    price=data.close,
-                )]
+        if not self.lock.acquire(blocking=False):
             return None
+        try:
+            if isinstance(self.strategy, CTAStrategy):
+                r = self.on_cta_data(data)
+                if r:
+                    return [Asset(
+                        asset_type=data.asset_type,
+                        ins_type=data.ins_type,
+                        symbol=data.symbol,
+                        quote_currency=data.quote_currency,
+                        side=r[0],
+                        ratio=min(r[1], Decimal("1")),
+                        price=data.close,
+                    )]
+                return None
 
-        raise ValueError("strategy must be process")
+            raise ValueError("strategy must be process")
+        finally:
+            self.lock.release()
 
     def on_cta_data(self, data: Data = None) -> (PositionSide, Decimal):
         """
