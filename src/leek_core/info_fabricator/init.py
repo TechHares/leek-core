@@ -5,6 +5,9 @@ from typing import List
 from leek_core.event import EventType
 from leek_core.info_fabricator import Fabricator
 from leek_core.models import DataType, Field, FieldType, Data, InitDataPackage
+from leek_core.utils import get_logger
+
+logger = get_logger(__name__)
 
 
 class KlineInitFabricator(Fabricator):
@@ -38,19 +41,26 @@ class KlineInitFabricator(Fabricator):
         super().__init__()
         self.num = num
         self.init = None if num > 0 else True
+        self.init_data = {}
 
     def process(self, kline: List[Data]) -> List[Data]:
-        if self.init:
+        if len(kline) == 0:
+            return kline
+        init = self.init_data.get(kline[0].row_key, self.init)
+        if init:
             return kline
 
-        if self.init is None:
-            self.init = False
-            self.send_event(EventType.DATA_REQUEST, {"limit": self.num, "row_key": kline[0].row_key, "data_source_id": kline[0].data_source_id})
+        if init is None:
+            self.init_data[kline[0].row_key] = False
+            data_request = {"limit": self.num, "row_key": kline[0].row_key, "data_source_id": kline[0].data_source_id}
+            logger.info(f"准备初始化K线数据: {data_request}")
+            self.send_event(EventType.DATA_REQUEST, data_request)
             return []
 
         if kline[0].data_type == DataType.INIT_PACKAGE:
-            self.init = True
+            self.init_data[kline[0].row_key] = True
             assert isinstance(kline[0], InitDataPackage)
+            logger.info(f"初始化K线数据: {kline[0].row_key}")
             for d in kline[0].history_datas:
                 d.data_source_id = kline[0].data_source_id
                 d.history_data = True
