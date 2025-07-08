@@ -69,6 +69,12 @@ def decimal_quantize(d, n=2, rounding=2):
     :param rounding: 保留方式 0 四舍五入 1 进一法 2 舍弃
     :return:
     """
+    if isinstance(d, float):
+        d = Decimal(str(d))
+    elif isinstance(d, int):
+        d = Decimal(str(d))
+    elif isinstance(d, str):
+        d = Decimal(d)
     if d is None:
         return None
     r = ROUND_HALF_DOWN

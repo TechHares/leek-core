@@ -78,6 +78,7 @@ class PositionContext(LeekContext):
         # 计算每个资产的最大可投入金额
         ratios = []
         max_amounts = []
+        fake_flag = False
         for asset in signal.assets:
             # 获取当前标的总仓位
             current_position = self._get_position(
@@ -97,15 +98,15 @@ class PositionContext(LeekContext):
             symbol_amount = self.position_config.max_symbol_amount - symbol_used_principal
 
             symbol_amount = min(symbol_amount, decimal_quantize(self.total_amount * (self.position_config.max_symbol_ratio - symbol_used_ratio), 8))
+            if symbol_amount <= 0:
+                fake_flag = True
+            elif principal * asset.ratio > symbol_amount:
+                principal = symbol_amount / asset.ratio
             max_amounts.append(symbol_amount)
         
-        # 计算单位金额
-        unit_amount = Decimal(0)
-        if len(max_amounts) > 0 and sum(ratios) > 0:
-            unit_amount = principal / sum(ratios)
-            for i in range(len(max_amounts)):
-                unit_amount = min(unit_amount, max_amounts[i] / ratios[i])
-
+        if sum(ratios) > 1:
+            logger.error(f"信号 {signal.signal_id} 的资产比例之和大于1，无法计算单位金额")
+            return None
         execution_assets = []
         for asset in signal.assets:
             current_position = self._get_position(
@@ -123,15 +124,16 @@ class PositionContext(LeekContext):
                     side=asset.side,
                     price=asset.price,
                     ratio=asset.ratio,
-                    amount=unit_amount * asset.ratio,
+                    amount=0,
                     is_open=False,
-                    is_fake=False,
+                    is_fake=fake_flag,
                     quote_currency=asset.quote_currency,
                     extra=asset.extra,
             )
 
             if current_position:
                 execution_asset.executor_sz = current_position.executor_sz
+                execution_asset.position_id = current_position.position_id
 
             execution_assets.append(execution_asset)
             if current_position and current_position.side != asset.side: # 减仓
@@ -143,7 +145,7 @@ class PositionContext(LeekContext):
                 continue
             
             execution_asset.is_open = True
-            execution_asset.amount = decimal_quantize(unit_amount * asset.ratio, 8)
+            execution_asset.amount = decimal_quantize(principal * asset.ratio, 8)
             execution_asset.ratio = decimal_quantize(execution_asset.amount / self.total_amount, 8)
 
         return execution_assets
@@ -160,6 +162,7 @@ class PositionContext(LeekContext):
             订单
         """
         execution_assets = self.evaluate_amount(signal)
+        logger.info(f"处理策略信号: {signal} -> {execution_assets}")
         if not execution_assets:
             return None
         execution_context = ExecutionContext(
@@ -398,7 +401,7 @@ class PositionContext(LeekContext):
                 side=order.side,
                 cost_price=0,
                 amount=0,
-                ratio=order.ratio,
+                ratio=0,
                 current_price=order.execution_price,
                 executor_id=order.executor_id,
                 is_fake=order.is_fake,
@@ -459,6 +462,7 @@ class PositionContext(LeekContext):
                     position.cost_price = (position.total_amount - (position.pnl or Decimal('0')) - (position.fee or Decimal('0')) - (position.friction or Decimal('0'))) / position.total_sz
                 if order.order_status == OrderStatus.FILLED and not position.is_fake:
                     self.activate_amount += (order.order_amount - order.settle_amount)
+                    position.ratio += order.ratio
             else:
                 position.total_back_amount += delta_amount
                 position.executor_sz[order.executor_id] = position.executor_sz.get(order.executor_id, Decimal('0')) - delta_sz
@@ -467,6 +471,8 @@ class PositionContext(LeekContext):
                 if closed_sz > 0:
                     position.close_price = position.total_back_amount / closed_sz
                 self.activate_amount += delta_amount
+                if order.order_status == OrderStatus.FILLED and not position.is_fake:
+                    position.ratio -= order.ratio
             
             position.amount = position.sz * position.cost_price
             if position.sz <= 0:

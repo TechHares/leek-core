@@ -50,6 +50,7 @@ tomli = "^2.0.1"
 websocket-client = "*"
 websockets = "*"
 zope-interface = ">=5"
+plotly = ">=6.2.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.0"

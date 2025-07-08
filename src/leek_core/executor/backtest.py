@@ -120,9 +120,9 @@ class BacktestExecutor(Executor):
             elif self.fee_type == 3:
                 fee = transaction_volume * self.fee
 
-            assert transaction_amount > 0, "交易金额不能为0"
-            assert transaction_volume > 0, "交易数量不能为0"
             assert transaction_price > 0, "交易价格不能为0"
+            assert transaction_volume > 0, "交易数量不能为0"
+            assert transaction_amount > 0, "交易金额不能为0"
 
             
             msg = OrderUpdateMessage(

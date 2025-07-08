@@ -93,6 +93,7 @@ class KLineFillFabricator(Fabricator):
         last_kline = self._check_kline_seq(kline)
         if last_kline is None:
             return [kline]
+        logger.info(f"填充K线[{self.fill_method}]: {last_kline} - {kline}")
         if self.fill_method == "okx":
             return self._okx_fill(last_kline, kline)
         return self._algorithm_fill(last_kline,kline)
@@ -134,7 +135,9 @@ class KLineFillFabricator(Fabricator):
         ))
         r = []
         for k in klines:
-            if kline.start_time >= k.start_time > last_start_time:
+            if kline.start_time >= k.start_time >= last_start_time:
+                if k.start_time == last_start_time and last_kline.is_finished:
+                    continue
                 k.metadata = {"is_filled": True}
                 r.append(k)
         if r[-1].start_time < kline.start_time:

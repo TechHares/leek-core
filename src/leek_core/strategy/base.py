@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from decimal import Decimal
 from logging import Logger
-from typing import Any, Set, List
+from typing import Any, Dict, Set, List
 
 from leek_core.base import LeekComponent
 from leek_core.models import PositionSide, Field, Data, DataType, Position
@@ -60,7 +60,8 @@ class Strategy(LeekComponent, ABC):
         初始化策略
         """
         # 初始化日志器
-        self.logger: Logger = None
+        self.position_status: PositionStatus = None
+        self.position: Dict[str, Position] = {}
     
     def on_data(self, data: Data = None):
         """
@@ -83,4 +84,11 @@ class Strategy(LeekComponent, ABC):
 
     @abstractmethod
     def close(self, position: Position) -> Any:
+        ...
+
+    def after_risk_control(self):
+        """
+        策略风控策略执行
+            触发风控时调用，一般无需特别处理， 但是策略自己管理仓位的话需要重写此方法清空自己仓位管理相关的信息
+        """
         ...

@@ -249,7 +249,7 @@ class StrategyWrapper(LeekComponent):
 
         # 策略状态
         self.state = StrategyInstanceState.CREATED
-        self.position_rate: Decimal = Decimal("0")  # 仓位比例，0-1之间的小数
+        self.position_rate: Decimal = Decimal("0")
         self.current_command: StrategyCommand = None  # 当前命令
 
         self.position: Dict[str, Position] = {}
@@ -269,6 +269,7 @@ class StrategyWrapper(LeekComponent):
                         quote_currency=data.quote_currency,
                         side=r[0],
                         ratio=min(r[1], Decimal("1")),
+                        is_open=r[2],
                         price=data.close,
                     )]
                 return None
@@ -277,7 +278,7 @@ class StrategyWrapper(LeekComponent):
         finally:
             self.lock.release()
 
-    def on_cta_data(self, data: Data = None) -> (PositionSide, Decimal):
+    def on_cta_data(self, data: Data = None) -> (PositionSide, Decimal, bool):
         """
         处理数据，更新进出场策略状态
 
@@ -295,12 +296,25 @@ class StrategyWrapper(LeekComponent):
             self.exit_strategy.on_data(data)
         if data.get("history_data", False):
             return None
+        logger.debug(f"{self.strategy.display_name} 当前状态: {self.state}, 仓位[{self.position_rate}]: "
+                    f"{['%s:%s-%s:%s, %s, %s' % (p.position_id, p.symbol, p.quote_currency, p.side, p.ratio, p.sz) for p in list(self.position.values())]}")
         if len(self.position) > 0: # 有仓位 暂时支持单策略单仓位， 后续有需要在扩展
-            res = [p.evaluate(data, list(self.position.values())[0]) for p in self.policies]
-            if not all(res):
-                self.state = StrategyInstanceState.STOPPED if self.state == StrategyInstanceState.STOPPING else StrategyInstanceState.READY
-                return list(self.position.values())[0].side.switch(), Decimal("1")
-
+            pos = list(self.position.values())[0]
+            res = {p.__class__.__name__: p.evaluate(data, pos) for p in self.policies}
+            logger.debug(f"仓位风控策略结果: {res}")
+            if not all(res.values()):
+                try:
+                    self.current_command = StrategyCommand(pos.side.switch(), Decimal("1"))
+                    state = StrategyInstanceState.STOPPED if self.state == StrategyInstanceState.STOPPING else StrategyInstanceState.READY
+                    r = self.exiting_handler()
+                    self.state = state
+                    return r
+                finally:
+                    try:
+                        logger.info(f"仓位风控策略执行完成, 触发策略{self.strategy.display_name}仓位清理")
+                        self.strategy.after_risk_control()
+                    except Exception as e:
+                        logger.error(f"仓位风控策略执行完成, 触发策略{self.strategy.display_name}仓位清理失败: {e}", exc_info=True)
         if self.state == StrategyInstanceState.READY:  # 无仓位
             return self.ready_handler()
         elif self.state == StrategyInstanceState.ENTERING:
@@ -330,9 +344,9 @@ class StrategyWrapper(LeekComponent):
         rt = self.enter_strategy.ratio(self.current_command.side)
         if rt > 0:
             try:
-                position_change = self.current_command.ratio * rt
+                position_change = min(self.current_command.ratio * rt, 1 - self.position_rate)
                 self.position_rate += position_change
-                return self.current_command.side, position_change
+                return self.current_command.side, position_change, True
             finally:
                 if self.enter_strategy.is_finished:
                     self.state = StrategyInstanceState.HOLDING
@@ -360,9 +374,9 @@ class StrategyWrapper(LeekComponent):
         rt = self.exit_strategy.ratio(self.current_command.side)
         if rt > 0:
             try:
-                position_change = self.current_command.ratio * rt
+                position_change = min(self.current_command.ratio * rt, self.position_rate)
                 self.position_rate -= position_change
-                return self.current_command.side, position_change
+                return self.current_command.side, position_change, False
             finally:
                 if self.exit_strategy.is_finished:
                     self.state = StrategyInstanceState.HOLDING if self.position_rate > 0 else StrategyInstanceState.READY
@@ -423,6 +437,7 @@ class StrategyWrapper(LeekComponent):
         处理仓位更新
         """
         # 更新策略仓位信息
+        logger.info(f"{self.strategy.display_name} 更新仓位: {position}")
         self.position[position.position_id] = position
         if position.sz <= 0:
             self.position.pop(position.position_id)
@@ -433,7 +448,7 @@ class StrategyWrapper(LeekComponent):
         """
         potion = self.position.get(position.position_id, None)
         if potion:
-            self.position_rate -= (position.ratio / sum(p.ratio for p in self.position.values()))
+            self.position_rate -= min(position.ratio / sum(p.ratio for p in self.position.values()), self.position_rate)
             self.state = StrategyInstanceState.READY if self.position_rate == 0 else StrategyInstanceState.HOLDING
     
     def on_start(self):

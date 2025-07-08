@@ -5,12 +5,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, List, Dict
+from typing import List, Dict
 
 from .constants import TradeInsType, AssetType
-from .order import Order
-
-
+    
 class PositionSide(Enum):
     """
     头寸方向 PositionSide

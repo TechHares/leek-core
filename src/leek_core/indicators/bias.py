@@ -25,7 +25,7 @@ class BiasRatio(T):
             br = (data.close - ma) / ma * 100
             return br
         finally:
-            if data.is_finished == 1:
+            if data.is_finished:
                 self.cache.append(br)
 
 

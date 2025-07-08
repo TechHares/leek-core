@@ -113,14 +113,15 @@ class StrategyDebugView(Engine):
             "close": [],
             "volume": [],
             "bechmark": [],
-            "sell": [],
-            "buy": [],
+            "open_long": [],
+            "close_long": [],
+            "open_short": [],
+            "close_short": [],
             "profit": [],
+            "position": [],
             "time": []
         }
 
-        position_volume = 0
-        position_ratio = 0
         custom_key = []
         for kline in self.data_source.get_history_data(start_time=self.start_time, end_time=self.end_time,
                                                        symbol=self.symbol, timeframe=self.timeframe,
@@ -128,6 +129,7 @@ class StrategyDebugView(Engine):
                                                        ins_type=self.ins_type):
             count += 1
             assets = self.strategy.on_data(kline)
+            data["position"].append(self.strategy.position_rate * 100)
             self.position_context.on_data(kline)
             if self.bechmark is None:
                 self.bechmark = kline.close
@@ -145,8 +147,10 @@ class StrategyDebugView(Engine):
             data["bechmark"].append((kline.close - self.bechmark) / self.bechmark * 100)
             data["volume"].append(kline.volume)
             data["time"].append(DateTimeUtils.to_datetime(kline.start_time))
-            data["buy"].append(None)
-            data["sell"].append(None)
+            data["open_long"].append(None)
+            data["close_long"].append(None)
+            data["open_short"].append(None)
+            data["close_short"].append(None)
             for k in custom_key:
                 data[k].append(kline.dynamic_attrs.get(k, None))
             if assets is not None and len(assets) > 0:
@@ -160,9 +164,15 @@ class StrategyDebugView(Engine):
                     assets=assets
                 )
                 if assets[0].side.is_long:
-                    data["buy"][-1] = kline.low * Decimal("0.98")
+                    if assets[0].is_open:
+                        data["open_long"][-1] = kline.low * Decimal("0.98")
+                    else:
+                        data["close_short"][-1] = kline.high * Decimal("0.98")
                 if assets[0].side.is_short:
-                    data["sell"][-1] = kline.high * Decimal("1.02")
+                    if assets[0].is_open:
+                        data["open_short"][-1] = kline.high * Decimal("1.02")
+                    else:
+                        data["close_long"][-1] = kline.low * Decimal("1.02")
                 self.position_context.process_signal(signal)
             data["profit"].append((self.position_context.value - self.initial_balance) / self.initial_balance * 100)
         self.data_source.disconnect()
@@ -175,51 +185,49 @@ class StrategyDebugView(Engine):
         import pandas as pd
 
         df = pd.DataFrame(data)
-        fig = make_subplots(rows=row or 3, cols=1, shared_xaxes=True)
+        rows_count = max(row or 2, 2)
+        # 动态生成specs，只有第二行支持secondary_y
+        specs = []
+        for i in range(rows_count):
+            if i == 1:  # 第二行（索引为1）
+                specs.append([{"secondary_y": True}])
+            else:
+                specs.append([{"secondary_y": False}])
+        fig = make_subplots(rows=rows_count, cols=1, shared_xaxes=True, specs=specs)
         fig.add_trace(go.Candlestick(x=df['time'],
                                      open=df['open'],
                                      high=df['high'],
                                      low=df['low'],
                                      close=df['close'],
-                                     name=self.symbol),
-                      row=1, col=1)
-        fig.add_trace(go.Scatter(
-            x=df['time'],
-            y=df['buy'],
-            mode='markers+text',
-            text="多",
-            marker=dict(color='green', size=4)
-        ), row=1, col=1)
+                                     name=self.symbol), row=1, col=1)
+        
 
-        fig.add_trace(go.Scatter(
-            x=df['time'],
-            y=df['sell'],
-            mode='markers+text',
-            text="空",
-            marker=dict(color='red', size=4)
-        ), row=1, col=1)
 
-        fig.add_trace(go.Bar(x=df['time'], y=df['volume'], name='Volume'),
-                      row=2, col=1)
+        fig.add_trace(go.Scatter(x=df['time'],y=df['open_long'],mode='markers+text',text="多", textposition='bottom center', textfont=dict(family='Courier New', color='green', size=14), marker=dict(color='#bcbd22', size=4)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df['time'],y=df['close_long'],mode='markers+text',text="多",textposition='top center', textfont=dict(family='Courier New', color='red', size=14), marker=dict(color='#17becf', size=4)), row=1, col=1)
+
+        fig.add_trace(go.Scatter(x=df['time'],y=df['open_short'],mode='markers+text',text="空",textposition='top center', textfont=dict(family='Courier New', color='red', size=14), marker=dict(color='#bcbd22', size=4)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df['time'],y=df['close_short'],mode='markers+text',text="空",textposition='bottom center', textfont=dict(family='Courier New', color='green', size=14), marker=dict(color='#17becf', size=4)), row=1, col=1)
 
         fig.add_trace(go.Scatter(x=df['time'], y=df["bechmark"], mode='lines', name="bechmark",
-                                 line=dict(color=self.get_color(), width=1)),
-                      row=3, col=1)
-
+                                 line=dict(color=self.get_color(), width=1)), row=2, col=1)
         fig.add_trace(go.Scatter(x=df['time'], y=df["profit"], mode='lines', name="return",
-                                 line=dict(color=self.get_color(), width=2)),
-                      row=3, col=1)
+                                 line=dict(color=self.get_color(), width=2)), row=2, col=1)
+        fig.add_trace(go.Scatter(x=df['time'], y=df["position"], mode='lines', name="position",
+                                 line=dict(color=self.get_color(), width=1)), row=2, col=1, secondary_y=True)
         # 设置 x 轴标签格式为百分比
         import numpy as np
         fig.update_xaxes(
             tickvals=np.linspace(-100, 100, 5),  # 设置刻度值
             ticktext=[f"{x}%" for x in np.linspace(-100, 100, 5)],  # 格式化为百分比
-            row=3, col=1
+            row=2, col=1
         )
 
         if custom_draw is not None:
             custom_draw(fig, df)
         fig.update_layout(height=kwargs.get("height", 600))
+        # 设置右边y轴的标题
+        fig.update_yaxes(title_text="Position Rate", secondary_y=True, row=2, col=1)
         fig.update_xaxes(rangeslider_visible=False, row=1, col=1)
         fig.show()
 
