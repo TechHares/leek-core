@@ -139,24 +139,25 @@ class OkxWebSocketExecutor(WebSocketExecutor):
                         if data["state"] == "live":
                             continue
                         instrument = self._get_instrument(data["instId"], data["instType"])
-                        msg = OrderUpdateMessage(
+                        oum = OrderUpdateMessage(
                             order_id=order_id,
                             market_order_id=data["ordId"],
                             execution_price=Decimal(data["avgPx"]),
-                            sz = Decimal(data["accFillSz"]) / Decimal(instrument["ctVal"]),
+                            sz = Decimal(data["accFillSz"]) * Decimal(instrument["ctVal"]),
                             fee=Decimal(data["fee"]),
                             pnl=Decimal(data["pnl"]),
                             unrealized_pnl=Decimal(0),
                             friction=Decimal(0),
                             sz_value=Decimal(instrument["ctVal"]),
                         )
-                        msg.settle_amount = msg.execution_price * msg.sz
-                        msg.order_status = OrderStatus("canceled" if data["state"] == "mmp_canceled" else data["state"])
-                        if msg.order_status == OrderStatus.FILLED or msg.order_status == OrderStatus.PARTIALLY_FILLED:
-                            msg.finish_time = DateTimeUtils.to_datetime(int(data["fillTime"]))
+                        oum.settle_amount = oum.execution_price * oum.sz / Decimal(data["lever"])
+                        oum.order_status = OrderStatus("canceled" if data["state"] == "mmp_canceled" else data["state"])
+                        if oum.order_status == OrderStatus.FILLED or oum.order_status == OrderStatus.PARTIALLY_FILLED:
+                            oum.finish_time = DateTimeUtils.to_datetime(int(data["fillTime"]))
                         else:
-                            msg.finish_time = DateTimeUtils.to_datetime(int(data["uTime"]))
-                        self._trade_callback(msg)
+                            oum.finish_time = DateTimeUtils.to_datetime(int(data["uTime"]))
+                        logger.info(f"OKX订单更新: {msg} -> {oum}")
+                        self._trade_callback(oum)
         except Exception as e:
             logger.error(f"OKX消息处理异常: {e}", exc_info=True)
 
@@ -238,7 +239,7 @@ class OkxWebSocketExecutor(WebSocketExecutor):
             self.pos_mode = pos_mode
         logger.info(f"当前账户为「{pos_mode.value}」模式")
 
-    @cached(cache=TTLCache(maxsize=200, ttl=3600 * 10))
+    @cached(cache=TTLCache(maxsize=20000, ttl=3600 * 24))
     def set_leverage(self, symbol, posSide, td_mode, lever):
         res = self.account.set_leverage(lever="%s" % lever, mgnMode=td_mode, instId=symbol, posSide=posSide)
         if not res or res["code"] != "0":
@@ -318,7 +319,7 @@ class OkxWebSocketExecutor(WebSocketExecutor):
             sz = min(sz, Decimal(max_lmt_sz))
         return Decimal(sz)
 
-    @cached(cache=TTLCache(maxsize=200, ttl=3600 * 10))
+    @cached(cache=TTLCache(maxsize=20000, ttl=3600 * 24))
     def _get_instrument(self, symbol, ins_type):
         instruments = self.public_client.get_instruments(instType=ins_type, instId=symbol)
         if not instruments:

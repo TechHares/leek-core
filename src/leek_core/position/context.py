@@ -380,6 +380,7 @@ class PositionContext(LeekContext):
         Args:
             order: 订单信息
         """
+        logger.info(f"仓位处理收到订单更新: {order}")
         if order.order_status == OrderStatus.SUBMITTED or order.order_status == OrderStatus.CREATED:
             return
         
@@ -420,6 +421,7 @@ class PositionContext(LeekContext):
 
         # 获取现有仓位
         position = self.positions.get(order.position_id)
+        logger.info(f"仓位处理订单更新原仓位: {position}")
         if not position:
             logger.warning(f"Position {order.position_id} not found for order {order.order_id}")
             return
@@ -459,7 +461,7 @@ class PositionContext(LeekContext):
                 position.total_amount += delta_amount
                 position.total_sz += delta_sz
                 if position.total_sz > 0:
-                    position.cost_price = (position.total_amount - (position.pnl or Decimal('0')) - (position.fee or Decimal('0')) - (position.friction or Decimal('0'))) / position.total_sz
+                    position.cost_price = order.leverage * (position.total_amount - (position.pnl or Decimal('0')) - (position.fee or Decimal('0')) - (position.friction or Decimal('0'))) / position.total_sz
                 if order.order_status == OrderStatus.FILLED and not position.is_fake:
                     self.activate_amount += (order.order_amount - order.settle_amount)
                     position.ratio += order.ratio

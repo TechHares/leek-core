@@ -304,6 +304,7 @@ class StrategyWrapper(LeekComponent):
             logger.debug(f"仓位风控策略结果: {res}")
             if not all(res.values()):
                 try:
+                    logger.info(f"仓位风控策略执行完成: {res}, 触发策略{self.strategy.display_name}仓位清理")
                     self.current_command = StrategyCommand(pos.side.switch(), Decimal("1"))
                     state = StrategyInstanceState.STOPPED if self.state == StrategyInstanceState.STOPPING else StrategyInstanceState.READY
                     r = self.exiting_handler()

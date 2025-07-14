@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import List, Dict
+from typing import List, Dict, Optional, Tuple, Union
 
 from .constants import TradeInsType, AssetType
     
@@ -121,25 +121,25 @@ class Position:
     position_id: str  # 仓位ID
 
     strategy_id: str  # 策略ID
-    strategy_instance_id: str       # 策略实例ID
+    strategy_instance_id: Union[str, Tuple]       # 策略实例ID
 
     symbol: str  # 交易标的
     quote_currency: str  # 计价货币
-    ins_type: TradeInsType  # 合约/现货类型
-    asset_type: AssetType  # 资产类型（如股票、期货、加密货币等）
+    ins_type: Optional[TradeInsType]  # 合约/现货类型
+    asset_type: Optional[AssetType]  # 资产类型（如股票、期货、加密货币等）
 
-    side: PositionSide         # 仓位方向（多/空）
+    side: Optional[PositionSide]         # 仓位方向（多/空）
     cost_price: Decimal        # 开仓成本价
     amount: Decimal            # 当前价值
     ratio: Decimal             # 占资金比例
 
-    close_price: Decimal = None        # 平仓成本价
-    current_price: Decimal = None      # 当前价格
+    close_price: Optional[Decimal] = None        # 平仓成本价
+    current_price: Optional[Decimal] = None      # 当前价格
     total_amount: Decimal = Decimal("0")  # 累计价值
     total_back_amount: Decimal = Decimal("0")  # 累计回款金额
     total_sz: Decimal = Decimal("0")  # 累计仓位数量
 
-    executor_id: str = None # 执行器ID
+    executor_id: Optional[str] = None # 执行器ID
     is_fake: bool = False # 是否是假仓位
 
     pnl: Decimal = Decimal("0")  # 盈亏
@@ -154,11 +154,13 @@ class Position:
 
     @property
     def value(self):
+        if self.current_price is None:
+            return Decimal('0')
         return self.sz * self.current_price
 
     @property
     def sz(self):
-        return sum(Decimal(s) for s in self.executor_sz.values()) if self.executor_sz else Decimal('0')
+        return sum(self.executor_sz.values()) if self.executor_sz else Decimal('0')
 
     def __post_init__(self):
         # Required string fields validation
@@ -190,7 +192,10 @@ class Position:
         self.leverage = Decimal(str(self.leverage)) if self.leverage is not None else Decimal('1')
         
         # Convert optional decimal fields
-        self.close_price = Decimal(str(self.close_price)) if self.close_price is not None else None
+        if self.close_price is not None:
+            self.close_price = Decimal(str(self.close_price))
+        if self.current_price is not None:
+            self.current_price = Decimal(str(self.current_price))
         self.total_amount = Decimal(str(self.total_amount)) if self.total_amount is not None else Decimal('0')
         self.total_back_amount = Decimal(str(self.total_back_amount)) if self.total_back_amount is not None else Decimal('0')
         self.total_sz = Decimal(str(self.total_sz)) if self.total_sz is not None else Decimal('0')
