@@ -353,4 +353,4 @@ class OkxWebSocketExecutor(WebSocketExecutor):
         self._login_ok = False
 
     async def on_error(self, error):
-        logger.error(f"[OKX] WebSocket异常: {error}", exc_info=True)
+        logger.warning(f"[OKX] WebSocket异常: {error}", exc_info=True)
