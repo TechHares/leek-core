@@ -158,6 +158,10 @@ class OkxWebSocketExecutor(WebSocketExecutor):
                             oum.finish_time = DateTimeUtils.to_datetime(int(data["uTime"]))
                         logger.info(f"OKX订单更新: {msg} -> {oum}")
                         self._trade_callback(oum)
+            if msg["code"] == "1" and "data" in msg and len(msg["data"]) > 0:
+                for data in msg["data"]:
+                    if "sCode" in data and data["sCode"] != "0":
+                        logger.error(f"OKX推送异常信息: {data['sCode']} - {data['sMsg']}: {data}")
         except Exception as e:
             logger.error(f"OKX消息处理异常: {e}", exc_info=True)
 
@@ -299,7 +303,7 @@ class OkxWebSocketExecutor(WebSocketExecutor):
             ct_val = instrument["ctVal"]
         order.sz_value = Decimal(ct_val)
         if not order.is_open:
-            sz = Decimal(order.sz) * Decimal(ct_val)
+            sz = Decimal(order.sz) / Decimal(ct_val)
             return sz - (sz % Decimal(lot_sz))
         
         if ins_id.upper().endswith("-USD-SWAP"):
