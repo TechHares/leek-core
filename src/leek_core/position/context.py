@@ -449,6 +449,8 @@ class PositionContext(LeekContext):
 
             position.friction += delta_friction
             position.fee += delta_fee
+
+            position.pnl += delta_friction + delta_fee
             if position.is_fake:
                 self.virtual_pnl += delta_pnl
             else:
@@ -461,14 +463,14 @@ class PositionContext(LeekContext):
                 position.total_amount += delta_amount
                 position.total_sz += delta_sz
                 if position.total_sz > 0:
-                    position.cost_price = order.leverage * (position.total_amount - (position.pnl or Decimal('0')) - (position.fee or Decimal('0')) - (position.friction or Decimal('0'))) / position.total_sz
+                    position.cost_price = order.leverage * position.total_amount / position.total_sz
                 if order.order_status == OrderStatus.FILLED and not position.is_fake:
                     self.activate_amount += (order.order_amount - order.settle_amount)
                     position.ratio += order.ratio
             else:
                 position.total_back_amount += delta_amount
                 position.executor_sz[order.executor_id] = position.executor_sz.get(order.executor_id, Decimal('0')) - delta_sz
-                position.pnl += (1 if position.side.is_long else -1) * (order.execution_price - position.cost_price) * delta_sz * order.sz_value + delta_fee + delta_friction
+                position.pnl += (1 if position.side.is_long else -1) * (order.execution_price - position.cost_price) * delta_sz
                 closed_sz = (position.total_sz - position.sz)
                 if closed_sz > 0:
                     position.close_price = position.total_back_amount / closed_sz
