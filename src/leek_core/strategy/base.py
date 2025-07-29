@@ -8,12 +8,11 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from decimal import Decimal
-from logging import Logger
 from typing import Any, Dict, Set, List
 
 from leek_core.base import LeekComponent
 from leek_core.models import PositionSide, Field, Data, DataType, Position
-from leek_core.utils import get_logger
+from leek_core.utils import get_logger, StrategyStateSerializer
 from .strategy_mode import StrategyMode, KlineSimple
 
 logger = get_logger(__name__)
@@ -60,7 +59,7 @@ class Strategy(LeekComponent, ABC):
         初始化策略
         """
         # 初始化日志器
-        self.position_status: PositionStatus = None
+        # self.position_status: PositionStatus = None
         self.position: Dict[str, Position] = {}
     
     def on_data(self, data: Data = None):
@@ -92,3 +91,23 @@ class Strategy(LeekComponent, ABC):
             触发风控时调用，一般无需特别处理， 但是策略自己管理仓位的话需要重写此方法清空自己仓位管理相关的信息
         """
         ...
+
+
+
+    def load_state(self, state: Dict[str, Any]):
+        """
+        加载策略状态
+        
+        参数:
+            state: 状态字典，包含field_extra字段记录字段类型信息
+        """
+        StrategyStateSerializer.deserialize(self, state)    
+    
+    def get_state(self) -> Dict[str, Any]:
+        """
+        获取策略状态
+        
+        返回:
+            包含策略状态和字段类型信息的字典
+        """
+        return StrategyStateSerializer.serialize(self, {field.name for field in self.init_params})

@@ -11,6 +11,7 @@ from .decorator import classproperty, thread_lock
 from .func import run_func_timeout, invoke_func_timeout, LeekJSONEncoder
 from .id_generator import IdGenerator, generate, generate_str, set_worker_id
 from .logging import setup_logging, get_logger, log_function, log_method, log_trade
+from .serialization import StrategyStateSerializer
 
 __all__ = [
     "thread_lock",
@@ -30,4 +31,5 @@ __all__ = [
     "classproperty",
     "log_trade",
     "LeekJSONEncoder",
+    "StrategyStateSerializer",
 ]

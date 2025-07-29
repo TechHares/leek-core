@@ -45,6 +45,5 @@ __all__ = [
     "ExecutionAsset",
     "ExecutionContext",
     "FieldType",
-    "PositionStatus",
     "PosMode"
 ]

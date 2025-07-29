@@ -260,8 +260,11 @@ class StrategyWrapper(LeekComponent):
             return None
         try:
             if isinstance(self.strategy, CTAStrategy):
+                p_rate = self.position_rate
+                old_command = self.current_command
                 r = self.on_cta_data(data)
                 if r:
+                    logger.info(f"策略{self.strategy.display_name} 当前仓位比例: {p_rate} -> {self.position_rate}, 当前命令: {old_command} -> {self.current_command}, 信号: {r}")
                     return [Asset(
                         asset_type=data.asset_type,
                         ins_type=data.ins_type,
@@ -431,6 +434,7 @@ class StrategyWrapper(LeekComponent):
         position = [Position(**p) for p in state.get("position", [])]
         assert len(position) < 1 or all(isinstance(p, Position) for p in position), "position must be Position"
         self.position = {str(p.position_id): p for p in position}
+        logger.info(f"加载策略{self.strategy.display_name}状态: {state.get('strategy_state')}")
         self.strategy.load_state(state.get("strategy_state", {}))
 
     def on_position_update(self, position: Position):
