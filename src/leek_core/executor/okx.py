@@ -6,6 +6,8 @@ OKX交易执行模块
 """
 
 import asyncio
+import base64
+import hmac
 import json
 import time
 from datetime import datetime
@@ -15,10 +17,7 @@ from typing import List
 import websockets
 
 from cachetools import TTLCache, cached
-from okx.MarketData import MarketAPI
-from okx.PublicData import PublicAPI
-from okx.Account import AccountAPI
-from okx.utils import sign
+from leek_core.adapts import OkxAdapter
 
 from leek_core.models import Order, PosMode, OrderStatus, OrderUpdateMessage
 from leek_core.models import PositionSide as PS, OrderType as OT, TradeMode, TradeInsType, Field, FieldType, ChoiceType
@@ -74,19 +73,22 @@ class OkxWebSocketExecutor(WebSocketExecutor):
         self._login_ok = False
         self.slippage_level = int(slippage_level)
         self.ccy = ccy
-        self.market_client = MarketAPI(domain="https://www.okx.com", flag="0", debug=False, proxy=None)
-        self.public_client = PublicAPI(domain="https://www.okx.com", flag="0", debug=False, proxy=None)
-        self.account = AccountAPI(api_key=api_key, api_secret_key=secret_key, passphrase=passphrase,
-                                          domain="https://www.okx.com", flag="0", debug=False, proxy=None)
+        self.adapter = OkxAdapter(api_key=api_key, secret_key=secret_key, passphrase=passphrase)
 
         self.pos_mode = None
+
+    def sign(self, message, secretKey):
+        mac = hmac.new(bytes(secretKey, encoding='utf8'), bytes(message, encoding='utf-8'), digestmod='sha256')
+        d = mac.digest()
+        return base64.b64encode(d)
 
     async def on_open(self):
         # 登录鉴权，失败时自动重试，重试间隔和次数与连接一致
         retry = 0
         while retry < getattr(self, 'max_retries', 5):
+                        # 使用adapter进行鉴权，这里暂时保留原有逻辑
             timestamp = str(int(time.time()))
-            s = sign(timestamp + "GET" + "/users/self/verify", self.secret_key).decode()
+            s = self.sign(timestamp + "GET" + "/users/self/verify", self.secret_key).decode()
             data = {
                 "op": "login",
                 "args": [
@@ -195,7 +197,7 @@ class OkxWebSocketExecutor(WebSocketExecutor):
         for order in orders:
             params = {
                 "tdMode": OkxWebSocketExecutor.__Trade_Mode_Map[order.trade_mode],
-                "instId": self._get_inst_id(order),
+                "instId": self.adapter.build_inst_id(order.symbol, order.ins_type, order.quote_currency),
                 "clOrdId": "%s" % order.order_id,
                 "side": OkxWebSocketExecutor.__Side_Map[order.side],
                 "ordType": "limit",
@@ -218,14 +220,14 @@ class OkxWebSocketExecutor(WebSocketExecutor):
                 if order.order_type == OT.MarketOrder:
                     params["ordType"] = "market" if order.ins_type not in [TradeInsType.SWAP, TradeInsType.FUTURES] else "optimal_limit_ioc"
                 else:
-                    orderbook = self._get_book(self._get_inst_id(order))
+                    orderbook = self._get_book(self.adapter.build_inst_id(order.symbol, order.ins_type, order.quote_currency))
                     if order.side == PS.LONG:
                         params["px"] = orderbook["asks"][-1][0]
                     else:
                         params["px"] = orderbook["bids"][-1][0]
             orders_args.append(params)
             if order.ins_type != TradeInsType.SPOT:
-                self.set_leverage(self._get_inst_id(order), params["posSide"] if "posSide" in params else "", order.trade_mode.value,
+                self.set_leverage(self.adapter.build_inst_id(order.symbol, order.ins_type, order.quote_currency), params["posSide"] if "posSide" in params else "", order.trade_mode.value,
                                   order.leverage)
         # 发送WebSocket下单消息（示例，需根据OKX ws协议格式封装）
         logger.info(f"下单：{orders_args}")
@@ -245,7 +247,7 @@ class OkxWebSocketExecutor(WebSocketExecutor):
 
     @cached(cache=TTLCache(maxsize=20000, ttl=3600 * 24))
     def set_leverage(self, symbol, posSide, td_mode, lever):
-        res = self.account.set_leverage(lever="%s" % lever, mgnMode=td_mode, instId=symbol, posSide=posSide)
+        res = self.adapter.set_leverage(lever="%s" % lever, mgn_mode=td_mode, inst_id=symbol, pos_side=posSide)
         if not res or res["code"] != "0":
             raise RuntimeError(f"设置杠杆失败:{res['msg'] if res else res}")
         logger.info(f"设置杠杆为{lever}成功")
@@ -262,22 +264,12 @@ class OkxWebSocketExecutor(WebSocketExecutor):
         return args
 
     def _get_book(self, symbol):
-        orderbook = self.market_client.get_orderbook(symbol, self.slippage_level)
+        orderbook = self.adapter.get_orderbook(inst_id=symbol, sz=self.slippage_level)
         if not orderbook or orderbook["code"] != "0":
             raise RuntimeError(f"获取深度失败:{orderbook['msg'] if orderbook else orderbook}")
         return orderbook["data"][0]
     
-    def _get_inst_id(self, order: Order):
-        ins_type = order.ins_type
-        symbol = order.symbol
-        quote_currency = order.quote_currency
-        if ins_type == TradeInsType.SWAP or ins_type == TradeInsType.FUTURES:
-            return f"{symbol}-{quote_currency}-SWAP"
-        elif ins_type == TradeInsType.OPTION:
-            return f"{symbol}-{quote_currency}-OPTION"
-        elif ins_type == TradeInsType.SPOT or ins_type == TradeInsType.FUTURES:
-            return f"{symbol}-{quote_currency}"
-        raise ValueError(f"不支持的交易类型: {ins_type}")
+
 
     def _get_order_extra(self, order: Order, key: str):
         extra = order.extra or {}
@@ -287,14 +279,14 @@ class OkxWebSocketExecutor(WebSocketExecutor):
         return info[key]
 
     def _check_sz(self, order: Order):
-        ins_id = self._get_inst_id(order)
+        ins_id = self.adapter.build_inst_id(order.symbol, order.ins_type, order.quote_currency)
         instrument = self._get_instrument(ins_id, OkxWebSocketExecutor.__Inst_Type_Map[order.ins_type])
         if not instrument:
             raise RuntimeError("交易信息获取失败")
         if not order.order_price:
-            res = self.public_client.get_mark_price(
-                OkxWebSocketExecutor.__Inst_Type_Map[order.ins_type if order.ins_type != TradeInsType.SPOT else TradeInsType.MARGIN],
-                instId=ins_id
+            res = self.adapter.get_mark_price(
+                inst_type=OkxWebSocketExecutor.__Inst_Type_Map[order.ins_type if order.ins_type != TradeInsType.SPOT else TradeInsType.MARGIN],
+                inst_id=ins_id
             )
             order.order_price = Decimal(res["data"][0]["markPx"])
         lot_sz = instrument["lotSz"]
@@ -325,7 +317,7 @@ class OkxWebSocketExecutor(WebSocketExecutor):
 
     @cached(cache=TTLCache(maxsize=20000, ttl=3600 * 24))
     def _get_instrument(self, symbol, ins_type):
-        instruments = self.public_client.get_instruments(instType=ins_type, instId=symbol)
+        instruments = self.adapter.get_instruments(inst_type=ins_type, inst_id=symbol)
         if not instruments:
             return None
         if instruments['code'] != '0':
