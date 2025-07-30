@@ -21,7 +21,7 @@ from leek_core.adapts import OkxAdapter
 
 from leek_core.models import Order, PosMode, OrderStatus, OrderUpdateMessage
 from leek_core.models import PositionSide as PS, OrderType as OT, TradeMode, TradeInsType, Field, FieldType, ChoiceType
-from leek_core.utils import get_logger, generate_str, DateTimeUtils
+from leek_core.utils import get_logger, generate_str, DateTimeUtils, retry
 from .base import WebSocketExecutor
 
 logger = get_logger(__name__)
@@ -246,6 +246,7 @@ class OkxWebSocketExecutor(WebSocketExecutor):
         logger.info(f"当前账户为「{pos_mode.value}」模式")
 
     @cached(cache=TTLCache(maxsize=20000, ttl=3600 * 24))
+    @retry(max_retries=3, retry_interval=0.5)
     def set_leverage(self, symbol, posSide, td_mode, lever):
         res = self.adapter.set_leverage(lever="%s" % lever, mgn_mode=td_mode, inst_id=symbol, pos_side=posSide)
         if not res or res["code"] != "0":
@@ -263,6 +264,7 @@ class OkxWebSocketExecutor(WebSocketExecutor):
         await self.send_ws_cancel(args)
         return args
 
+    @retry(max_retries=3, retry_interval=0.2)
     def _get_book(self, symbol):
         orderbook = self.adapter.get_orderbook(inst_id=symbol, sz=self.slippage_level)
         if not orderbook or orderbook["code"] != "0":
@@ -316,6 +318,7 @@ class OkxWebSocketExecutor(WebSocketExecutor):
         return Decimal(sz)
 
     @cached(cache=TTLCache(maxsize=20000, ttl=3600 * 24))
+    @retry(max_retries=3, retry_interval=0.5)
     def _get_instrument(self, symbol, ins_type):
         instruments = self.adapter.get_instruments(inst_type=ins_type, inst_id=symbol)
         if not instruments:

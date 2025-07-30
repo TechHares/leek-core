@@ -181,8 +181,6 @@ def retry(max_retries: int = 3, retry_interval: float = 1.0,
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         # 获取函数信息
         func_name = func.__name__
-        module_name = func.__module__
-        
         # 使用全局日志器
         pass
         
@@ -198,7 +196,6 @@ def retry(max_retries: int = 3, retry_interval: float = 1.0,
                     
                     # 如果是最后一次尝试，抛出原始异常
                     if attempt == max_retries:
-                        logger.error(f"函数 {func_name} 执行失败，已达到最大重试次数({max_retries})，抛出异常: {type(e).__name__}: {str(e)}")
                         raise
                     
                     # 构建参数信息用于日志

@@ -280,7 +280,7 @@ class OkxDataSource(WebSocketDataSource):
         ]
 
     @log_method(log_result=False)
-    @retry(max_retries=3, retry_interval=0.2)
+    @retry(max_retries=3, retry_interval=1)
     def get_history_data(
             self,
             symbol: str = "BTC",

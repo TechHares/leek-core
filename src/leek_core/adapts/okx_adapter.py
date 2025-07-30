@@ -83,7 +83,7 @@ class OkxAdapter:
     
     # ==================== Market Data API ====================
     
-    @retry(max_retries=3, retry_interval=0.5)
+    @retry(max_retries=3, retry_interval=0.1)
     @rate_limit(max_requests=20, time_window=2.0, group="market_data")
     def get_history_candlesticks(self, inst_id: str, bar: str, limit: int = 100, 
                                 before: str = "", after: str = "") -> Dict:
@@ -108,7 +108,7 @@ class OkxAdapter:
             after=after
         )
     
-    @retry(max_retries=3, retry_interval=0.5)
+    @retry(max_retries=3, retry_interval=0.1)
     @rate_limit(max_requests=40, time_window=2.0, group="market_data")  # 产品深度接口：40次/2s
     def get_orderbook(self, inst_id: str, sz: int = 20) -> Dict:
         """
@@ -123,7 +123,7 @@ class OkxAdapter:
         """
         return self.market_api.get_orderbook(instId=inst_id, sz=sz)
     
-    @retry(max_retries=3, retry_interval=0.5)
+    @retry(max_retries=3, retry_interval=0.1)
     @rate_limit(max_requests=20, time_window=2.0, group="market_data")  # 产品行情信息：20次/2s
     def get_tickers(self, inst_type: str = "SPOT") -> Dict:
         """
@@ -141,7 +141,7 @@ class OkxAdapter:
     
     # ==================== Public Data API ====================
     
-    @retry(max_retries=3, retry_interval=0.5)
+    @retry(max_retries=3, retry_interval=0.1)
     @rate_limit(max_requests=20, time_window=2.0, group="public_data")  # 交易产品基础信息：20次/2s
     def get_instruments(self, inst_type: str, inst_id: str = None) -> Dict:
         """
@@ -178,7 +178,7 @@ class OkxAdapter:
     
     # ==================== Account API ====================
     
-    @retry(max_retries=3, retry_interval=0.5)
+    @retry(max_retries=3, retry_interval=0.1)
     @rate_limit(max_requests=6, time_window=1.0, group="account_data")  # 账户API限速更严格
     def get_account_balance(self, ccy: str = None) -> Dict:
         """
@@ -198,7 +198,7 @@ class OkxAdapter:
             params["ccy"] = ccy
         return self.account_api.get_account_balance(**params)
     
-    @retry(max_retries=3, retry_interval=0.5)
+    @retry(max_retries=3, retry_interval=0.1)
     @rate_limit(max_requests=6, time_window=1.0, group="account_data")  # 账户API限速更严格
     def get_positions(self, inst_type: str = None, inst_id: str = None) -> Dict:
         """
@@ -221,8 +221,8 @@ class OkxAdapter:
             params["instId"] = inst_id
         return self.account_api.get_positions(**params)
     
-    @retry(max_retries=3, retry_interval=0.5)
-    @rate_limit(max_requests=6, time_window=1.0, group="account_data")  # 账户API限速更严格
+    @retry(max_retries=3, retry_interval=0.1)
+    @rate_limit(max_requests=20, time_window=2.0, group="account_data")  # 账户API限速更严格
     def set_leverage(self, lever: str, mgn_mode: str, inst_id: str = None,
                     ccy: str = None, pos_side: str = None) -> Dict:
         """
