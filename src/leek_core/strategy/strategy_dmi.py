@@ -113,8 +113,14 @@ class DMIStrategy(CTAStrategy):
             PositionSide: 开仓方向，多头或空头
             None: 不开仓
         """
-        if self.pre_k is None or self.k.adx is None:
-            return
+        # 检查必要的数据是否存在
+        if (self.pre_k is None or self.k is None or 
+            self.k.adx is None or self.k.adxr is None or 
+            self.pre_adxr is None or self.k.up_di is None or 
+            self.k.down_di is None or self.pre_up_di is None or 
+            self.pre_down_di is None):
+            return None
+            
         if self.high_adx:
             self.high_adx = max(self.high_adx, self.k.adx)
         adx_last = [x[0] for x in self.dmi.last(10)]
@@ -126,7 +132,7 @@ class DMIStrategy(CTAStrategy):
                      f" rsi:{self.k.rsi_k} {self.k.rsi_d}")
 
         if not adx_cross:
-            return
+            return None
         self.high_adx = self.k.adx
         logger.debug(f"CROSS, 多头条件:{self.k.up_di > self.k.down_di} and {self.k.down_di <= self.pre_down_di}, "
                      f"空头条件:{self.k.up_di < self.k.down_di} and {self.k.up_di <= self.pre_up_di}")
@@ -149,8 +155,15 @@ class DMIStrategy(CTAStrategy):
             bool: True表示应该平仓，False表示继续持仓
             Decimal: 平仓价格（可选）
         """
+        # 检查必要的数据是否存在
+        if (self.k is None or self.pre_k is None or 
+            self.k.up_di is None or self.k.down_di is None or 
+            self.k.adx is None or self.pre_adx is None or
+            self.k.adxr is None or self.pre_adxr is None):
+            return False
+            
         # 退出条件
-        if position_side.is_long:
+        if position_side.is_long and self.k and self.pre_k:
             if self.k.up_di < self.k.down_di and self.k.adx > self.adx_threshold and self.k.adx > self.pre_adx:  # 趋势反转
                 logger.info(f"DMI多头趋势反转平仓, 趋势成立, adx:{self.k.adx}, up_di:{self.k.up_di}, down_di:{self.k.down_di}")
                 return True

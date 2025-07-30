@@ -16,7 +16,7 @@ import websockets
 from okx import MarketData
 
 from leek_core.models import TimeFrame, DataType, Field, FieldType, ChoiceType, TradeInsType, AssetType, KLine
-from leek_core.utils import get_logger, log_method
+from leek_core.utils import get_logger, log_method, retry
 from .websocket import WebSocketDataSource
 
 logger = get_logger(__name__)
@@ -57,6 +57,7 @@ class OkxDataSource(WebSocketDataSource):
         self.subscribed_channels: Dict[str, int] = {}
 
         self.pre_time = {}
+        self.market_api = MarketData.MarketAPI(domain="https://www.okx.com", flag="0", debug=False)
 
     def on_connect(self):
         """连接成功后调用"""
@@ -282,11 +283,9 @@ class OkxDataSource(WebSocketDataSource):
 
     def get_supported_parameters(self) -> List[Field]:
         if self.symbols is None or len(self.symbols) == 0:
-            market_api = MarketData.MarketAPI(domain="https://www.okx.com", flag="0", debug=False)
-
-            tickers = market_api.get_tickers(instType="SWAP")
+            tickers = self.market_api.get_tickers(instType="SWAP")
             symbols = set([ticker["instId"].split("-")[0] for ticker in tickers["data"]])
-            tickers = market_api.get_tickers(instType="SPOT")
+            tickers = self.market_api.get_tickers(instType="SPOT")
             symbols |= set([ticker["instId"].split("-")[0] for ticker in tickers["data"]])
             self.symbols = list(symbols)
         ins_types = [(TradeInsType.SPOT.value, str(TradeInsType.SPOT)),
@@ -303,6 +302,7 @@ class OkxDataSource(WebSocketDataSource):
         ]
 
     @log_method(log_result=False)
+    @retry(max_retries=3, retry_interval=0.2)
     def get_history_data(
             self,
             symbol: str = "BTC",
@@ -348,7 +348,7 @@ class OkxDataSource(WebSocketDataSource):
         interval = self._get_okx_tf_value(timeframe)
         page_size = min(100, limit)
         res = []
-        with MarketData.MarketAPI(domain="https://www.okx.com", flag="0", debug=False) as api:
+        with self.market_api as api:
             while len(res) < limit:
                 candlesticks = api.get_history_candlesticks(instId=inst_id, bar=interval, limit=page_size, before=before, after=after)
                 if len(candlesticks["data"]) == 0:

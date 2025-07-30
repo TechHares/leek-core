@@ -139,37 +139,15 @@ class StrategyStateSerializer:
             字段名到字段值的字典
         """
         serializable_fields = {}
-        
-        # 获取子类定义的属性（排除父类属性）
-        child_class_attrs = set()
-        
-        # 获取当前类的所有属性
-        for attr_name in dir(obj.__class__):
-            if not attr_name.startswith('_'):
-                child_class_attrs.add(attr_name)
-        
-        # 获取父类的所有属性
-        parent_class_attrs = set()
-        for base in obj.__class__.__bases__:
-            if base != object:  # 排除object类
-                for attr_name in dir(base):
-                    if not attr_name.startswith('_'):
-                        parent_class_attrs.add(attr_name)
-        
-        # 子类特有的属性 = 子类属性 - 父类属性
-        child_only_attrs = child_class_attrs - parent_class_attrs
-        
         # 获取当前实例的所有属性
         for attr_name, attr_value in obj.__dict__.items():
             # 跳过以下情况：
             # 1. 以_开头的私有属性
             # 2. init_params中定义的字段
             # 3. 不是基础类型的字段
-            # 4. 不是子类特有的属性
             if (not attr_name.startswith('_') and 
                 attr_name not in init_param_names and 
-                StrategyStateSerializer.is_basic_type(attr_value) and
-                attr_name in child_only_attrs):
+                StrategyStateSerializer.is_basic_type(attr_value)):
                 
                 serializable_fields[attr_name] = attr_value
         
@@ -188,7 +166,6 @@ class StrategyStateSerializer:
             包含对象状态和字段类型信息的字典
         """
         serializable_fields = StrategyStateSerializer.get_serializable_fields(obj, init_param_names)
-        
         # 序列化字段值
         serialized_state = {}
         field_extra = {}

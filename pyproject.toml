@@ -1,6 +1,6 @@
 [project]
 name = "leek-core"
-version = "1.1.1"
+version = "1.1.2"
 description = "Leek Core 量化交易引擎/组件化事件驱动框架"
 authors = [
     {name = "shenglin.li", email = "764935704@qq.com"}
