@@ -84,3 +84,4 @@ class PositionManager(ComponentManager[None, None, PositionConfig]):
     
     def reset_position_state(self):
         self.position_context.load_state({"reset_position_state": True})
+        return self.get_state()

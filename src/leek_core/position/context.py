@@ -141,6 +141,7 @@ class PositionContext(LeekContext):
                 execution_asset.position_id = current_position.position_id
                 close_ratio = min(1, asset.ratio / current_position.ratio)
                 execution_asset.sz = current_position.sz * close_ratio
+                execution_asset.ratio = current_position.ratio * close_ratio if execution_asset.sz < current_position.sz else current_position.ratio
                 execution_asset.amount = decimal_quantize(current_position.amount * close_ratio, 8)
                 continue
             
@@ -284,6 +285,7 @@ class PositionContext(LeekContext):
             'pnl': self.pnl,
             'friction': self.friction,
             'fee': self.fee,
+            'asset_count': len(self.asset_positions),
             'total_amount': self.total_amount,
             'virtual_pnl': self.virtual_pnl,
             'positions': list(self.positions.values()),

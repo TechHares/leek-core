@@ -292,6 +292,7 @@ class ProcessEngine(Engine):
         重置仓位状态
         """
         self.position_manager.reset_position_state()
+        return self.position_manager.get_state()
 
 
 class ProcessEngineClient(Engine):
