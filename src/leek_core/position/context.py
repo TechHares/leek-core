@@ -58,6 +58,8 @@ class PositionContext(LeekContext):
 
     @property
     def value(self) -> Decimal: # 实时仓位价值
+        if len(self.positions) == 0:
+            return self.activate_amount
         return sum(p.value for p in self.positions.values()) + self.activate_amount
     
     def evaluate_amount(self, signal: Signal) -> List[ExecutionAsset]:
@@ -286,7 +288,7 @@ class PositionContext(LeekContext):
             'friction': self.friction,
             'fee': self.fee,
             'asset_count': len(self.asset_positions),
-            'total_amount': self.total_amount,
+            'total_amount': self.value,
             'virtual_pnl': self.virtual_pnl,
             'positions': list(self.positions.values()),
         }
@@ -481,7 +483,7 @@ class PositionContext(LeekContext):
                 if order.order_status == OrderStatus.FILLED and not position.is_fake:
                     position.ratio -= order.ratio
             
-            position.amount = position.sz * position.cost_price
+            position.amount = position.sz * position.cost_price / position.leverage
             if position.sz <= 0:
                 self._remove_position(position.position_id)
             self.event_bus.publish_event(Event(

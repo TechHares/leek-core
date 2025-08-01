@@ -155,8 +155,12 @@ class Position:
     @property
     def value(self):
         if self.current_price is None:
-            return Decimal('0')
-        return self.sz * self.current_price
+            return self.amount
+        
+        profit = (self.current_price - self.cost_price) * self.sz
+        if self.side.is_short:
+            profit = -profit
+        return self.amount + profit + self.fee + self.friction
 
     @property
     def sz(self):
