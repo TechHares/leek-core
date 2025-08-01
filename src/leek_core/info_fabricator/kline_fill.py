@@ -125,10 +125,7 @@ class KLineFillFabricator(Fabricator):
             last_start_time = last_kline.start_time - kline.timeframe.milliseconds
         
         klines = list(self.okx_data_source.get_history_data(
-            symbol=kline.symbol,
-            quote_currency=kline.quote_currency,
-            ins_type=kline.ins_type,
-            timeframe=kline.timeframe,
+            row_key=kline.row_key,
             start_time=last_start_time,
             end_time=kline.end_time,
             limit=100,
