@@ -112,7 +112,7 @@ class ProcessEngine(Engine):
         state = self.position_manager.get_state()
         self.send_msg("position_image", data=state)
         
-    def storage_postion(self):
+    def storage_position(self):
         """
         存储仓位
         """

@@ -87,7 +87,7 @@ class BacktestExecutor(Executor):
 
             # 2. 计算成交量
             if order.is_open:
-                transaction_volume = decimal_quantize(order.order_amount / transaction_price, 6)
+                transaction_volume = decimal_quantize(order.order_amount * order.leverage / transaction_price, 6)
             else:
                 transaction_volume = Decimal(order.sz)
             if order.order_type == OrderType.LimitOrder:
@@ -107,7 +107,7 @@ class BacktestExecutor(Executor):
                 pnl = (transaction_price - self._holder_price[key]) * transaction_volume * (1 if order.side.is_short else -1)
             
             # 3. 计算成交额
-            transaction_amount = decimal_quantize(transaction_volume * transaction_price, 2, 1) if order.is_open else order.order_amount + pnl
+            transaction_amount = decimal_quantize(transaction_volume * transaction_price / order.leverage, 2, 1) if order.is_open else order.order_amount + pnl
 
             # 4. 计算手续费
             fee = Decimal(0)

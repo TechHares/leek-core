@@ -236,7 +236,7 @@ class OkxWebSocketExecutor(WebSocketExecutor):
     def init_account_mode(self):
         if self.pos_mode:
             return
-        account_config = self.account.get_account_config()
+        account_config = self.adapter.get_account_config()
         if not account_config or account_config["code"] != "0":
             logger.error(f"账户配置获取失败:{account_config['msg'] if account_config else account_config}")
         mode = account_config["data"][0]["posMode"]

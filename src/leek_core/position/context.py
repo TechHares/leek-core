@@ -312,6 +312,7 @@ class PositionContext(LeekContext):
             self.positions = {}
             self.strategy_positions = {}
             self.execution_positions = {} 
+            self.asset_positions = {}
             logger.info("重置仓位状态完成")
             return
 

@@ -173,7 +173,7 @@ class Position:
         if not self.quote_currency or not isinstance(self.quote_currency, str):
             raise ValueError("quote_currency is required and must be a string")
 
-        self.strategy_instance_id = tuple(self.strategy_instance_id)
+        self.strategy_instance_id = str(self.strategy_instance_id)
         # Optional string field
         self.executor_id = str(self.executor_id) if self.executor_id is not None else None
 

@@ -140,7 +140,7 @@ class ClickHouseKlineDataSource(DataSource):
                 for q in quote_currencies:
                     for i in ins_types:
                         for t in timeframes:
-                            yield s, q, i, t
+                            yield KLine.pack_row_key(s, q, i, t)
 
     def disconnect(self) -> bool:
         """
@@ -215,11 +215,7 @@ class ClickHouseKlineDataSource(DataSource):
             start_time: datetime | int = None,
             end_time: datetime | int = None,
             limit: int = None,
-            symbol: str = None,
-            timeframe: TimeFrame | str = None,
-            market: str = None,
-            quote_currency: str = None,
-            ins_type: TradeInsType | int = None,
+            row_key: str = None,
             **kwargs,
     ) -> Iterator[KLine]:
         """
@@ -244,6 +240,7 @@ class ClickHouseKlineDataSource(DataSource):
             return
         from clickhouse_driver.errors import Error as ClickHouseError
         try:
+            symbol, quote_currency, ins_type, timeframe = KLine.parse_row_key(row_key)
             if isinstance(timeframe, TimeFrame):
                 timeframe_value = timeframe.value
             else:

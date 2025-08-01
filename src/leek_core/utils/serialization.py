@@ -6,9 +6,13 @@
 """
 
 from decimal import Decimal
+from time import time
 from typing import Any, Dict, Set
 from enum import Enum
-
+import json
+from datetime import datetime
+from dataclasses import is_dataclass, asdict
+import time as time_module
 
 class StrategyStateSerializer:
     """
@@ -77,6 +81,26 @@ class StrategyStateSerializer:
             return float(value)
         elif field_type == 'bool':
             return bool(value)
+        elif field_type == 'datetime':
+            # 将毫秒时间戳转换为datetime对象
+            if isinstance(value, (int, float)):
+                # 如果是毫秒时间戳，需要除以1000
+                if value > 1e10:  # 毫秒时间戳通常大于1e10
+                    return datetime.fromtimestamp(value / 1000)
+                else:  # 秒时间戳
+                    return datetime.fromtimestamp(value)
+            elif isinstance(value, str):
+                try:
+                    # 尝试解析为时间戳
+                    timestamp = float(value)
+                    if timestamp > 1e10:  # 毫秒时间戳
+                        return datetime.fromtimestamp(timestamp / 1000)
+                    else:  # 秒时间戳
+                        return datetime.fromtimestamp(timestamp)
+                except ValueError:
+                    # 如果不是时间戳，尝试解析为ISO格式
+                    return datetime.fromisoformat(value.replace('Z', '+00:00'))
+            return value
         elif 'Enum' in field_type:
             # 自动转换models包下的枚举类型
             return StrategyStateSerializer._deserialize_enum_value(value, field_type)
@@ -228,3 +252,97 @@ class StrategyStateSerializer:
             # 设置到实例属性
             if hasattr(obj, field_name):
                 setattr(obj, field_name, deserialized_value) 
+
+class LeekJSONEncoder(json.JSONEncoder):
+    """
+    Custom JSON encoder for Leek objects.
+    Handles Enum, Decimal, datetime, and dataclass types.
+    """
+    def default(self, obj):
+        if isinstance(obj, Enum):
+            return obj.value
+        if isinstance(obj, Decimal):
+            return str(obj)
+        if isinstance(obj, datetime):
+            return int(obj.timestamp() * 1000)  # 转换为毫秒时间戳
+        # 检查是否为 time.struct_time 对象
+        if isinstance(obj, time_module.struct_time):
+            return int(time_module.mktime(obj) * 1000)  # 转换为毫秒时间戳
+        if is_dataclass(obj):
+            return asdict(obj)
+        # 处理类对象，返回 modelname|classname 格式
+        if isinstance(obj, type):
+            module_name = obj.__module__
+            class_name = obj.__name__
+            return f"{module_name}|{class_name}"
+        return super().default(obj)
+
+class LeekJSONDecoder:
+    """
+    Custom JSON decoder for Leek objects.
+    Handles basic type conversion and special value restoration.
+    """
+    
+    @staticmethod
+    def decode_basic_type(value_str: str):
+        """
+        解码基础类型字符串
+        
+        参数:
+            value_str: 序列化的值字符串
+            
+        返回:
+            解码后的Python对象
+        """
+        if value_str == "true":
+            return True
+        elif value_str == "false":
+            return False
+        elif value_str == "null" or value_str == "None":
+            return None
+        elif value_str.startswith('"') and value_str.endswith('"'):
+            # 字符串类型，去掉引号
+            return value_str[1:-1]
+        else:
+            # 尝试解析为数字
+            try:
+                if '.' in value_str:
+                    return float(value_str)
+                else:
+                    return int(value_str)
+            except ValueError:
+                # 如果都不是，返回原始字符串
+                return value_str
+    
+    @staticmethod
+    def loads(json_str: str):
+        """
+        解析JSON字符串，处理基础类型的特殊转换
+        
+        参数:
+            json_str: JSON字符串
+            
+        返回:
+            解析后的Python对象
+        """
+        if not json_str:
+            return None
+            
+        # 如果是基础类型的字符串表示，直接解码
+        if json_str in ["true", "false", "null", "None"]:
+            return LeekJSONDecoder.decode_basic_type(json_str)
+        
+        # 如果是数字字符串
+        if json_str.replace('.', '').replace('-', '').isdigit():
+            return LeekJSONDecoder.decode_basic_type(json_str)
+        
+        # 如果是带引号的字符串
+        if json_str.startswith('"') and json_str.endswith('"'):
+            return LeekJSONDecoder.decode_basic_type(json_str)
+        
+        # 否则使用标准JSON解析
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError:
+            # 如果JSON解析失败，返回原始字符串
+            return json_str

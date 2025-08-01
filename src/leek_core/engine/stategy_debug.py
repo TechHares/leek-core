@@ -7,7 +7,7 @@ from typing import List, Dict, Any
 from leek_core.strategy import StrategyWrapper, Strategy
 from leek_core.sub_strategy import EnterStrategy, ExitStrategy
 from leek_core.policy import PositionPolicy
-from .base import Engine
+from .base import LeekComponent
 
 from leek_core.event import SerializableEventBus, EventType, Event, EventSource
 from leek_core.indicators import T, MERGE
@@ -27,7 +27,7 @@ colors = [
     '#17becf'   # 青色系 - 宝石蓝
 ]
 
-class StrategyDebugView(Engine):
+class StrategyDebugView(LeekComponent):
     def __init__(self, strategy: Strategy, enter_strategy: EnterStrategy = EnterStrategy(), exit_strategy: ExitStrategy=ExitStrategy(),
                  policies: List[PositionPolicy]=[],
                  symbol: str = "ETH", start_time: datetime|str = datetime.now() - timedelta(days=10),

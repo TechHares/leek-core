@@ -235,18 +235,34 @@ class KLine(Data):
         return datetime.fromtimestamp(self.current_time / 1000)
 
     @property
-    def row_key(self) -> tuple:
+    def row_key(self) -> str:
         """
         获取K线的唯一标识符
         """
-        return self.symbol, self.quote_currency, self.ins_type.value, self.timeframe.value
+        return "%s_%s_%s_%s" % (self.symbol, self.quote_currency, self.ins_type.value, self.timeframe.value)
+    
+    @staticmethod
+    def pack_row_key(symbol: str, quote_currency: str, ins_type: TradeInsType|int, timeframe: TimeFrame|str) -> str:
+        """
+        打包行键。
+        """
+        return "%s_%s_%s_%s" % (symbol, quote_currency, ins_type.value if isinstance(ins_type, TradeInsType) else ins_type, 
+        timeframe.value if isinstance(timeframe, TimeFrame) else timeframe)
+
+    @staticmethod
+    def parse_row_key(row_key: str) -> tuple:
+        """
+        解析行键。
+        """
+        symbol, quote_currency, ins_type, timeframe = row_key.split("_")
+        return symbol, quote_currency, int(ins_type), timeframe
 
 @dataclass
 class InitDataPackage(Data):
-    pack_row_key: tuple = None
+    pack_row_key: str = None
     history_datas: List[Data] = None
 
     @property
-    def row_key(self) -> tuple:
+    def row_key(self) -> str:
         return self.pack_row_key
 

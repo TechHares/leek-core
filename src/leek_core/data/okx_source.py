@@ -189,11 +189,10 @@ class OkxDataSource(WebSocketDataSource):
             for q in quote_currencies:
                 for i in ins_types:
                     for t in timeframes:
-                        yield s, q, i, t
+                        yield KLine.pack_row_key(s, q, i, t)
 
     @log_method()
-    def subscribe(self, symbol: str = "BTC", quote_currency: str = "USDT", ins_type: TradeInsType = TradeInsType.SWAP,
-                  timeframe: Union[TimeFrame, str] = TimeFrame.M1) -> bool:
+    def subscribe(self, row_key: str) -> bool:
         """
         订阅OKX K线数据
         
@@ -206,6 +205,7 @@ class OkxDataSource(WebSocketDataSource):
         返回:
             bool: 订阅成功返回True，否则返回False
         """
+        symbol, quote_currency, ins_type, timeframe = KLine.parse_row_key(row_key)
         # 获取OKX格式的时间周期字符串
         tf_value = self.adapter.get_okx_timeframe(timeframe)
         if tf_value is None:
@@ -227,8 +227,7 @@ class OkxDataSource(WebSocketDataSource):
 
 
     @log_method()
-    def unsubscribe(self, symbol: str = "BTC", quote_currency: str = "USDT", ins_type: TradeInsType = TradeInsType.SWAP,
-                  timeframe: Union[TimeFrame, str] = TimeFrame.M1) -> bool:
+    def unsubscribe(self, row_key: str) -> bool:
         """
         取消订阅OKX K线数据
         
@@ -241,6 +240,7 @@ class OkxDataSource(WebSocketDataSource):
         返回:
             bool: 取消订阅成功返回True，否则返回False
         """
+        symbol, quote_currency, ins_type, timeframe = KLine.parse_row_key(row_key)
         # 获取OKX格式的时间周期字符串
         tf_value = self.adapter.get_okx_timeframe(timeframe)
         if tf_value is None:
@@ -283,10 +283,7 @@ class OkxDataSource(WebSocketDataSource):
     @retry(max_retries=3, retry_interval=1)
     def get_history_data(
             self,
-            symbol: str = "BTC",
-            quote_currency: str = "USDT",
-            ins_type: TradeInsType = TradeInsType.SWAP,
-            timeframe: Union[TimeFrame, str] = TimeFrame.M1,
+            row_key: str,
             start_time: datetime | int = None,
             end_time: datetime | int = None,
             limit: int = None
@@ -306,6 +303,7 @@ class OkxDataSource(WebSocketDataSource):
         返回:
             Iterator[KLine]: K线数据迭代器（空）
         """
+        symbol, quote_currency, ins_type, timeframe = KLine.parse_row_key(row_key)
         if isinstance(timeframe, str):
             timeframe = TimeFrame(timeframe)
         if not isinstance(ins_type, TradeInsType):

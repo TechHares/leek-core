@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package engine;
+
+// 引擎服务 - 提供调用方法和stream监听
+service EngineService {
+  // 主进程调用子进程的方法
+  rpc ExecuteAction(ActionRequest) returns (ActionResponse);
+  
+  // 主进程监听子进程事件的stream
+  rpc ListenEvents(ListenRequest) returns (stream EventMessage);
+}
+
+// 动作请求
+message ActionRequest {
+  string project_id = 1;
+  string action = 2;
+  string args_json = 3;
+  string kwargs_json = 4;
+  string request_id = 5;
+}
+
+// 动作响应
+message ActionResponse {
+  string request_id = 1;
+  bool success = 2;
+  string result_json = 3;
+  string error = 4;
+}
+
+// 事件消息
+message EventMessage {
+  string project_id = 1;
+  string event_type = 2;
+  string data_json = 3;
+  int64 timestamp = 4;
+  string source = 5;
+}
+
+// 监听请求
+message ListenRequest {
+  string project_id = 1;
+} 

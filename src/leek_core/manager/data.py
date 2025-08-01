@@ -46,14 +46,14 @@ class DataManager(ComponentManager[DataSourceContext, DataSource, Dict[str, Any]
         if data_source is None:
             raise ValueError(f"未找到对应数据源: {data_source_id}")
         assert isinstance(event.data, dict)
-        data = data_source.get_history_data(*event.data.get('row_key', ()),
+        data = data_source.get_history_data(event.data.get('row_key', ''),
                                             start_time=event.data.get('start_time', None),
                                             end_time=event.data.get('end_time', None),
                                             limit=event.data.get('limit', None))
         pack = InitDataPackage(
             history_datas=list(data),
             data_source_id=data_source_id,
-            pack_row_key=event.data.get('row_key', ()),
+            pack_row_key=event.data.get('row_key', ''),
             data_type = DataType.INIT_PACKAGE,
             target_instance_id={event.source.instance_id}
         )

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from datetime import datetime, timedelta
-from .base import Engine
+from .base import Engine, LeekComponent
 
 from leek_core.indicators import T, MERGE
 from leek_core.data import DataSource, ClickHouseKlineDataSource
@@ -22,7 +22,7 @@ colors = [
     '#17becf'   # 青色系 - 宝石蓝
 ]
 
-class IndicatorView(Engine):
+class IndicatorView(LeekComponent):
     def __init__(self, t: T|list[T], t_count=None,symbol: str = "ETH", start_time: datetime = datetime.now() - timedelta(days=10),
                  end_time: datetime = datetime.now(),
                  timeframe: TimeFrame = TimeFrame.M5, market: str = "okx", quote_currency: str = "USDT",

@@ -22,7 +22,7 @@ from leek_core.utils import generate_str, thread_lock
 from .base import Strategy, StrategyCommand
 from .cta import CTAStrategy
 from leek_core.sub_strategy import EnterStrategy, ExitStrategy
-from leek_core.utils.func import LeekJSONEncoder
+from leek_core.utils import LeekJSONEncoder
 
 logger = get_logger(__name__)
 
@@ -56,7 +56,7 @@ class StrategyContext(LeekContext):
                                                            cls=None,
                                                            config=config.config.info_fabricator_configs
                                                        ))
-        self.strategies: Dict[tuple, "StrategyWrapper"] = {}
+        self.strategies: Dict[str, "StrategyWrapper"] = {}
 
     def on_data(self, data: Data):
         try:
@@ -149,10 +149,10 @@ class StrategyContext(LeekContext):
     def create_component(self) -> "StrategyWrapper":
         wrapper = StrategyWrapper(create_component(self.config.cls, **self.config.config.strategy_config),
                                create_component(self.config.config.enter_strategy_cls,
-                                                **self.config.config.enter_strategy_config),
+                                                **(self.config.config.enter_strategy_config or {})),
                                create_component(self.config.config.exit_strategy_cls,
-                                                **self.config.config.exit_strategy_config),
-                               [create_component(c.cls, **c.config) for c in self.config.config.risk_policies]
+                                                **(self.config.config.exit_strategy_config or {})),
+                               [create_component(c.cls, **c.config) for c in self.config.config.risk_policies or []]
                                )
         wrapper.on_start()
         return wrapper
@@ -177,6 +177,7 @@ class StrategyContext(LeekContext):
                     extra={"data_source_id": ds.instance_id}
                 )
             ))
+        logger.info(f"策略{self.instance_id}启动完成, 实例数: {len(self.strategies)} 数据源: {len(self.config.config.data_source_configs)}")
 
     def on_stop(self):
         """
@@ -199,23 +200,26 @@ class StrategyContext(LeekContext):
         self.strategies.clear()
         self.state = StrategyState.STOPPED
 
-    def get_state(self) -> Dict[Tuple, Dict[str, Any]]:
+    def get_state(self) -> Dict[str, Dict[str, Any]]:
         """
         序列化策略状态
         """
-        return {json.dumps(k, cls=LeekJSONEncoder): json.loads(json.dumps(v.get_state(), cls=LeekJSONEncoder)) for k, v in self.strategies.items()}
+        return {k: json.loads(json.dumps(v.get_state(), cls=LeekJSONEncoder)) for k, v in self.strategies.items()}
 
     def load_state(self, state: Dict[Tuple, Dict[str, Any]]):
         """
         加载策略状态
         """
+        if state is not None and len(state) == 0:
+            for cp in self.strategies.values():
+                cp.on_stop()
+            self.strategies.clear()
+            return
         data = state if state else self.config.config.runtime_data
         # 加载运行时数据
         if data is None:
             return
         for k, v in data.items():
-            if isinstance(k, str):
-                    k = tuple(json.loads(k))
             if k not in self.strategies:
                 self.strategies[k] = self.create_component()
             self.strategies[k].load_state(v)

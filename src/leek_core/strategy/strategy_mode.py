@@ -24,10 +24,10 @@ class StrategyMode(ABC):
 
 class Single(StrategyMode):
     """ 只有一个实例 """
-    def build_instance_key(self, data: KLine) -> Tuple:
+    def build_instance_key(self, data: KLine) -> str:
         return "default",
 
 class KlineSimple(StrategyMode):
     """根据K线交易对 资产类型 和 时间周期 来创建策略实例"""
-    def build_instance_key(self, data: KLine) -> Tuple:
+    def build_instance_key(self, data: KLine) -> str:
         return data.row_key

@@ -23,7 +23,7 @@ class DataSourceContext(LeekContext):
         self._data_source.callback = self.send_data
         self.is_connected = False
         self.params_list = None
-        self.subscribe_info: Dict[tuple, set[str]] = {}
+        self.subscribe_info: Dict[str, set[str]] = {}
 
     def send_data(self, data: Data):
         if isinstance(data, str) and data == "reconnect":
@@ -50,22 +50,22 @@ class DataSourceContext(LeekContext):
         for row_key in self._data_source.parse_row_key(**kwargs):
             if row_key not in self.subscribe_info:
                 self.subscribe_info[row_key] = set()
-                self._data_source.subscribe(*row_key)
+                self._data_source.subscribe(row_key)
             self.subscribe_info[row_key].add(instance_id)
 
     @thread_lock(_lock)
     def unsubscribe(self, instance_id, **kwargs):
         for row_key in self._data_source.parse_row_key(**kwargs):
             if row_key not in self.subscribe_info:
-                self._data_source.unsubscribe(*row_key)
+                self._data_source.unsubscribe(row_key)
                 continue
             self.subscribe_info[row_key].remove(instance_id)
             if len(self.subscribe_info[row_key]) == 0:
-                self._data_source.unsubscribe(*row_key)
+                self._data_source.unsubscribe(row_key)
                 del self.subscribe_info[row_key]
 
-    def get_history_data(self,  *row_key,start_time: int = None, end_time: int = None, limit: int = None) -> List[Data]:
-        return self._data_source.get_history_data(*row_key, start_time=start_time, end_time=end_time, limit=limit)
+    def get_history_data(self, row_key: str, start_time: int = None, end_time: int = None, limit: int = None) -> List[Data]:
+        return self._data_source.get_history_data(row_key, start_time=start_time, end_time=end_time, limit=limit)
     
     def update(self, config: LeekComponentConfig[DataSource, Dict[str, Any]]):
         self.is_connected = False
@@ -79,7 +79,7 @@ class DataSourceContext(LeekContext):
             logger.error(f"数据源{self.name}更新超时")
             return
         for row_key in self.subscribe_info.keys():
-            self._data_source.subscribe(*row_key)
+            self._data_source.subscribe(row_key)
 
     def on_start(self):
         """

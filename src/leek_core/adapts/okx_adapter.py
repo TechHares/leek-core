@@ -13,6 +13,7 @@ from decimal import Decimal
 from okx.MarketData import MarketAPI
 from okx.PublicData import PublicAPI
 from okx.Account import AccountAPI
+from okx.Trade import TradeAPI
 from okx.utils import sign
 
 from leek_core.models import TimeFrame, TradeInsType, Field, FieldType, ChoiceType
@@ -78,8 +79,19 @@ class OkxAdapter:
                 debug=debug,
                 proxy=proxy
             )
+            
+            self.trade_api = TradeAPI(
+                api_key=api_key,
+                api_secret_key=secret_key,
+                passphrase=passphrase,
+                domain=domain,
+                flag=flag,
+                debug=debug,
+                proxy=proxy
+            )
         else:
             self.account_api = None
+            self.trade_api = None
     
     # ==================== Market Data API ====================
     
@@ -252,6 +264,21 @@ class OkxAdapter:
         if pos_side:
             params["posSide"] = pos_side
         return self.account_api.set_leverage(**params)
+    
+    @retry(max_retries=3, retry_interval=0.1)
+    @rate_limit(max_requests=6, time_window=1.0, group="account_data")  # 账户API限速更严格
+    def get_account_config(self) -> Dict:
+        """
+        获取账户配置信息
+        
+        Returns:
+            Dict: 账户配置数据
+        """
+        if not self.account_api:
+            raise RuntimeError("Account API未初始化，请提供API密钥")
+        
+        # 使用get_account_position_risk获取账户配置信息
+        return self.account_api.get_account_config()
     
 
     
