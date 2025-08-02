@@ -44,7 +44,7 @@ class PositionContext(LeekContext):
         self.positions: Dict[str, Position] = {}  # 仓位字典，键为仓位ID
         self.strategy_positions: Dict[str, List[Position]] = {}  # 策略仓位字典，键为策略ID
         self.execution_positions: Dict[str, List[Position]] = {}  # 执行仓位字典，键为执行器ID
-        self.asset_positions: Dict[tuple, List[Position]] = {}
+        self.asset_positions: Dict[str, List[Position]] = {}
 
         self.load_state(config.data)
 
@@ -164,6 +164,9 @@ class PositionContext(LeekContext):
         返回:
             订单
         """
+        logger.info(f"处理策略信号: strategy_positions={ {k: [p.position_id for p in v] for k, v in self.strategy_positions.items()}}")
+        logger.info(f"处理策略信号: asset_positions={ {k: [p.position_id for p in v] for k, v in self.asset_positions.items()}}")
+        logger.info(f"处理策略信号: execution_positions={ {k: [p.position_id for p in v] for k, v in self.execution_positions.items()}}")
         execution_assets = self.evaluate_amount(signal)
         logger.info(f"处理策略信号: {signal} -> {execution_assets}")
         if not execution_assets:
@@ -244,8 +247,10 @@ class PositionContext(LeekContext):
         if position.executor_id:
             self.execution_positions.setdefault(position.executor_id, []).append(position)
 
-        self.asset_positions.setdefault((position.symbol, position.quote_currency, position.ins_type, position.asset_type), []).append(position)
-        
+        self.asset_positions.setdefault(self._get_asset_position_key(position), []).append(position)
+    
+    def _get_asset_position_key(self, position: Position) -> str:
+        return f"{position.symbol}_{position.quote_currency}_{position.ins_type.value}_{position.asset_type.value}"
 
     def _remove_position(self, position_id: str):
         """
@@ -270,11 +275,12 @@ class PositionContext(LeekContext):
                 if not self.execution_positions[position.executor_id]:
                     del self.execution_positions[position.executor_id]
             # 从资产仓位字典移除
-            assert_key = (position.symbol, position.quote_currency, position.ins_type, position.asset_type)
-            if assert_key in self.asset_positions:
-                self.asset_positions[assert_key] = [p for p in self.asset_positions[assert_key] if p.position_id != position_id]
-                if not self.asset_positions[assert_key]:
-                    del self.asset_positions[(position.symbol, position.quote_currency, position.ins_type, position.asset_type)]
+            assert_key = self._get_asset_position_key(position)
+            if assert_key not in self.asset_positions:
+                return
+            self.asset_positions[assert_key] = [p for p in self.asset_positions[assert_key] if p.position_id != position_id]
+            if not self.asset_positions[assert_key]:
+                del self.asset_positions[assert_key]
 
     def get_state(self) -> dict:
         """
@@ -295,7 +301,8 @@ class PositionContext(LeekContext):
 
     def on_data(self, data: Data):
         if data.data_type == DataType.KLINE and isinstance(data, KLine):
-            for position in self.asset_positions.get((data.symbol, data.quote_currency, data.ins_type, data.asset_type), []):
+            asset_key = f"{data.symbol}_{data.quote_currency}_{data.ins_type.value}_{data.asset_type.value}"
+            for position in self.asset_positions.get(asset_key, []):
                 position.current_price = data.close
     
     def load_state(self, state: dict):
