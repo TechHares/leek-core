@@ -70,9 +70,8 @@ class GrpcEngine(Engine):
     主进程挂掉时，gRPC连接断开，子进程自动退出。
     """
 
-    def __init__(self, instance_id: str, name: str, position_config: PositionConfig = None, 
-                 event_hook: Set[EventType] = None):
-        super().__init__(instance_id, name, position_config, event_hook)
+    def __init__(self, instance_id: str, name: str, position_config: PositionConfig = None):
+        super().__init__(instance_id, name, position_config)
         
         self.engine_server = None
         self.engine_port = None
@@ -160,12 +159,11 @@ class GrpcEngine(Engine):
 class GrpcEngineClient():
     """主进程的 gRPC 客户端"""
 
-    def __init__(self, instance_id: str, name: str, config=None, event_hook: Set[EventType] = None):
+    def __init__(self, instance_id: str, name: str, config=None):
         super().__init__()
         self.instance_id = instance_id
         self.name = name
         self.config = config or {}
-        self.event_hook = event_hook or set()
         
         self.process = None
         self.engine_channel = None
@@ -235,9 +233,6 @@ class GrpcEngineClient():
             logger.error(f"无法找到可用端口: {self.instance_id}")
             return False
         
-        # 序列化事件钩子
-        event_hook_list = [et.value for et in self.event_hook] if self.event_hook else []
-        
         # 启动子进程，传入端口号
         self.process = Process(
             target=self._start_engine,
@@ -245,7 +240,6 @@ class GrpcEngineClient():
                 self.instance_id,
                 self.name,
                 self.config,
-                event_hook_list,
                 self.engine_port  # 传入端口号
             ),
             name=f"{self.name}-{self.instance_id}",
@@ -450,7 +444,7 @@ class GrpcEngineClient():
             raise e
 
     @staticmethod
-    def _start_engine(instance_id: str, name: str, config: dict, event_hook_list: List[str], port: int):
+    def _start_engine(instance_id: str, name: str, config: dict, port: int):
         """在子进程中启动引擎"""
         try:
             # 设置日志格式
@@ -492,15 +486,6 @@ class GrpcEngineClient():
                 else:
                     logger.error(f"目录不存在或无法访问: {dir_path}")
             
-            # 转换事件钩子
-            event_hook = set()
-            for event_type_str in event_hook_list:
-                try:
-                    event_type = EventType(event_type_str)
-                    event_hook.add(event_type)
-                except ValueError:
-                    logger.warning(f"未知的事件类型: {event_type_str}")
-            
             # 设置仓位配置
             position_setting = config.get('position_setting', {})
             position_setting['data'] = config.get('position_data', None)
@@ -531,8 +516,7 @@ class GrpcEngineClient():
             engine = GrpcEngine(
                 instance_id=instance_id,
                 name=name,
-                position_config=position_config,
-                event_hook=event_hook
+                position_config=position_config
             )
             
             # 设置端口号

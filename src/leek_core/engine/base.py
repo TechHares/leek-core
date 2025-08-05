@@ -5,9 +5,10 @@
 交易引擎核心实现
 """
 from abc import ABC, abstractmethod
+from decimal import Decimal
 import os
 import time
-from typing import Dict, Any, Set
+from typing import Dict, Any
 
 import psutil
 
@@ -25,14 +26,12 @@ logger = get_logger(__name__)
 
 
 class Engine(LeekComponent, ABC):
-    def __init__(self, instance_id: str, name: str, position_config: PositionConfig = None, 
-                 event_hook: Set[EventType] = None):
+    def __init__(self, instance_id: str, name: str, position_config: PositionConfig = None):
         super().__init__()
         self.running = False
         self.instance_id = instance_id
         self.name = name
         self.position_config = position_config
-        self.event_hook = event_hook or set()
         self._start_time = time.time()
         
         # 引擎组件
@@ -68,7 +67,7 @@ class Engine(LeekComponent, ABC):
             ))
     
     def handle_event(self, event: Event):
-        if event.event_type in self.event_hook:
+        if not event.event_type.value.startswith("data_"):
             self._handle_event(event)
 
     def get_position_state(self):
@@ -89,6 +88,13 @@ class Engine(LeekComponent, ABC):
         """
         logger.info(f"修改策略状态: {instance_id} {state}")
         self.strategy_manager.update_state(instance_id, state)
+
+    def clear_strategy_state(self, strategy_id: str, instance_id: str):
+        """
+        清除策略状态
+        """
+        self.strategy_manager.clear_state(strategy_id, instance_id)
+        return self.get_strategy_state()
 
     def handle_message(self, msg: Dict):
         """
@@ -266,12 +272,26 @@ class Engine(LeekComponent, ABC):
         if isinstance(position_config, dict):
             risk_policies = position_config.get('risk_policies', [])
             position_config['risk_policies'] = [LeekComponentConfig(
-                    instance_id=self.instance_id,
-                    name=policy.get('name'),
-                    cls=load_class_from_str(policy.get('class_name')),
-                    config=policy.get('params')) for policy in risk_policies if policy.get('enabled')]
-            position_config['data'] = data
+                instance_id=self.instance_id,
+                name=policy.get('name'),
+                cls=load_class_from_str(policy.get('class_name')),
+                config=policy.get('params')) for policy in risk_policies if policy.get('enabled')]
+            
+            # 为 PositionConfig 提供默认值
+            position_config.setdefault('init_amount', Decimal('100000'))
+            position_config.setdefault('max_strategy_amount', Decimal('50000'))
+            position_config.setdefault('max_strategy_ratio', Decimal('0.5'))
+            position_config.setdefault('max_symbol_amount', Decimal('25000'))
+            position_config.setdefault('max_symbol_ratio', Decimal('0.25'))
+            position_config.setdefault('max_amount', Decimal('10000'))
+            position_config.setdefault('max_ratio', Decimal('0.1'))
+            
+            position_config = PositionConfig(**position_config)
+            position_config.data = data
+
+
         self.position_config = position_config
+        self.position_manager.update(position_config)
 
     def ping(self, instance_id: str):
         """响应主进程的 ping 消息，回复 pong"""

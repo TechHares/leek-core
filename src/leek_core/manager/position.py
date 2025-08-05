@@ -5,7 +5,7 @@ from typing import Dict, Any
 
 from leek_core.data import DataSource
 from leek_core.event import EventBus, Event, EventType
-from leek_core.models import LeekComponentConfig, PositionConfig, Signal, Order
+from leek_core.models import LeekComponentConfig, PositionConfig, Signal, Order, ExecutionContext
 from leek_core.models import Position, Data
 from leek_core.position import PositionContext
 from leek_core.utils import get_logger, LeekJSONEncoder
@@ -52,17 +52,21 @@ class PositionManager(ComponentManager[None, None, PositionConfig]):
         assert isinstance(event.data, Data)
         self.position_context.on_data(event.data)
 
+    def process_exec_update(self, event: Event):
+        assert isinstance(event.data, ExecutionContext)
+        self.position_context.exec_update(event.data)
+
     def on_start(self):
         self.event_bus.subscribe_event(EventType.STRATEGY_SIGNAL, self.process_signal_event)
         self.event_bus.subscribe_event(EventType.ORDER_UPDATED, self.process_order_update)
         self.event_bus.subscribe_event(EventType.DATA_RECEIVED, self.process_data_update)
+        self.event_bus.subscribe_event(EventType.EXEC_ORDER_UPDATED, self.process_exec_update)
         logger.info(f"事件订阅: 仓位管理-{self.name}@{self.instance_id} 订阅 {[e.value for e in [EventType.ORDER_UPDATED, EventType.STRATEGY_SIGNAL, EventType.DATA_RECEIVED]]}")
     
     def update(self, config: LeekComponentConfig[None, PositionConfig]):
-        self.position_context.on_stop()
-        self.position_context = PositionContext(self.event_bus, config)
-        self.position_context.load_state(config.position_data or {})
-        self.position_context.on_start()
+        self.position_context.update_config(config)
+        if config.data:
+            self.position_context.load_state(config.data)
 
     def get(self, instance_id: str) -> PositionContext:
         ...

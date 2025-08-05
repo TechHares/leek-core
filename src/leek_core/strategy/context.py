@@ -108,6 +108,11 @@ class StrategyContext(LeekContext):
         """
         self.strategies.get(position.strategy_instance_id).on_position_update(position)
 
+    def on_signal_rollback(self, signal: Signal):
+        """
+        处理信号回滚
+        """
+        self.strategies.get(signal.strategy_instance_id).on_signal_rollback(signal)
 
     def close_position(self, position: Position):
         """
@@ -284,6 +289,22 @@ class StrategyWrapper(LeekComponent):
             raise ValueError("strategy must be process")
         finally:
             self.lock.release()
+    
+    def on_signal_rollback(self, signal: Signal):
+        """
+        处理信号回滚
+        """
+        for asset in signal.assets:
+            if asset.is_open:
+                self.position_rate -= asset.ratio
+            else:
+                self.position_rate += asset.ratio
+        if self.position_rate == 0:
+            self.state = StrategyInstanceState.READY
+            self.current_command = None
+        self.strategy.on_signal_rollback(signal)
+
+
 
     def on_cta_data(self, data: Data = None) -> (PositionSide, Decimal, bool):
         """

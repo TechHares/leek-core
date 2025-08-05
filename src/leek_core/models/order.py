@@ -9,7 +9,9 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Dict, Optional, List, Any
 
+
 from .constants import PositionSide, OrderType, TradeMode, TradeInsType, OrderStatus, AssetType
+from .transaction import Transaction, TransactionType
 
 
 @dataclass
@@ -61,7 +63,6 @@ class Order:
     signal_time: datetime  # 信号时间
     order_time: datetime  # 订单时间
 
-
     symbol: str  # 交易标的
     quote_currency: str  # 计价货币
     ins_type: TradeInsType  # 合约/现货类型
@@ -91,6 +92,45 @@ class Order:
     extra: dict[str, str] = None     # 附加信息
     market_order_id: str = None      # 市场订单ID
 
+    @property
+    def asset_key(self) -> str:
+        return f"{self.symbol}_{self.quote_currency}_{self.ins_type.value}_{self.asset_type.value}_{self.side.value}"
+
+    def settle(self, activate_amount: Decimal, factor: Decimal=Decimal(1)) -> Transaction:
+        if (self.settle_amount is None or self.settle_amount <= 0 or not self.order_status.is_finished):
+            return
+        return Transaction(
+            strategy_id=self.strategy_id,
+            strategy_instance_id=self.strategy_instant_id,
+            position_id=self.position_id,
+            exec_order_id=self.exec_order_id,
+            order_id=self.order_id,
+            signal_id=self.signal_id,
+            asset_key=self.asset_key,
+            type=TransactionType.TRADE,
+            amount=self.settle_amount * factor,
+            balance_before=activate_amount,
+            balance_after=activate_amount + self.settle_amount * factor,
+            desc=f"扣款[{self.order_id}]: {self.settle_amount}",
+        )
+    def settle_fee(self, activate_amount: Decimal, factor: Decimal=Decimal(1)) -> Transaction:
+        if (self.fee is None or self.fee == 0 or not self.order_status.is_finished):
+            return
+        return Transaction(
+            strategy_id=self.strategy_id,
+            strategy_instance_id=self.strategy_instant_id,
+            position_id=self.position_id,
+            exec_order_id=self.exec_order_id,
+            order_id=self.order_id,
+            signal_id=self.signal_id,
+            asset_key=self.asset_key,
+            type=TransactionType.FEE,
+            amount=self.fee * factor,
+            balance_before=activate_amount,
+            balance_after=activate_amount + self.fee * factor,
+            desc=f"手续费[{self.order_id}]: {self.fee}",
+        )
+    
 @dataclass
 class OrderUpdateMessage:
     order_id: str
@@ -145,6 +185,10 @@ class ExecutionAsset:
     position_id: str = None   # 仓位ID
     actual_pnl: Decimal = None # 实际盈亏
     executor_sz: Dict[str, Decimal] = None  # 执行器的仓位大小
+
+    @property
+    def asset_key(self) -> str:
+        return f"{self.symbol}_{self.quote_currency}_{self.ins_type.value}_{self.asset_type.value}_{self.side.value}"
 
 @dataclass
 class ExecutionContext:

@@ -12,7 +12,7 @@ from .order import Order, ExecutionAsset, ExecutionContext, OrderUpdateMessage
 from .parameter import Field, FieldType, ChoiceType
 from .position import PositionSide, Position, PositionInfo, OrderExecutionState
 from .signal import Signal, Asset
-
+from .transaction import Transaction, TransactionType
 __all__ = [
     "OrderExecutionState",
     "OrderUpdateMessage",
@@ -45,5 +45,7 @@ __all__ = [
     "ExecutionAsset",
     "ExecutionContext",
     "FieldType",
-    "PosMode"
+    "PosMode",
+    "Transaction",
+    "TransactionType"
 ]

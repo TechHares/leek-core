@@ -56,6 +56,13 @@ class StrategyManager(ComponentManager[StrategyContext, Strategy, StrategyConfig
         strategy_ctx = self.get(instance_id)
         if strategy_ctx:
             strategy_ctx.load_state(state)
+    
+    def clear_state(self, strategy_id: str, instance_id: str):
+        strategy_ctx = self.get(strategy_id)
+        if strategy_ctx:
+            instance = strategy_ctx.strategies.pop(instance_id)
+            if instance:
+                instance.on_stop()
 
     def on_data_event(self, event: Event):
         """
@@ -118,11 +125,19 @@ class StrategyManager(ComponentManager[StrategyContext, Strategy, StrategyConfig
         if strategy_context is None:
             return
         strategy_context.on_position_update(event.data)
+    
+    def on_signal_rollback_event(self, event: Event):
+        assert isinstance(event.data, Signal)
+        strategy_context = self.get(event.data.strategy_id)
+        if strategy_context is None:
+            return
+        strategy_context.on_signal_rollback(event.data)
 
     def on_start(self):
         self.event_bus.subscribe_event(EventType.DATA_RESPONSE, self.on_data_event)
         self.event_bus.subscribe_event(EventType.DATA_RECEIVED, self.on_data_event)
         self.event_bus.subscribe_event(EventType.POSITION_UPDATE, self.on_position_update_event)
+        self.event_bus.subscribe_event(EventType.STRATEGY_SIGNAL_ROLLBACK, self.on_signal_rollback_event)
         logger.info(
             f"事件订阅: 策略管理-{self.name}@{self.instance_id} 订阅 {[e.value for e in [EventType.DATA_RESPONSE, EventType.DATA_RECEIVED]]}")
         
@@ -130,6 +145,7 @@ class StrategyManager(ComponentManager[StrategyContext, Strategy, StrategyConfig
         self.event_bus.unsubscribe_event(EventType.DATA_RESPONSE, self.on_data_event)
         self.event_bus.unsubscribe_event(EventType.DATA_RECEIVED, self.on_data_event)
         self.event_bus.unsubscribe_event(EventType.DATA_RECEIVED, self.on_position_update_event)
+        self.event_bus.unsubscribe_event(EventType.STRATEGY_SIGNAL_ROLLBACK, self.on_signal_rollback_event)
         self.executor.shutdown(wait=True)
         super().on_stop()
 

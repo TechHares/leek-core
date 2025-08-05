@@ -23,7 +23,6 @@ class EventType(Enum):
     DATA_SOURCE_RECONNECT = "data_source_reconnect"  # 数据源重连 todo
     DATA_SOURCE_ERROR = "data_source_error"  # 数据源错误 todo
     DATA_SOURCE_STATUS_CHANGE = "data_source_status_change"  # 数据源状态改变 todo
-    DATA_SOURCE_DATA = "data_source_data"  # 数据源数据 todo
 
     # 数据事件
     DATA_SOURCE_SUBSCRIBE = "data_source_subscribe"  # 数据源订阅
@@ -37,6 +36,7 @@ class EventType(Enum):
     STRATEGY_START = "strategy_start"  # 策略启动 todo
     STRATEGY_STOP = "strategy_stop"  # 策略停止 todo
     STRATEGY_SIGNAL = "strategy_signal"  # 策略产生信号
+    STRATEGY_SIGNAL_ROLLBACK = "strategy_signal_rollback"  # 策略信号回滚
 
     # 风控插件事件
     RISK_PLUGIN_INIT = "risk_plugin_init"  # 插件初始化 todo
@@ -54,8 +54,8 @@ class EventType(Enum):
     RISK_CHECK_REJECT = "risk_check_reject"  # 风控检查拒绝 todo
 
     # 仓位管理事件
-    POSITION_POLICY_ADD = "POSITION_POLICY_ADD"  # 仓位风控添加 todo
-    POSITION_POLICY_DEL = "POSITION_POLICY_DEL"  # 仓位风控删除 todo
+    POSITION_POLICY_ADD = "position_policy_add"  # 仓位风控添加 todo
+    POSITION_POLICY_DEL = "position_policy_del"  # 仓位风控删除 todo
     POSITION_INIT = "position_init"  # 仓位管理初始化
     POSITION_OPEN = "position_open"  # 开仓 todo
     POSITION_CLOSE = "position_close"  # 平仓 todo
@@ -74,8 +74,7 @@ class EventType(Enum):
     ORDER_UPDATED = "order_updated"  # 订单更新
 
     # 资金管理事件
-    FUND_ALLOCATED = "fund_allocated"  # 资金分配 todo
-    FUND_RECLAIMED = "fund_reclaimed"  # 资金回收 todo
+    TRANSACTION = "transaction"  # 资金流水
 
 
 @dataclass

@@ -11,7 +11,7 @@ from decimal import Decimal
 from typing import Any, Dict, Set, List
 
 from leek_core.base import LeekComponent
-from leek_core.models import PositionSide, Field, Data, DataType, Position
+from leek_core.models import PositionSide, Field, Data, DataType, Position, Signal
 from leek_core.utils import get_logger, StrategyStateSerializer
 from .strategy_mode import StrategyMode, KlineSimple
 
@@ -89,6 +89,12 @@ class Strategy(LeekComponent, ABC):
         """
         策略风控策略执行
             触发风控时调用，一般无需特别处理， 但是策略自己管理仓位的话需要重写此方法清空自己仓位管理相关的信息
+        """
+        ...
+
+    def on_signal_rollback(self, signal: Signal):
+        """
+        处理信号回滚, 开仓失败时调用，一般无需重写， 策略自己管理仓位的话需要重写此方法处理自己相关参数
         """
         ...
 

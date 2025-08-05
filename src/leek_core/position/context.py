@@ -2,19 +2,24 @@
 # -*- coding: utf-8 -*-
 from datetime import datetime
 from decimal import Decimal
+from re import S
+import signal
 from threading import Lock, RLock
 from typing import Dict, List
 
 from leek_core.base import LeekContext, create_component
 from leek_core.event import EventBus, Event, EventType
+from leek_core.event import EventSource
 from leek_core.models import (TradeInsType, Position, Signal, Order, PositionConfig, AssetType,
                               OrderStatus, PositionInfo, LeekComponentConfig, ExecutionAsset, OrderExecutionState,
                               DataType, KLine, Data)
 from leek_core.models import ExecutionContext
+from leek_core.models import Transaction, TransactionType
 from leek_core.policy import StrategyPolicy
 from leek_core.utils import get_logger, generate_str, decimal_quantize
 from leek_core.utils import thread_lock
 _position_lock = RLock()
+_transaction_lock = RLock()
 logger = get_logger(__name__)
 
 class PositionContext(LeekContext):
@@ -38,13 +43,14 @@ class PositionContext(LeekContext):
         self.fee = Decimal(0)
         self.virtual_pnl = Decimal(0)
 
-
         self.activate_amount = self.position_config.init_amount
 
         self.positions: Dict[str, Position] = {}  # 仓位字典，键为仓位ID
         self.strategy_positions: Dict[str, List[Position]] = {}  # 策略仓位字典，键为策略ID
         self.execution_positions: Dict[str, List[Position]] = {}  # 执行仓位字典，键为执行器ID
         self.asset_positions: Dict[str, List[Position]] = {}
+        self.transactions: Dict[str, List[Transaction]] = {} # 冻结流水
+        self.signals: Dict[str, Signal] = {}
 
         self.load_state(config.data)
 
@@ -153,6 +159,85 @@ class PositionContext(LeekContext):
 
         return execution_assets
 
+    @thread_lock(_transaction_lock)
+    def freeze_amount(self, execution_context: ExecutionContext):
+         for asset in execution_context.execution_assets:
+            if asset.is_open and asset.amount > 0:
+                balance_before = self.activate_amount
+                self.activate_amount -= asset.amount
+                transaction = Transaction(
+                        strategy_id = execution_context.strategy_id,
+                        strategy_instance_id = execution_context.strategy_instant_id,
+                        position_id = asset.position_id,
+                        exec_order_id = execution_context.context_id,
+                        order_id = None,
+                        signal_id = execution_context.signal_id,
+                        asset_key = asset.asset_key,
+                        type = TransactionType.FROZEN,
+                        amount = asset.amount,
+                        balance_before = balance_before,
+                        balance_after = self.activate_amount,
+                        desc = f"冻结资金[{asset.symbol}-{asset.quote_currency}]: {asset.amount}"
+                    )
+                self.transactions.setdefault(execution_context.signal_id, []).append(transaction)
+                self.event_bus.publish_event(Event(
+                    event_type=EventType.TRANSACTION,
+                    data=transaction,
+                    source=EventSource(
+                        instance_id=self.instance_id,
+                        name="PositionContext",
+                        cls=self.__class__.__name__
+                    )
+                ))
+    @thread_lock(_transaction_lock)
+    def unfreeze_amount(self, order: Order):
+        if order.is_fake:
+            return
+        if order.is_open:
+            # 解冻
+            frozen_transactions = [t for t in self.transactions.get(order.signal_id, []) if t.asset_key == order.asset_key]
+            if len(frozen_transactions) != 1:
+                logger.error(f"冻结交易[{order.order_id}-{order.asset_key}]数量不正确: {frozen_transactions}")
+            self.transactions[order.signal_id].remove(frozen_transactions[0])
+            frozen_transaction = frozen_transactions[0]
+            self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=frozen_transaction.unfozen(order.exec_order_id, order.order_id)))
+            self.activate_amount += frozen_transaction.amount
+            if order.order_status.is_failed:
+                return
+            # 扣款
+            transaction = order.settle(self.activate_amount, -1)
+            if transaction:
+                self.activate_amount = transaction.balance_after
+                self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=transaction))
+            fee_transaction = order.settle_fee(self.activate_amount)
+            if fee_transaction:
+                self.activate_amount = fee_transaction.balance_after
+                self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=fee_transaction))
+            return
+        # 回款
+        transaction = order.settle(self.activate_amount)
+        if transaction:
+            self.activate_amount = transaction.balance_after
+            self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=transaction))
+        fee_transaction = order.settle_fee(self.activate_amount)
+        if fee_transaction:
+            self.activate_amount = fee_transaction.balance_after
+            self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=fee_transaction))
+    
+    @thread_lock(_transaction_lock)
+    def change_amount(self, amount: Decimal, desc: str):
+        if amount == 0:
+            return
+        balance_before = self.activate_amount
+        self.activate_amount += amount
+        self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=Transaction(
+            type=TransactionType.DEPOSIT if amount > 0 else TransactionType.WITHDRAW,
+            amount=amount,
+            balance_before=balance_before,
+            balance_after=self.activate_amount,
+            desc=desc
+        )))
+
     @thread_lock(_position_lock)
     def process_signal(self, signal: Signal):
         """
@@ -169,6 +254,7 @@ class PositionContext(LeekContext):
         logger.info(f"处理策略信号: execution_positions={ {k: [p.position_id for p in v] for k, v in self.execution_positions.items()}}")
         execution_assets = self.evaluate_amount(signal)
         logger.info(f"处理策略信号: {signal} -> {execution_assets}")
+        self.signals[signal.signal_id] = signal
         if not execution_assets:
             return None
         execution_context = ExecutionContext(
@@ -189,7 +275,7 @@ class PositionContext(LeekContext):
                 if asset.is_open:
                     asset.is_fake = True
         else:
-            self.activate_amount -= execution_context.open_amount
+            self.freeze_amount(execution_context)
         
         self.event_bus.publish_event(Event(
             event_type=EventType.EXEC_ORDER_CREATED,
@@ -293,6 +379,7 @@ class PositionContext(LeekContext):
             'pnl': self.pnl,
             'friction': self.friction,
             'fee': self.fee,
+            'transactions': list(self.transactions.values()),
             'asset_count': len(self.asset_positions),
             'total_amount': self.value,
             'virtual_pnl': self.virtual_pnl,
@@ -305,6 +392,18 @@ class PositionContext(LeekContext):
             for position in self.asset_positions.get(asset_key, []):
                 position.current_price = data.close
     
+    def exec_update(self, execution_context: ExecutionContext):
+        if not execution_context.is_finish:
+            return
+        if execution_context.actual_ratio is None or execution_context.actual_ratio == 0:
+            signal = self.signals.pop(execution_context.signal_id, None)
+            if not signal:
+                return
+            self.event_bus.publish_event(Event(
+                event_type=EventType.STRATEGY_SIGNAL_ROLLBACK,
+                data=signal
+            ))
+        
     def load_state(self, state: dict):
         """
         根据外部传入的状态字典恢复仓位管理器的状态。
@@ -318,6 +417,7 @@ class PositionContext(LeekContext):
             self.friction = Decimal(0)
             self.fee = Decimal(0)
             self.activate_amount = self.position_config.init_amount
+            self.transactions = {}
             self.positions = {}
             self.strategy_positions = {}
             self.execution_positions = {} 
@@ -331,6 +431,9 @@ class PositionContext(LeekContext):
         self.activate_amount = Decimal(state.get('activate_amount', self.activate_amount))
         for p in state.get('positions', []):
             self._add_position(Position(**p))
+        for ts in state.get('transactions', []):
+            for t in ts:
+                self.transactions.setdefault(t.signal_id, []).append(Transaction(**t))
 
     def do_risk_policy(self, execution_context: ExecutionContext) -> bool:
         pos_ctx = PositionInfo(
@@ -380,9 +483,10 @@ class PositionContext(LeekContext):
         更新仓位管理器配置。
         :param config: PositionConfig 实例
         """
-        delta_amount = config.init_amount - self.config.init_amount
-        self.activate_amount += delta_amount
-        self.config = config
+        delta_amount = config.init_amount - self.config.config.init_amount
+        self.change_amount(delta_amount, f"修改初始化资金: {self.config.config.init_amount} -> {config.init_amount}")
+        self.config.config = config
+        self.position_config = config
 
     @thread_lock(_position_lock)
     def order_update(self, order: Order):
@@ -395,9 +499,10 @@ class PositionContext(LeekContext):
         logger.info(f"仓位处理收到订单更新: {order}")
         if order.order_status == OrderStatus.SUBMITTED or order.order_status == OrderStatus.CREATED:
             return
-        
+        if order.order_status.is_finished:
+            self.unfreeze_amount(order)
+
         if order.order_status.is_failed:
-            self.activate_amount += order.order_amount
             if not order.position_id:
                 return
 
@@ -467,7 +572,6 @@ class PositionContext(LeekContext):
                 self.virtual_pnl += delta_pnl
             else:
                 self.pnl += delta_pnl
-                self.activate_amount += (delta_friction + delta_fee)
                 self.friction += delta_friction
                 self.fee += delta_fee
             if order.is_open: # 如果是开仓订单
@@ -477,7 +581,6 @@ class PositionContext(LeekContext):
                 if position.total_sz > 0:
                     position.cost_price = order.leverage * position.total_amount / position.total_sz
                 if order.order_status == OrderStatus.FILLED and not position.is_fake:
-                    self.activate_amount += (order.order_amount - order.settle_amount)
                     position.ratio += order.ratio
             else:
                 position.total_back_amount += delta_amount
@@ -486,7 +589,6 @@ class PositionContext(LeekContext):
                 closed_sz = (position.total_sz - position.sz)
                 if closed_sz > 0:
                     position.close_price = position.total_back_amount / closed_sz
-                self.activate_amount += delta_amount
                 if order.order_status == OrderStatus.FILLED and not position.is_fake:
                     position.ratio -= order.ratio
             
@@ -501,5 +603,3 @@ class PositionContext(LeekContext):
                         f"总价值: {self.total_amount}, 总仓位: {len(self.positions)}")
         except Exception as e:
             logger.error(f"更新仓位信息失败: {e}", exc_info=True)
-            
-            

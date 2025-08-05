@@ -77,7 +77,7 @@ class BacktestExecutor(Executor):
         处理订单（参数补全、风控、成交模拟、推送）
         """
         for order in orders:
-            logger.info(f"回测交易处理订单: {order.symbol} {order.side} {order.order_price} {order.order_amount}")
+            logger.info(f"回测交易处理订单: {order.symbol} {order.side} {order.order_price} {order.order_amount} {order.sz}")
             key = (order.symbol, order.quote_currency, order.asset_type, order.ins_type)
             # 1. 计算成交价
             transaction_price = order.order_price
@@ -101,9 +101,10 @@ class BacktestExecutor(Executor):
 
                 self._holder_price[key] =decimal_quantize((transaction_price * transaction_volume + hold_size * hold_price) / (hold_size + transaction_volume), 18)
                 self._holder_size[key] = hold_size + transaction_volume
-            else:
+            elif key in self._holder_size:
+                hold_size = self._holder_size[key]
                 self._holder_size[key] -= transaction_volume
-                assert self._holder_size[key] >= 0, "交易数量不能大于持仓数量"
+                assert hold_size >= transaction_volume, f"交易数量不能大于持仓数量: {hold_size} - {transaction_volume}"
                 pnl = (transaction_price - self._holder_price[key]) * transaction_volume * (1 if order.side.is_short else -1)
             
             # 3. 计算成交额
