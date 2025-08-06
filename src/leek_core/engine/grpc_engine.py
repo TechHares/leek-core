@@ -83,6 +83,7 @@ class GrpcEngine(Engine):
         except (RuntimeError, Exception):
             self._event_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._event_loop)
+        
 
 
     def _handle_event(self, event: Event):
@@ -125,15 +126,41 @@ class GrpcEngine(Engine):
         logger.info(f"gRPC服务器已启动，保持运行状态: {self.instance_id}")
         self.on_start()
 
+        # 启动周期性组件检查任务
+        self._check_task = None
+        
+        async def periodic_component_check():
+            try:
+                while True:
+                    await asyncio.sleep(60)  # 每60秒检查一次
+                    component_status = self.check_component()
+                    logger.info(f"周期性组件状态检查: {component_status}")
+            except asyncio.CancelledError:
+                logger.info("周期性组件检查任务被取消")
+            except Exception as e:
+                logger.error(f"周期性组件状态检查失败: {e}", exc_info=True)
+        
+        # 创建周期性检查任务
+        self._check_task = asyncio.create_task(periodic_component_check())
+
         try:
             await self.engine_server.wait_for_termination()
-        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+        except asyncio.exceptions.CancelledError:
             logger.info("收到中断信号，正在关闭服务器...")
         except Exception as e:
             logger.error(f"服务异常: {e}", exc_info=True)
         finally:
-            await self.engine_server.stop(grace=5)
-            self.on_stop()
+            try:
+                if self._check_task and not self._check_task.done():
+                    self._check_task.cancel()
+                    try:
+                        await self._check_task
+                    except asyncio.CancelledError:
+                        pass
+                await self.engine_server.stop(grace=5)
+                self.on_stop()
+            except Exception:
+                ...
         
 
     def start(self) -> None:

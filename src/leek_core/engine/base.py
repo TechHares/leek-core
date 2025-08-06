@@ -66,6 +66,17 @@ class Engine(LeekComponent, ABC):
                 config=None
             ))
     
+    def check_component(self):
+        """
+        检查组件状态
+        """
+        return {
+            "data_source_manager": self.data_source_manager.check_component(),
+            "strategy_manager": self.strategy_manager.check_component(),
+            "position_manager": self.position_manager.check_component(),
+            "executor_manager": self.executor_manager.check_component(),
+        }
+    
     def handle_event(self, event: Event):
         if not event.event_type.value.startswith("data_"):
             self._handle_event(event)
