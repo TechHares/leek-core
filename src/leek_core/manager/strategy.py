@@ -131,6 +131,7 @@ class StrategyManager(ComponentManager[StrategyContext, Strategy, StrategyConfig
         strategy_context = self.get(event.data.strategy_id)
         if strategy_context is None:
             return
+        logger.info(f"策略回滚: {event.data.strategy_id}@{event.data.strategy_instance_id} 回滚信号: {event.data.signal_id}")
         strategy_context.on_signal_rollback(event.data)
 
     def on_start(self):

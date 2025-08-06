@@ -294,11 +294,13 @@ class StrategyWrapper(LeekComponent):
         """
         处理信号回滚
         """
+        logger.info(f"策略回滚信号: {signal}, 当前仓位比例: {self.position_rate}")
         for asset in signal.assets:
             if asset.is_open:
                 self.position_rate -= asset.ratio
             else:
                 self.position_rate += asset.ratio
+        logger.info(f"策略回滚信号完成: {signal.signal_id}, 当前仓位比例: {self.position_rate}")
         if self.position_rate == 0:
             self.state = StrategyInstanceState.READY
             self.current_command = None
