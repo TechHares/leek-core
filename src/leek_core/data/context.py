@@ -79,7 +79,14 @@ class DataSourceContext(LeekContext):
             logger.error(f"数据源{self.name}更新超时")
             return
         for row_key in self.subscribe_info.keys():
-            self._data_source.subscribe(row_key)
+            if not self._data_source.subscribe(row_key):
+                self.is_connected = False
+                return
+
+    def check_component(self):
+        if not self.is_connected:
+            self.update(self.config)
+        return self.is_connected
 
     def on_start(self):
         """

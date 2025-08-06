@@ -46,4 +46,10 @@ class LeekContext(LeekComponent):
         停止组件
         """
         ...
+    
+    def check_component(self):
+        """
+        检查组件状态
+        """
+        ...
 

@@ -104,3 +104,11 @@ class ComponentManager(LeekContext, Generic[CTX, T, CFG]):
 
     def __len__(self):
         return len(self.components)
+
+    def check_component(self, instance_id: str = None):
+        """
+        检查组件状态 返回组件状态
+        """
+        if instance_id is None:
+            return {source.instance_id: source.check_component() for source in self.components.values()}
+        return {instance_id: self.components.get(instance_id).check_component()}
