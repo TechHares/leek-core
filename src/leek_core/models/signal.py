@@ -30,10 +30,15 @@ class Asset:
     side: PositionSide        # 多空方向，PositionSide 枚举（LONG/SHORT/NEUTRAL等）
     price: Decimal            # 交易价格，建议的交易价格
     ratio: Decimal            # 仓位比例，取值范围 0~1，表示本信号建议的持仓占比
+    actual_ratio: Decimal     # 实际仓位比例
     is_open: bool = False     # 是否为开仓信号，用于表示信号是否为开仓信号
 
     quote_currency: str = None# 计价币种，如 USDT、USD、CNY
     extra: Any = None         # 其他扩展信息（如信号置信度、触发条件、备注等，可选）
+
+    @property
+    def asset_key(self) -> str:
+        return f"{self.symbol}_{self.quote_currency}_{self.ins_type.value}_{self.asset_type.value}_{self.side.value}"
 
 @dataclass
 class Signal:

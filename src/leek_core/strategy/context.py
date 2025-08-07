@@ -290,21 +290,21 @@ class StrategyWrapper(LeekComponent):
         finally:
             self.lock.release()
     
-    def on_signal_rollback(self, signal: Signal):
+    def on_signal_finish(self, signal: Signal):
         """
-        处理信号回滚
+        处理信号完成
         """
-        logger.info(f"策略回滚信号: {signal}, 当前仓位比例: {self.position_rate}")
+        logger.info(f"策略信号处理完成: {signal}, 当前仓位比例: {self.position_rate}")
         for asset in signal.assets:
             if asset.is_open:
-                self.position_rate -= asset.ratio
+                self.position_rate -= (asset.ratio - (asset.actual_ratio or 0))
             else:
-                self.position_rate += asset.ratio
-        logger.info(f"策略回滚信号完成: {signal.signal_id}, 当前仓位比例: {self.position_rate}")
+                self.position_rate += (asset.ratio - (asset.actual_ratio or 0))
+        logger.info(f"策略信号处理完成: {signal.signal_id}, 当前仓位比例: {self.position_rate}")
         if self.position_rate == 0:
             self.state = StrategyInstanceState.READY
             self.current_command = None
-        self.strategy.on_signal_rollback(signal)
+        self.strategy.on_signal_finish(signal)
 
 
 

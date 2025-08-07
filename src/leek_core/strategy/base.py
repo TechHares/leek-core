@@ -92,9 +92,9 @@ class Strategy(LeekComponent, ABC):
         """
         ...
 
-    def on_signal_rollback(self, signal: Signal):
+    def on_signal_finish(self, signal: Signal):
         """
-        处理信号回滚, 开仓失败时调用，一般无需重写， 策略自己管理仓位的话需要重写此方法处理自己相关参数
+        处理信号完成, 信号处理完成时调用，一般无需重写， 策略自己管理仓位的话需要重写此方法处理自己相关参数
         """
         ...
 

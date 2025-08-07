@@ -36,7 +36,7 @@ class EventType(Enum):
     STRATEGY_START = "strategy_start"  # 策略启动 todo
     STRATEGY_STOP = "strategy_stop"  # 策略停止 todo
     STRATEGY_SIGNAL = "strategy_signal"  # 策略产生信号
-    STRATEGY_SIGNAL_ROLLBACK = "strategy_signal_rollback"  # 策略信号回滚
+    STRATEGY_SIGNAL_FINISH = "strategy_signal_finish"  # 策略信号完成
 
     # 风控插件事件
     RISK_PLUGIN_INIT = "risk_plugin_init"  # 插件初始化 todo

@@ -393,16 +393,20 @@ class PositionContext(LeekContext):
                 position.current_price = data.close
     
     def exec_update(self, execution_context: ExecutionContext):
+        logger.info(f"执行订单更新: {execution_context.is_finish}, {execution_context}")
         if not execution_context.is_finish:
             return
-        if execution_context.actual_ratio is None or execution_context.actual_ratio == 0:
-            signal = self.signals.pop(execution_context.signal_id, None)
-            if not signal:
-                return
-            self.event_bus.publish_event(Event(
-                event_type=EventType.STRATEGY_SIGNAL_ROLLBACK,
-                data=signal
-            ))
+        signal = self.signals.pop(execution_context.signal_id, None)
+        if not signal:
+            return
+        for asset in execution_context.execution_assets:
+            for signal_asset in signal.assets:
+                if asset.asset_key == signal_asset.asset_key and asset.is_open == signal_asset.is_open:
+                    signal_asset.actual_ratio = (signal_asset.actual_ratio or 0) + asset.ratio
+        self.event_bus.publish_event(Event(
+            event_type=EventType.STRATEGY_SIGNAL_FINISH,
+            data=signal
+        ))
         
     def load_state(self, state: dict):
         """

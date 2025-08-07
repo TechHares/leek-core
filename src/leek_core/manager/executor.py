@@ -62,17 +62,14 @@ class ExecutorManager(ComponentManager[ExecutorContext, Executor, Dict[str, Any]
                 return
 
             execution_order = self.execution_order_map[order.exec_order_id]
-            if execution_order.actual_amount is None:
-                execution_order.actual_amount = Decimal(0)
-            execution_order.actual_amount += order.settle_amount or 0
             if order.is_open:
-                execution_order.actual_ratio = (execution_order.actual_ratio or 0) + order.ratio
+                execution_order.actual_amount = (execution_order.actual_amount or 0) + (0 if order.order_status.is_failed else order.settle_amount)
+                execution_order.actual_ratio = (execution_order.actual_ratio or 0) + (0 if order.order_status.is_failed else order.ratio)
             
             for asset in execution_order.execution_assets:
                 if asset.symbol == order.symbol and asset.quote_currency == order.quote_currency and asset.ins_type == order.ins_type and asset.asset_type == order.asset_type:
                     asset.sz = order.sz
-                    if asset.amount is None:
-                        asset.amount = order.settle_amount
+                    asset.amount = (asset.amount or 0) + (0 if order.order_status.is_failed else order.settle_amount)
                     break
             if order.pnl:
                 execution_order.actual_pnl = (execution_order.actual_pnl or 0) + order.pnl
