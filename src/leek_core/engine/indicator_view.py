@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from datetime import datetime, timedelta
+
+from leek_core.models.data import KLine
 from .base import Engine, LeekComponent
 
 from leek_core.indicators import T, MERGE
@@ -67,10 +69,10 @@ class IndicatorView(LeekComponent):
             data["%s" % i] = []
         if len(self.t) == 1 and self.t_count[0] == 1: # 只有一个指标的是时候省略指标数目的参数
             self.t_count[0] = len(args)
+        
         for kline in self.data_source.get_history_data(start_time=self.start_time, end_time=self.end_time,
-                                                       symbol=self.symbol, timeframe=self.timeframe,
-                                                       market=self.market, quote_currency=self.quote_currency,
-                                                       ins_type=self.ins_type):
+                                                       row_key=KLine.pack_row_key(self.symbol, self.quote_currency, self.ins_type, self.timeframe),
+                                                       market=self.market):
             count += 1
             data["open"].append(kline.open)
             data["high"].append(kline.high)

@@ -240,16 +240,14 @@ class ClickHouseKlineDataSource(DataSource):
             return
         from clickhouse_driver.errors import Error as ClickHouseError
         try:
-            symbol, quote_currency, ins_type, timeframe = KLine.parse_row_key(row_key)
+            symbol, quote_currency_value, ins_type, timeframe = KLine.parse_row_key(row_key)
             if isinstance(timeframe, TimeFrame):
                 timeframe_value = timeframe.value
             else:
                 timeframe_value = str(timeframe)
 
             # 确定使用哪个market、计价币种和交易品种类型
-            market_value = market if market is not None else self.config['market']
-            quote_currency_value = quote_currency if quote_currency is not None else self.config['quote_currency']
-
+            market_value = kwargs.get("market", 'okx')
             # 处理ins_type参数
             if ins_type is not None:
                 if isinstance(ins_type, TradeInsType):

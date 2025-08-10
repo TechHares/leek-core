@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import List, Dict, Any
 
+from leek_core.models.data import KLine
 from leek_core.strategy import StrategyWrapper, Strategy
 from leek_core.sub_strategy import EnterStrategy, ExitStrategy
 from leek_core.policy import PositionPolicy
@@ -124,9 +125,8 @@ class StrategyDebugView(LeekComponent):
 
         custom_key = []
         for kline in self.data_source.get_history_data(start_time=self.start_time, end_time=self.end_time,
-                                                       symbol=self.symbol, timeframe=self.timeframe,
-                                                       market=self.market, quote_currency=self.quote_currency,
-                                                       ins_type=self.ins_type):
+                                                       row_key=KLine.pack_row_key(self.symbol, self.quote_currency, self.ins_type, self.timeframe),
+                                                       market=self.market):
             count += 1
             assets = self.strategy.on_data(kline)
             data["position"].append(self.strategy.position_rate * 100)
@@ -158,7 +158,7 @@ class StrategyDebugView(LeekComponent):
                     signal_id=generate_str(),
                     data_source_instance_id=kline.data_source_id,
                     strategy_id="p1",
-                    strategy_instance_id=("debug", ),
+                    strategy_instance_id="debug",
                     config=None,
                     signal_time=datetime.now(),
                     assets=assets
@@ -185,6 +185,7 @@ class StrategyDebugView(LeekComponent):
         import pandas as pd
 
         df = pd.DataFrame(data)
+        df = df.iloc[65:]  # 跳过前40行
         rows_count = max(row or 2, 2)
         # 动态生成specs，只有第二行支持secondary_y
         specs = []
@@ -225,7 +226,7 @@ class StrategyDebugView(LeekComponent):
 
         if custom_draw is not None:
             custom_draw(fig, df)
-        fig.update_layout(height=kwargs.get("height", 600))
+        fig.update_layout(height=kwargs.get("height", 800))
         # 设置右边y轴的标题
         fig.update_yaxes(title_text="Position Rate", secondary_y=True, row=2, col=1)
         fig.update_xaxes(rangeslider_visible=False, row=1, col=1)

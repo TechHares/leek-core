@@ -4,6 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from re import S
 import signal
+import sys
 from threading import Lock, RLock
 from typing import Dict, List
 
@@ -146,7 +147,6 @@ class PositionContext(LeekContext):
             execution_assets.append(execution_asset)
             if current_position and current_position.side != asset.side: # 减仓
                 execution_asset.is_fake = current_position.is_fake
-                execution_asset.position_id = current_position.position_id
                 close_ratio = min(1, asset.ratio / current_position.ratio)
                 execution_asset.sz = current_position.sz * close_ratio
                 execution_asset.ratio = current_position.ratio * close_ratio if execution_asset.sz < current_position.sz else current_position.ratio
@@ -180,6 +180,7 @@ class PositionContext(LeekContext):
                         desc = f"冻结资金[{asset.symbol}-{asset.quote_currency}]: {asset.amount}"
                     )
                 self.transactions.setdefault(execution_context.signal_id, []).append(transaction)
+                logger.info(f"冻结资金, 信号下数据: {self.transactions.get(execution_context.signal_id, [])}")
                 self.event_bus.publish_event(Event(
                     event_type=EventType.TRANSACTION,
                     data=transaction,
@@ -195,9 +196,12 @@ class PositionContext(LeekContext):
             return
         if order.is_open:
             # 解冻
+            logger.info(f"解冻资金, 信号下数据: {self.transactions.get(order.signal_id, [])}")
             frozen_transactions = [t for t in self.transactions.get(order.signal_id, []) if t.asset_key == order.asset_key]
+            logger.info(f"解冻资金, 信号下数据, 过滤后[{order.asset_key}]: {frozen_transactions}")
             if len(frozen_transactions) != 1:
-                logger.error(f"冻结交易[{order.order_id}-{order.asset_key}]数量不正确: {frozen_transactions}")
+                logger.error(f"冻结交易[{order.order_id}-{order.asset_key}]数量不正确: {order}")
+                return
             self.transactions[order.signal_id].remove(frozen_transactions[0])
             frozen_transaction = frozen_transactions[0]
             self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=frozen_transaction.unfozen(order.exec_order_id, order.order_id)))
