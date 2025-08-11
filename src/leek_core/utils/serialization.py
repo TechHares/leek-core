@@ -122,28 +122,21 @@ class StrategyStateSerializer:
             # 从field_type中提取枚举类名
             if field_type.startswith('Enum(') and field_type.endswith(')'):
                 enum_class_name = field_type[5:-1]  # 去掉 "Enum(" 和 ")"
-                
-                # 获取当前模块的所有枚举类
+
+                # 从 models 模块中查找对应的枚举类
                 import leek_core.models as models_module
-                enum_classes = {}
-                
-                for attr_name in dir(models_module):
-                    attr = getattr(models_module, attr_name)
-                    # 检查是否为枚举类（排除非枚举类）
-                    if (hasattr(attr, '__class__') and 
-                        hasattr(attr.__class__, '__bases__') and
-                        any(base.__name__ == 'Enum' for base in attr.__class__.__bases__)):
-                        enum_classes[attr_name] = attr.__class__
-                
-                # 获取枚举类
-                enum_class = enum_classes.get(enum_class_name)
-                
-                if enum_class:
-                    # 尝试通过值创建枚举实例
+
+                enum_class = getattr(models_module, enum_class_name, None)
+                if isinstance(enum_class, type) and issubclass(enum_class, Enum):
                     return enum_class(value)
-                else:
-                    # 如果找不到对应的枚举类，返回原始值
-                    return value
+
+                # 兜底：遍历模块内所有导出的符号，寻找枚举类
+                for attr_name, attr in vars(models_module).items():
+                    if isinstance(attr, type) and issubclass(attr, Enum) and attr.__name__ == enum_class_name:
+                        return attr(value)
+
+                # 未找到对应的枚举类，返回原始值
+                return value
             else:
                 return value
         except (ValueError, TypeError):
@@ -189,7 +182,9 @@ class StrategyStateSerializer:
         返回:
             包含对象状态和字段类型信息的字典
         """
+        print("asdasasdas", init_param_names)
         serializable_fields = StrategyStateSerializer.get_serializable_fields(obj, init_param_names)
+        print("serializable_fields", serializable_fields)
         # 序列化字段值
         serialized_state = {}
         field_extra = {}
@@ -204,12 +199,13 @@ class StrategyStateSerializer:
                 field_extra[field_name] = 'None'
             elif isinstance(field_value, Decimal):
                 field_extra[field_name] = 'Decimal'
+            # 注意：在Python中，bool是int的子类，因此需要先判断bool再判断int
+            elif isinstance(field_value, bool):
+                field_extra[field_name] = 'bool'
             elif isinstance(field_value, int):
                 field_extra[field_name] = 'int'
             elif isinstance(field_value, float):
                 field_extra[field_name] = 'float'
-            elif isinstance(field_value, bool):
-                field_extra[field_name] = 'bool'
             elif hasattr(field_value, '__class__') and hasattr(field_value.__class__, '__bases__'):
                 if any(base.__name__ == 'Enum' for base in field_value.__class__.__bases__):
                     field_extra[field_name] = f'Enum({field_value.__class__.__name__})'
@@ -220,7 +216,7 @@ class StrategyStateSerializer:
         
         # 添加字段类型信息
         serialized_state['field_extra'] = field_extra
-        
+        print("serialized_state", serialized_state)
         return serialized_state
     
     @staticmethod
