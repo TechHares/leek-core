@@ -477,7 +477,7 @@ class StrategyWrapper(LeekComponent):
         处理仓位更新
         """
         # 更新策略仓位信息
-        logger.info(f"{self.strategy.display_name} 更新仓位: {position}")
+        logger.info(f"{self.strategy.display_name} 更新仓位[{self.position_rate}]: {position}")
         self.position[position.position_id] = position
         if position.sz <= 0:
             self.position.pop(position.position_id)

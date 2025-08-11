@@ -196,9 +196,9 @@ class PositionContext(LeekContext):
             return
         if order.is_open:
             # 解冻
-            logger.info(f"解冻资金, 信号下数据: {self.transactions.get(order.signal_id, [])}")
+            logger.info(f"解冻资金[开仓], 信号下数据: {self.transactions.get(order.signal_id, [])}")
             frozen_transactions = [t for t in self.transactions.get(order.signal_id, []) if t.asset_key == order.asset_key]
-            logger.info(f"解冻资金, 信号下数据, 过滤后[{order.asset_key}]: {frozen_transactions}")
+            logger.info(f"解冻资金[开仓], 信号下数据, 过滤后[{order.asset_key}]: {frozen_transactions}")
             if len(frozen_transactions) != 1:
                 logger.error(f"冻结交易[{order.order_id}-{order.asset_key}]数量不正确: {order}")
                 return
@@ -210,20 +210,24 @@ class PositionContext(LeekContext):
                 return
             # 扣款
             transaction = order.settle(self.activate_amount, -1)
+            logger.info(f"解冻资金[开仓], 扣款: {transaction}")
             if transaction:
                 self.activate_amount = transaction.balance_after
                 self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=transaction))
             fee_transaction = order.settle_fee(self.activate_amount)
+            logger.info(f"解冻资金[开仓], 手续费: {fee_transaction}")
             if fee_transaction:
                 self.activate_amount = fee_transaction.balance_after
                 self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=fee_transaction))
             return
         # 回款
         transaction = order.settle(self.activate_amount)
+        logger.info(f"解冻资金[平仓], 回款: {transaction}")
         if transaction:
             self.activate_amount = transaction.balance_after
             self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=transaction))
         fee_transaction = order.settle_fee(self.activate_amount)
+        logger.info(f"解冻资金[平仓], 手续费: {fee_transaction}")
         if fee_transaction:
             self.activate_amount = fee_transaction.balance_after
             self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=fee_transaction))
@@ -504,10 +508,11 @@ class PositionContext(LeekContext):
         Args:
             order: 订单信息
         """
-        logger.info(f"仓位处理收到订单更新: {order}")
+        logger.info(f"仓位处理收到订单更新: {order}， finish={order.order_status.is_finished}")
         if order.order_status == OrderStatus.SUBMITTED or order.order_status == OrderStatus.CREATED:
             return
         if order.order_status.is_finished:
+            logger.info(f"仓位处理收到订单更新: {order.order_id}, 解冻资金 {order.is_fake} {order.is_open}")
             self.unfreeze_amount(order)
 
         if order.order_status.is_failed:

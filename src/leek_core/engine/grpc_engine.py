@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Set, Optional, Callable
 from multiprocessing import Process
 from decimal import Decimal
 from leek_core.utils.serialization import LeekJSONEncoder, LeekJSONDecoder
-from leek_core.utils import get_logger
+from leek_core.utils import get_logger, generate
 from leek_core.engine.base import Engine
 from leek_core.event import Event, EventType, EventSource
 from leek_core.models import LeekComponentConfig, PositionConfig
@@ -94,7 +94,7 @@ class GrpcEngine(Engine):
                 project_id=self.instance_id,
                 event_type=event.event_type.value if event.event_type else "",
                 data_json=json.dumps(event.data, cls=LeekJSONEncoder) if event.data else "{}",
-                timestamp=int(time.time() * 1000),
+                timestamp=generate(),
                 source=json.dumps(event.source, cls=LeekJSONEncoder) if event.source else "{}"
             )
             if self._event_loop.is_running():
@@ -428,7 +428,7 @@ class GrpcEngineClient():
             if event_type == "heartbeat":
                 logger.debug(f"收到心跳事件: {project_id}")
                 return
-            logger.info(f"收到子进程事件[{project_id}]:  type={event_type} source={source} data={data_json}")
+            logger.info(f"收到子进程事件[{project_id}-{timestamp}]:  type={event_type} source={source} data={data_json}")
             # 解析事件数据
             try:
                 data = json.loads(data_json) if data_json else {}
