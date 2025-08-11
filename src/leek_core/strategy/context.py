@@ -183,6 +183,14 @@ class StrategyContext(LeekContext):
                 )
             ))
         logger.info(f"策略{self.instance_id}启动完成, 实例数: {len(self.strategies)} 数据源: {len(self.config.config.data_source_configs)}")
+    
+    def on_signal_finish(self, signal: Signal):
+        """
+        处理信号完成
+        """
+        strategy = self.strategies.get(signal.strategy_instance_id)
+        if strategy:
+            strategy.on_signal_finish(signal)
 
     def on_stop(self):
         """

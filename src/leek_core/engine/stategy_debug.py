@@ -185,7 +185,6 @@ class StrategyDebugView(LeekComponent):
         import pandas as pd
 
         df = pd.DataFrame(data)
-        df = df.iloc[65:]  # 跳过前40行
         rows_count = max(row or 2, 2)
         # 动态生成specs，只有第二行支持secondary_y
         specs = []
