@@ -4,6 +4,7 @@
 """
 订单模型定义
 """
+import copy
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -111,7 +112,7 @@ class Order:
             amount=self.settle_amount * factor,
             balance_before=activate_amount,
             balance_after=activate_amount + self.settle_amount * factor,
-            desc=f"扣款[{self.order_id}]: {self.settle_amount}",
+            desc=f"{'扣款' if self.is_open else '回款'}[{self.order_id}]: {self.settle_amount}",
         )
     def settle_fee(self, activate_amount: Decimal, factor: Decimal=Decimal(1)) -> Transaction:
         if (self.fee is None or self.fee == 0 or not self.order_status.is_finished):
@@ -129,6 +130,44 @@ class Order:
             balance_before=activate_amount,
             balance_after=activate_amount + self.fee * factor,
             desc=f"手续费[{self.order_id}]: {self.fee}",
+        )
+        
+    def __deepcopy__(self, memo):
+        return Order(
+            order_id=self.order_id,
+            position_id=self.position_id,
+            strategy_id=self.strategy_id,
+            strategy_instant_id=self.strategy_instant_id,
+            signal_id=self.signal_id,
+            exec_order_id=self.exec_order_id,
+            order_status=self.order_status,
+            signal_time=self.signal_time,
+            order_time=self.order_time,
+            symbol=self.symbol,
+            quote_currency=self.quote_currency,
+            ins_type=self.ins_type,
+            asset_type=self.asset_type,
+            side=self.side,
+            is_open=self.is_open,
+            is_fake=self.is_fake,
+            order_amount=self.order_amount,
+            order_price=self.order_price,
+            ratio=self.ratio,
+            order_type=self.order_type,
+            settle_amount=self.settle_amount,
+            execution_price=self.execution_price,
+            sz=self.sz,
+            sz_value=self.sz_value,
+            fee=self.fee,
+            pnl=self.pnl,
+            unrealized_pnl=self.unrealized_pnl,
+            finish_time=self.finish_time,
+            friction=self.friction,
+            leverage=self.leverage,
+            executor_id=self.executor_id,
+            trade_mode=self.trade_mode,
+            extra=copy.deepcopy(self.extra, memo) if self.extra is not None else None,
+            market_order_id=self.market_order_id,
         )
     
 @dataclass

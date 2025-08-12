@@ -4,6 +4,7 @@
 import grpc
 import json
 import asyncio
+import inspect
 import threading
 import time
 from concurrent import futures
@@ -44,6 +45,9 @@ class EngineServiceServicer(EngineServiceServicer):
 
                 method = getattr(self.engine, action)
                 result = method(*args, **kwargs)
+                # 支持异步方法
+                if inspect.isawaitable(result):
+                    result = await result
                 result_json = json.dumps(result, cls=LeekJSONEncoder) if result is not None else None
                 return ActionResponse(
                     request_id=request_id,

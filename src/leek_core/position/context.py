@@ -190,47 +190,51 @@ class PositionContext(LeekContext):
                         cls=self.__class__.__name__
                     )
                 ))
+
     @thread_lock(_transaction_lock)
     def unfreeze_amount(self, order: Order):
-        if order.is_fake:
-            return
-        if order.is_open:
-            # 解冻
-            logger.info(f"解冻资金[开仓], 信号下数据: {self.transactions.get(order.signal_id, [])}")
-            frozen_transactions = [t for t in self.transactions.get(order.signal_id, []) if t.asset_key == order.asset_key]
-            logger.info(f"解冻资金[开仓], 信号下数据, 过滤后[{order.asset_key}]: {frozen_transactions}")
-            if len(frozen_transactions) != 1:
-                logger.error(f"冻结交易[{order.order_id}-{order.asset_key}]数量不正确: {order}")
+        try:
+            if order.is_fake:
                 return
-            self.transactions[order.signal_id].remove(frozen_transactions[0])
-            frozen_transaction = frozen_transactions[0]
-            self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=frozen_transaction.unfozen(order.exec_order_id, order.order_id)))
-            self.activate_amount += frozen_transaction.amount
-            if order.order_status.is_failed:
+            if order.is_open:
+                # 解冻
+                logger.info(f"解冻资金[开仓], 信号下数据: {self.transactions.get(order.signal_id, [])}")
+                frozen_transactions = [t for t in self.transactions.get(order.signal_id, []) if t.asset_key == order.asset_key]
+                logger.info(f"解冻资金[开仓], 信号下数据, 过滤后[{order.asset_key}]: {frozen_transactions}")
+                if len(frozen_transactions) != 1:
+                    logger.error(f"冻结交易[{order.order_id}-{order.asset_key}]数量不正确: {order}")
+                    return
+                self.transactions[order.signal_id].remove(frozen_transactions[0])
+                frozen_transaction = frozen_transactions[0]
+                self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=frozen_transaction.unfozen(order.exec_order_id, order.order_id)))
+                self.activate_amount += frozen_transaction.amount
+                if order.order_status.is_failed:
+                    return
+                # 扣款
+                transaction = order.settle(self.activate_amount, -1)
+                logger.info(f"解冻资金[开仓], 扣款: {transaction}")
+                if transaction:
+                    self.activate_amount = transaction.balance_after
+                    self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=transaction))
+                fee_transaction = order.settle_fee(self.activate_amount)
+                logger.info(f"解冻资金[开仓], 手续费: {fee_transaction}")
+                if fee_transaction:
+                    self.activate_amount = fee_transaction.balance_after
+                    self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=fee_transaction))
                 return
-            # 扣款
-            transaction = order.settle(self.activate_amount, -1)
-            logger.info(f"解冻资金[开仓], 扣款: {transaction}")
+            # 回款
+            transaction = order.settle(self.activate_amount)
+            logger.info(f"解冻资金[平仓], 回款: {transaction}")
             if transaction:
                 self.activate_amount = transaction.balance_after
                 self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=transaction))
             fee_transaction = order.settle_fee(self.activate_amount)
-            logger.info(f"解冻资金[开仓], 手续费: {fee_transaction}")
+            logger.info(f"解冻资金[平仓], 手续费: {fee_transaction}")
             if fee_transaction:
                 self.activate_amount = fee_transaction.balance_after
                 self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=fee_transaction))
-            return
-        # 回款
-        transaction = order.settle(self.activate_amount)
-        logger.info(f"解冻资金[平仓], 回款: {transaction}")
-        if transaction:
-            self.activate_amount = transaction.balance_after
-            self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=transaction))
-        fee_transaction = order.settle_fee(self.activate_amount)
-        logger.info(f"解冻资金[平仓], 手续费: {fee_transaction}")
-        if fee_transaction:
-            self.activate_amount = fee_transaction.balance_after
-            self.event_bus.publish_event(Event(event_type=EventType.TRANSACTION, data=fee_transaction))
+        finally:
+            self.transactions.pop(order.signal_id, None)
     
     @thread_lock(_transaction_lock)
     def change_amount(self, amount: Decimal, desc: str):
@@ -601,7 +605,7 @@ class PositionContext(LeekContext):
                 position.pnl += (1 if position.side.is_long else -1) * (order.execution_price - position.cost_price) * delta_sz
                 closed_sz = (position.total_sz - position.sz)
                 if closed_sz > 0:
-                    position.close_price = position.total_back_amount / closed_sz
+                    position.close_price = position.total_back_amount * position.leverage / closed_sz
                 if order.order_status == OrderStatus.FILLED and not position.is_fake:
                     position.ratio -= order.ratio
             

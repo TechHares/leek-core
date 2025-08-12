@@ -342,10 +342,10 @@ class Engine(LeekComponent, ABC):
         self.running = False
         
         # 停止引擎组件
-        self.position_manager.on_stop()
-        self.executor_manager.on_stop()
-        self.strategy_manager.on_stop()
         self.data_source_manager.on_stop()
+        self.position_manager.on_stop()
+        self.strategy_manager.on_stop()
+        self.executor_manager.on_stop()
         logger.info(f"引擎已停止: {self.instance_id} {self.name}")
     
     def start(self) -> None:

@@ -172,16 +172,28 @@ class GrpcEngine(Engine):
             logger.error(f"服务异常: {e}", exc_info=True)
 
 
-    def shutdown(self):
-        """关闭引擎"""
+    async def shutdown(self):
+        """关闭引擎（在引擎事件循环内执行）"""
         logger.info(f"收到关闭请求: {self.instance_id} {self.name}")
         try:
-            self._event_loop.run_until_complete(self.engine_server.stop(grace=5))
+            if self._check_task and not self._check_task.done():
+                self._check_task.cancel()
+                try:
+                    await self._check_task
+                except asyncio.CancelledError:
+                    pass
+        except Exception:
+            pass
+        try:
+            if self.engine_server:
+                await self.engine_server.stop(grace=5)
         except Exception as e:
             logger.error(f"停止引擎服务器时出错: {e}")
         finally:
-            self._event_loop.close()
-        self.on_stop()
+            try:
+                self.on_stop()
+            except Exception:
+                pass
 
 class GrpcEngineClient():
     """主进程的 gRPC 客户端"""

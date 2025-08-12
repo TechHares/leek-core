@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from typing import Dict, Any
+import copy
 
 from leek_core.base import LeekContext
 from leek_core.event import EventBus, Event, EventType
@@ -66,14 +67,16 @@ class ExecutorContext(LeekContext):
                 for order in orders:
                     if order.order_status == OrderStatus.CREATED:
                         order.order_status = OrderStatus.SUBMITTED
-                        self.event_bus.publish_event(Event(EventType.ORDER_UPDATED, order))
+                        # 发布事件时深拷贝，避免后续修改影响已派发事件
+                        self.event_bus.publish_event(Event(EventType.ORDER_UPDATED, copy.deepcopy(order)))
                 return
             except Exception as e:
                 if retry_count <= 1:
                     logger.error(f"执行订单失败: {e}", exc_info=True)
                     for order in orders:
                         order.order_status = OrderStatus.ERROR
-                        self.event_bus.publish_event(Event(EventType.ORDER_UPDATED, order))
+                        # 发布事件时深拷贝，避免后续修改影响已派发事件
+                        self.event_bus.publish_event(Event(EventType.ORDER_UPDATED, copy.deepcopy(order)))
                     return
                 else:
                     logger.warning(f"执行订单失败, 重试次数: {retry_count}: {e}, ")
@@ -113,9 +116,10 @@ class ExecutorContext(LeekContext):
         order.market_order_id = msg.market_order_id
         try:
             # 用户自定义回调
+            # 发布事件时深拷贝，避免后续修改影响已派发事件
             self.event_bus.publish_event(Event(
                 event_type=EventType.ORDER_UPDATED,
-                data=order,
+                data=copy.deepcopy(order),
             ))
         finally:
             if order.order_status.is_finished:
