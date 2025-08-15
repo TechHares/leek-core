@@ -15,7 +15,7 @@ from leek_core.indicators import T, MERGE
 from leek_core.data import DataSource, ClickHouseKlineDataSource
 from leek_core.models import TimeFrame, TradeInsType, LeekComponentConfig, PositionConfig, Signal, Order, Position
 from leek_core.executor import ExecutorContext
-from leek_core.manager import PositionManager, ExecutorManager
+from leek_core.manager import PositionManager, ExecutorManager, StrategyManager
 from leek_core.position import PositionContext
 from leek_core.executor import BacktestExecutor
 from leek_core.utils import get_logger, DateTimeUtils, decimal_quantize, generate_str
@@ -39,8 +39,32 @@ class StrategyDebugView(LeekComponent):
                  ins_type: TradeInsType = TradeInsType.SWAP, data_source: DataSource = ClickHouseKlineDataSource()):
         super().__init__()
 
-        self.strategy = StrategyWrapper(strategy, enter_strategy, exit_strategy, policies)
-        self.strategy.on_start()
+        # 使用 Manager 以便自动订阅和处理事件
+        self.strategy_manager: StrategyManager = StrategyManager(
+            self.event_bus,
+            LeekComponentConfig(instance_id="s0", name="策略管理", cls=StrategyContext, config=None),
+        )
+        self.strategy_manager.on_start()
+        # 将策略以 Context 方式接入
+        from leek_core.strategy import StrategyContext as _SC
+        sc = _SC(self.event_bus, LeekComponentConfig(
+            instance_id="s1",
+            name="策略",
+            cls=Strategy,
+            config=StrategyConfig(
+                data_source_configs=[],
+                info_fabricator_configs=[],
+                strategy_config={},
+                strategy_position_config=None,
+                enter_strategy_cls=EnterStrategy,
+                enter_strategy_config={},
+                exit_strategy_cls=ExitStrategy,
+                exit_strategy_config={},
+                risk_policies=[],
+            )
+        ))
+        sc.add_strategy("debug", strategy, enter_strategy, exit_strategy, policies)
+        self.strategy_manager.components["s1"] = sc
         self.data_source = data_source
         self.symbol = symbol
         self.start_time = start_time
@@ -128,8 +152,9 @@ class StrategyDebugView(LeekComponent):
                                                        row_key=KLine.pack_row_key(self.symbol, self.quote_currency, self.ins_type, self.timeframe),
                                                        market=self.market):
             count += 1
-            assets = self.strategy.on_data(kline)
-            data["position"].append(self.strategy.position_rate * 100)
+            assets = self.strategy_manager.components["s1"].strategies["debug"].on_data(kline)
+            ctx = self.strategy_manager.components["s1"].strategies["debug"]
+            data["position"].append(ctx.position_rate * 100)
             self.position_context.on_data(kline)
             if self.bechmark is None:
                 self.bechmark = kline.close

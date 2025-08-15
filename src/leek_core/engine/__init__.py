@@ -9,10 +9,13 @@ from .base import Engine
 from .process import ProcessEngine, ProcessEngineClient
 from .indicator_view import IndicatorView
 from .stategy_debug import StrategyDebugView
+from .backtest import StrategyBacktester, WalkForwardOptimizer
 __all__ = [
     "Engine",
     "ProcessEngine",
     "ProcessEngineClient",
     "StrategyDebugView",
     "IndicatorView",
+    "StrategyBacktester",
+    "WalkForwardOptimizer",
 ]

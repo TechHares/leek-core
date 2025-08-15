@@ -21,7 +21,7 @@ class ClickHouseKlineDataSource(DataSource):
     display_name = "ClickHouse K线"
     # 声明支持的资产类型
     supported_asset_type: DataType = {AssetType.STOCK, AssetType.CRYPTO}
-    backtest_supported: bool = True
+    just_backtest: bool = True
     init_params: List[Field] = [
         Field(name="host", label="主机", type=FieldType.STRING, required=True, default="127.0.0.1"),
         Field(name="port", label="端口", type=FieldType.INT, required=True, default=9000),

@@ -311,6 +311,8 @@ class GrpcEngineClient():
 
     async def stop(self):
         """停止客户端（同步包装器）"""
+        if not self._running:
+            return
         self._running = False
         
         # 停止事件监听任务
@@ -327,7 +329,7 @@ class GrpcEngineClient():
         try:
             await self.invoke("shutdown")
         except Exception as e:
-            logger.warning(f"调用 shutdown 失败，可能连接已断开: {e.message}")
+            logger.info(f"调用 shutdown 失败，可能连接已断开: {e}")
         
         try:
             if self.engine_channel:

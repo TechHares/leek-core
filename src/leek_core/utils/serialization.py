@@ -182,9 +182,7 @@ class StrategyStateSerializer:
         返回:
             包含对象状态和字段类型信息的字典
         """
-        print("asdasasdas", init_param_names)
         serializable_fields = StrategyStateSerializer.get_serializable_fields(obj, init_param_names)
-        print("serializable_fields", serializable_fields)
         # 序列化字段值
         serialized_state = {}
         field_extra = {}
@@ -216,7 +214,6 @@ class StrategyStateSerializer:
         
         # 添加字段类型信息
         serialized_state['field_extra'] = field_extra
-        print("serialized_state", serialized_state)
         return serialized_state
     
     @staticmethod

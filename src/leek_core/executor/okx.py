@@ -153,6 +153,9 @@ class OkxWebSocketExecutor(WebSocketExecutor):
                             sz_value=Decimal(instrument["ctVal"]),
                         )
                         oum.settle_amount = oum.execution_price * oum.sz / Decimal(data["lever"])
+                        if data['side'] == 'buy' and data['posSide'] == 'short': # 平空单, 结算金额需要反向+2*(pnl - fee)补齐
+                            oum.settle_amount = oum.settle_amount + 2 * (oum.pnl - oum.fee)
+
                         oum.order_status = OrderStatus("canceled" if data["state"] == "mmp_canceled" else data["state"])
                         if oum.order_status == OrderStatus.FILLED or oum.order_status == OrderStatus.PARTIALLY_FILLED:
                             oum.finish_time = DateTimeUtils.to_datetime(int(data["fillTime"]))
@@ -308,7 +311,7 @@ class OkxWebSocketExecutor(WebSocketExecutor):
         sz = num - (num % Decimal(lot_sz))
         min_sz = instrument["minSz"]
         if sz < Decimal(min_sz):
-            raise RuntimeError(f"下单数量 sz {sz}小于最低限制{min_sz}")
+            raise RuntimeError(f"{ins_id}下单数量 sz {sz}小于最低限制{min_sz}")
         if order.order_type == OT.MarketOrder:
             max_mkt_sz = instrument["maxMktSz"]
             sz = min(sz, Decimal(max_mkt_sz))

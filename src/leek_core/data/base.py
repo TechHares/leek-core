@@ -19,7 +19,7 @@ class DataSource(LeekComponent, ABC):
     # 声明支持的资产类型
     supported_asset_type: DataType = AssetType.STOCK
     # 是否支持回测
-    backtest_supported: bool = False
+    just_backtest: bool = False
     # 声明显示名称
     display_name = "X数据源"
     """
