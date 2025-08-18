@@ -522,7 +522,13 @@ class PositionContext(LeekContext):
         if order.order_status.is_failed:
             if not order.position_id:
                 return
-
+        if order.is_open and not order.position_id:
+            positions = self.strategy_positions.get(order.strategy_id, [])
+            for position in positions:
+                if position.order_states and order.order_id in position.order_states:
+                    order.position_id = position.position_id
+                    break
+                
         # 如果是开仓订单且没有position_id，创建新仓位
         if order.is_open and not order.position_id:
             position = Position(
