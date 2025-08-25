@@ -153,8 +153,10 @@ class OkxWebSocketExecutor(WebSocketExecutor):
                             sz_value=Decimal(instrument["ctVal"]),
                         )
                         oum.settle_amount = oum.execution_price * oum.sz / Decimal(data["lever"])
-                        if data['side'] == 'buy' and data['posSide'] == 'short': # 平空单, 结算金额需要反向+2*(pnl - fee)补齐
-                            oum.settle_amount = oum.settle_amount + 2 * (oum.pnl - oum.fee)
+                        if data['side'] == 'buy' and data['posSide'] == 'short':
+                            oum.settle_amount = (oum.execution_price * oum.sz + oum.pnl)/Decimal(data["lever"]) + oum.pnl
+                        if data['side'] == 'sell' and data['posSide'] == 'long':
+                            oum.settle_amount = (oum.execution_price * oum.sz - oum.pnl)/Decimal(data["lever"]) + oum.pnl
 
                         oum.order_status = OrderStatus("canceled" if data["state"] == "mmp_canceled" else data["state"])
                         if oum.order_status == OrderStatus.FILLED or oum.order_status == OrderStatus.PARTIALLY_FILLED:

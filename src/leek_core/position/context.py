@@ -522,7 +522,7 @@ class PositionContext(LeekContext):
         if order.order_status.is_failed:
             if not order.position_id:
                 return
-        if order.is_open and not order.position_id:
+        if order.is_open and not order.position_id: # 兼容下前面消息堆积的情况
             positions = self.strategy_positions.get(order.strategy_id, [])
             for position in positions:
                 if position.order_states and order.order_id in position.order_states:
@@ -612,6 +612,8 @@ class PositionContext(LeekContext):
                 closed_sz = (position.total_sz - position.sz)
                 if closed_sz > 0:
                     position.close_price = position.total_back_amount * position.leverage / closed_sz
+                    if position.side.is_short:
+                        position.close_price = 2 * position.cost_price - position.close_price
                 if order.order_status == OrderStatus.FILLED and not position.is_fake:
                     position.ratio -= order.ratio
             
