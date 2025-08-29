@@ -19,6 +19,7 @@ class DebugStrategy(CTAStrategy):
     """
     display_name: str = "debug专用"
     init_params = []
+    open_just_no_pos = False
 
     def __init__(self):
         self.open = False
@@ -33,12 +34,15 @@ class DebugStrategy(CTAStrategy):
         if self.open:
             self.open = False
             self.side = PositionSide.SHORT
-            return self.side
+            return StrategyCommand(side=self.side, ratio=Decimal(0.1))
         return None
 
     def should_close(self, position_side: PositionSide) -> bool | Decimal:
         # time.sleep(10000)
         print("should_close", self.sell, self.side)
+        if self.sell:
+            self.sell = False
+            return True
         return self.sell
 
     # def get_state(self) -> Dict[str, Any]:

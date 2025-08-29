@@ -32,7 +32,8 @@ class LeekComponentConfig(Generic[T, CFG]):
     name: str = None
     cls: type[T] = None
     config: CFG = None
-    data: Dict[str, Any] = None  # 存储组件的额外数据
+    data: Dict[str, Any] = None  # 存储组件的运行数据
+    extra: Dict[str, Any] = None  # 存储组件的扩展数据
 
 @dataclass
 class StrategyPositionConfig:
@@ -91,8 +92,6 @@ class PositionConfig:
     trade_type: TradeInsType = TradeInsType.SPOT # 交易类型
     trade_mode: TradeMode = TradeMode.CROSS # 交易模式
     data: Dict[str, Any] = None
-
-    risk_policies: List[LeekComponentConfig["StrategyPolicy", Dict[str, Any]]] = field(default_factory=list)
 
     def __post_init__(self):
         # 转换 Decimal 字段

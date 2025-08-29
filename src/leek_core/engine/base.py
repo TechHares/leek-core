@@ -12,7 +12,7 @@ from typing import Dict, Any
 
 import psutil
 
-from leek_core.base import LeekComponent, load_class_from_str
+from leek_core.base import LeekComponent, load_class_from_str, create_component
 from leek_core.data import DataSource
 from leek_core.event import EventBus, EventType, Event
 from leek_core.executor import Executor, ExecutorContext
@@ -243,7 +243,8 @@ class Engine(LeekComponent, ABC):
             instance_id=str(config.get("id")),
             name=config.get("name", ""),
             cls=load_class_from_str(config.get("class_name")),
-            config=config.get("params", {})
+            config=config.get("params", {}),
+            data=config.get("data")
         )
 
     def add_executor(self, config: LeekComponentConfig[Executor, Dict[str, Any]]):
@@ -281,13 +282,6 @@ class Engine(LeekComponent, ABC):
     def update_position_config(self, position_config: PositionConfig, data: Dict=None) -> None:
         logger.info(f"更新仓位配置: {position_config}")
         if isinstance(position_config, dict):
-            risk_policies = position_config.get('risk_policies', [])
-            position_config['risk_policies'] = [LeekComponentConfig(
-                instance_id=self.instance_id,
-                name=policy.get('name'),
-                cls=load_class_from_str(policy.get('class_name')),
-                config=policy.get('params')) for policy in risk_policies if policy.get('enabled')]
-            
             # 为 PositionConfig 提供默认值
             position_config.setdefault('init_amount', Decimal('100000'))
             position_config.setdefault('max_strategy_amount', Decimal('50000'))
@@ -296,6 +290,7 @@ class Engine(LeekComponent, ABC):
             position_config.setdefault('max_symbol_ratio', Decimal('0.25'))
             position_config.setdefault('max_amount', Decimal('10000'))
             position_config.setdefault('max_ratio', Decimal('0.1'))
+            position_config.setdefault('virtual_position_fee_rate', Decimal('0'))
             
             position_config = PositionConfig(**position_config)
             position_config.data = data
@@ -303,6 +298,33 @@ class Engine(LeekComponent, ABC):
 
         self.position_config = position_config
         self.position_manager.update(position_config)
+
+    def add_position_policy(self, config: LeekComponentConfig[LeekComponent, Dict[str, Any]]):
+        """添加全局仓位风控策略"""
+        logger.info(f"添加仓位风控策略: {config}")
+        if isinstance(config, dict):
+            data = {
+                "scope": config.get("scope"),
+                "strategy_template_ids": config.get("strategy_template_ids"),
+                "strategy_instance_ids": config.get("strategy_instance_ids"),
+            }
+            config = self.format_component_config(config)
+            config.extra = data
+        self.position_manager.add_policy(config)
+
+    def update_position_policy(self, config: LeekComponentConfig[LeekComponent, Dict[str, Any]]):
+        """更新全局仓位风控策略：按类名先移除后添加"""
+        logger.info(f"更新仓位风控策略: {config}")
+        if isinstance(config, dict):
+            instance_id = str(config.get("id"))
+        else:
+            instance_id = config.instance_id
+        self.remove_position_policy(instance_id)
+        self.add_position_policy(config)
+
+    def remove_position_policy(self, instance_id: str):
+        """移除全局仓位风控策略，优先按实例ID移除，其次按类名移除"""
+        self.position_manager.remove_policy(instance_id)
 
     def ping(self, instance_id: str):
         """响应主进程的 ping 消息，回复 pong"""

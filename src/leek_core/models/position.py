@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
+import time
 from typing import List, Dict, Optional, Tuple, Union
 
 from .constants import TradeInsType, AssetType
@@ -61,6 +62,40 @@ class PositionSide(Enum):
         """
         return self == PositionSide.FLAT
 
+@dataclass
+class VirtualPosition:
+    policy_id: str = None                    # 风控策略ID
+    signal_id: str = None                    # 信号ID
+    amount: Decimal = Decimal("0")           # 仓位数量
+    ratio: Decimal = Decimal("0")            # 仓位比例
+    cost_price: Decimal = Decimal("0")       # 开仓成本价
+    close_price: Decimal = Decimal("0")      # 平仓成本价
+    pnl: Decimal = Decimal("0")              # 盈亏
+    sz: Decimal = Decimal("0")               # 仓位大小
+    closed_sz: Decimal = Decimal("0")        # 仓位大小
+    timestamp: int = int(time.time() * 1000) # 时间戳
+
+    def __post_init__(self):
+        if self.policy_id and not isinstance(self.policy_id, str):
+            self.policy_id = str(self.policy_id)
+        if self.signal_id and not isinstance(self.signal_id, str):
+            self.signal_id = str(self.signal_id)
+        if self.amount and not isinstance(self.amount, Decimal):
+            self.amount = Decimal(self.amount)
+        if self.ratio and not isinstance(self.ratio, Decimal):
+            self.ratio = Decimal(self.ratio)
+        if self.cost_price and not isinstance(self.cost_price, Decimal):
+            self.cost_price = Decimal(self.cost_price)
+        if self.close_price and not isinstance(self.close_price, Decimal):
+            self.close_price = Decimal(self.close_price)
+        if self.pnl and not isinstance(self.pnl, Decimal):
+            self.pnl = Decimal(self.pnl)
+        if self.sz and not isinstance(self.sz, Decimal):
+            self.sz = Decimal(self.sz)
+        if self.closed_sz and not isinstance(self.closed_sz, Decimal):
+            self.closed_sz = Decimal(self.closed_sz)
+        if self.timestamp and not isinstance(self.timestamp, int):
+            self.timestamp = int(self.timestamp)
 
 @dataclass
 class OrderExecutionState:
@@ -121,7 +156,7 @@ class Position:
     position_id: str  # 仓位ID
 
     strategy_id: str  # 策略ID
-    strategy_instance_id: Union[str, Tuple]       # 策略实例ID
+    strategy_instance_id: str       # 策略实例ID
 
     symbol: str  # 交易标的
     quote_currency: str  # 计价货币
@@ -140,17 +175,18 @@ class Position:
     total_sz: Decimal = Decimal("0")  # 累计仓位数量
 
     executor_id: Optional[str] = None # 执行器ID
-    is_fake: bool = False # 是否是假仓位
 
     pnl: Decimal = Decimal("0")  # 盈亏
     fee: Decimal = Decimal("0")  # 手续费
     friction: Decimal = Decimal("0")  # 摩擦成本 特指合约资金费之类的磨损， 冲击成本不算
     leverage: Decimal = Decimal("1")  # 杠杆倍数，默认1倍
     open_time: datetime = datetime.now()  # 开仓时间
+    update_time: datetime = datetime.now()  # 更新时间
 
     # 订单执行状态跟踪
     executor_sz: Dict[str, Decimal] = field(default_factory=dict)  # 执行器的仓位大小
     order_states: Dict[str, OrderExecutionState] = field(default_factory=dict)  # 订单ID -> 执行状态
+    virtual_positions: List[VirtualPosition] = field(default_factory=list)  # 虚拟仓位列表
 
     @property
     def value(self):
@@ -165,6 +201,10 @@ class Position:
     @property
     def sz(self):
         return sum(self.executor_sz.values()) if self.executor_sz else Decimal('0')
+    
+    @property
+    def is_closed(self):
+        return self.sz <= 0 and (sum(vp.sz for vp in self.virtual_positions) <= 0)
 
     def __post_init__(self):
         # Required string fields validation
@@ -180,9 +220,6 @@ class Position:
         self.strategy_instance_id = str(self.strategy_instance_id)
         # Optional string field
         self.executor_id = str(self.executor_id) if self.executor_id is not None else None
-
-        # Boolean field
-        self.is_fake = bool(self.is_fake) if self.is_fake is not None else False
 
         # Convert enum types with null check
         self.ins_type = TradeInsType(self.ins_type) if self.ins_type is not None else None
@@ -221,6 +258,8 @@ class Position:
         # Ensure all values in order_states are OrderExecutionState
         self.order_states = {k: v if isinstance(v, OrderExecutionState) else OrderExecutionState(k)
                             for k, v in self.order_states.items()}
+
+        self.virtual_positions = [VirtualPosition(**vp) for vp in (self.virtual_positions if isinstance(self.virtual_positions, list) else [])]
 
 
 @dataclass

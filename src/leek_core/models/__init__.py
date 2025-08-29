@@ -10,9 +10,10 @@ from .constants import TimeFrame, DataType, AssetType, MarketStatus, TradeMode, 
 from .data import KLine, Data, InitDataPackage
 from .order import Order, ExecutionAsset, ExecutionContext, OrderUpdateMessage
 from .parameter import Field, FieldType, ChoiceType
-from .position import PositionSide, Position, PositionInfo, OrderExecutionState
+from .position import PositionSide, Position, PositionInfo, OrderExecutionState, VirtualPosition
 from .signal import Signal, Asset
 from .transaction import Transaction, TransactionType
+from .risk_event import RiskEvent, RiskEventType
 __all__ = [
     "OrderExecutionState",
     "OrderUpdateMessage",
@@ -47,5 +48,8 @@ __all__ = [
     "FieldType",
     "PosMode",
     "Transaction",
-    "TransactionType"
+    "TransactionType",
+    "RiskEvent",
+    "VirtualPosition",
+    "RiskEventType"
 ]

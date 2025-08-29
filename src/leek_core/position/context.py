@@ -6,9 +6,9 @@ from re import S
 import signal
 import sys
 from threading import Lock, RLock
-from typing import Dict, List
+from typing import Dict, List, Any
 
-from leek_core.base import LeekContext, create_component
+from leek_core.base import LeekContext, create_component, load_class_from_str
 from leek_core.event import EventBus, Event, EventType
 from leek_core.event import EventSource
 from leek_core.models import (TradeInsType, Position, Signal, Order, PositionConfig, AssetType,
@@ -17,8 +17,10 @@ from leek_core.models import (TradeInsType, Position, Signal, Order, PositionCon
 from leek_core.models import ExecutionContext
 from leek_core.models import Transaction, TransactionType
 from leek_core.policy import StrategyPolicy
+from leek_core.policy.context import StrategyPolicyContext
 from leek_core.utils import get_logger, generate_str, decimal_quantize
 from leek_core.utils import thread_lock
+from leek_core.models import VirtualPosition
 _position_lock = RLock()
 _transaction_lock = RLock()
 logger = get_logger(__name__)
@@ -32,12 +34,9 @@ class PositionContext(LeekContext):
     def __init__(self, event_bus: EventBus, config: LeekComponentConfig[None, PositionConfig]):
         """初始化仓位管理器"""
         super().__init__(event_bus, config)
-        self.policies: List[StrategyPolicy] = []
+        self.policies: List[StrategyPolicyContext] = []
 
         self.position_config = config.config
-        if self.position_config is not None:
-            for policy in self.position_config.risk_policies:
-                self.policies.append(create_component(policy.cls, **policy.config))
 
         self.pnl = Decimal(0)
         self.friction = Decimal(0)
@@ -87,7 +86,7 @@ class PositionContext(LeekContext):
         # 计算每个资产的最大可投入金额
         ratios = []
         max_amounts = []
-        fake_flag = False
+        amount_enough = True
         for asset in signal.assets:
             # 获取当前标的总仓位
             current_position = self._get_position(
@@ -108,7 +107,7 @@ class PositionContext(LeekContext):
 
             symbol_amount = min(symbol_amount, decimal_quantize(self.total_amount * (self.position_config.max_symbol_ratio - symbol_used_ratio), 8))
             if symbol_amount <= 0:
-                fake_flag = True
+                amount_enough = False
             elif principal * asset.ratio > symbol_amount:
                 principal = symbol_amount / asset.ratio
             max_amounts.append(symbol_amount)
@@ -135,7 +134,6 @@ class PositionContext(LeekContext):
                     ratio=asset.ratio,
                     amount=0,
                     is_open=False,
-                    is_fake=fake_flag,
                     quote_currency=asset.quote_currency,
                     extra=asset.extra,
             )
@@ -146,10 +144,16 @@ class PositionContext(LeekContext):
 
             execution_assets.append(execution_asset)
             if current_position and current_position.side != asset.side: # 减仓
-                execution_asset.is_fake = current_position.is_fake
-                close_ratio = min(1, asset.ratio / current_position.ratio)
-                execution_asset.sz = current_position.sz * close_ratio
-                execution_asset.ratio = current_position.ratio * close_ratio if execution_asset.sz < current_position.sz else current_position.ratio
+                # 计算总仓位（真实仓位 + 虚拟仓位）
+                total_sz = current_position.sz + sum(vp.sz for vp in current_position.virtual_positions)
+                total_ratio = current_position.ratio + sum(vp.ratio for vp in current_position.virtual_positions)
+                
+                close_ratio = min(1, asset.ratio / total_ratio)
+                close_sz = total_sz * close_ratio
+                virtual_sz = sum(vp.sz for vp in current_position.virtual_positions)
+                execution_asset.virtual_sz =  min(virtual_sz, close_sz)
+                execution_asset.sz = max(0, close_sz - virtual_sz)
+                execution_asset.ratio = total_ratio * close_ratio if execution_asset.sz < total_sz else total_ratio
                 execution_asset.amount = decimal_quantize(current_position.amount * close_ratio, 8)
                 continue
             
@@ -251,7 +255,7 @@ class PositionContext(LeekContext):
         )))
 
     @thread_lock(_position_lock)
-    def process_signal(self, signal: Signal):
+    def process_signal(self, signal: Signal, cls:str=None):
         """
         处理信号 PositionManager 核心职责
 
@@ -261,9 +265,9 @@ class PositionContext(LeekContext):
         返回:
             订单
         """
-        logger.info(f"处理策略信号: strategy_positions={ {k: [p.position_id for p in v] for k, v in self.strategy_positions.items()}}")
-        logger.info(f"处理策略信号: asset_positions={ {k: [p.position_id for p in v] for k, v in self.asset_positions.items()}}")
-        logger.info(f"处理策略信号: execution_positions={ {k: [p.position_id for p in v] for k, v in self.execution_positions.items()}}")
+        logger.debug(f"处理策略信号: strategy_positions={ {k: [p.position_id for p in v] for k, v in self.strategy_positions.items()}}")
+        logger.debug(f"处理策略信号: asset_positions={ {k: [p.position_id for p in v] for k, v in self.asset_positions.items()}}")
+        logger.debug(f"处理策略信号: execution_positions={ {k: [p.position_id for p in v] for k, v in self.execution_positions.items()}}")
         execution_assets = self.evaluate_amount(signal)
         logger.info(f"处理策略信号: {signal} -> {execution_assets}")
         self.signals[signal.signal_id] = signal
@@ -281,12 +285,9 @@ class PositionContext(LeekContext):
             order_type=signal.config.order_type if signal.config and signal.config.order_type else self.position_config.order_type,
             trade_type=self.position_config.trade_type,
             trade_mode=self.position_config.trade_mode,
+            strategy_cls=cls,
         )
-        if self.do_risk_policy(execution_context):
-            for asset in execution_context.execution_assets:
-                if asset.is_open:
-                    asset.is_fake = True
-        else:
+        if not self.do_risk_policy(execution_context):
             self.freeze_amount(execution_context)
         
         self.event_bus.publish_event(Event(
@@ -449,50 +450,60 @@ class PositionContext(LeekContext):
             self._add_position(Position(**p))
         for ts in state.get('transactions', []):
             for t in ts:
-                self.transactions.setdefault(t.signal_id, []).append(Transaction(**t))
+                self.transactions.setdefault(t['signal_id'], []).append(Transaction(**t))
 
     def do_risk_policy(self, execution_context: ExecutionContext) -> bool:
+        # 仓位上下文
         pos_ctx = PositionInfo(
             positions=list(self.positions.values())
         )
+        if all(asset.is_open is False for asset in execution_context.execution_assets):
+            return False
+
         for policy in self.policies:
-            if not policy.evaluate(execution_context, pos_ctx):
+            if policy.is_applicable(execution_context) and not policy.evaluate(execution_context, pos_ctx):
                 logger.warning(
-                    f"Risk policy {policy.display_name} rejected signal {execution_context}")
+                    f"Risk policy {policy.instance_id}/{policy.name} rejected signal {execution_context}")
+                execution_context.extra = (execution_context.extra or {}) | {
+                    "policy_id": policy.instance_id,
+                }
                 return True
         return False
 
-    def add_policy(self, policy: StrategyPolicy):
+    def add_policy(self, policy_config: LeekComponentConfig[StrategyPolicy, Dict[str, Any]]):
         """
         添加风控策略到仓位管理器。
-        :param policy: Policy 实例
+        :param policy_config: 策略配置（LeekComponentConfig 或 dict: {id,name,class_name,params}）
         """
-        policy.on_start()
-        self.policies.append(policy)
+        ctx = StrategyPolicyContext(self.event_bus, policy_config)
+        ctx.on_start()
+        self.policies.append(ctx)
         self.event_bus.publish_event(Event(
             event_type=EventType.POSITION_POLICY_ADD,
             data={
                 "instance_id": self.instance_id,
-                "name": policy.display_name,
+                "name": policy_config.cls.__name__,
             }
         ))
 
-    def remove_policy(self, cls: type[StrategyPolicy]):
+    def remove_policy(self, instance_id: str):
         """
-        根据策略ID（policy_id）删除风控策略。
-        :param cls: 策略class
+        根据策略实例ID删除风控策略。
+        :param instance_id: 策略实例ID（数据库ID字符串）
         """
-        del_policies = [p for p in self.policies if isinstance(p, cls)]
-        self.policies = [p for p in self.policies if not isinstance(p, cls)]
+        del_policies = [p for p in self.policies if p.instance_id == instance_id]
+        self.policies = [p for p in self.policies if p.instance_id != instance_id]
         for policy in del_policies:
-            policy.on_stop()
-            self.event_bus.publish_event(Event(
-                event_type=EventType.POSITION_POLICY_DEL,
-                data={
-                    "instance_id": self.instance_id,
-                    "name": policy.display_name,
-                }
-            ))
+            try:
+                policy.on_stop()
+            finally:
+                self.event_bus.publish_event(Event(
+                    event_type=EventType.POSITION_POLICY_DEL,
+                    data={
+                        "instance_id": self.instance_id,
+                        "name": policy.name,
+                    }
+                ))
 
     def update_config(self, config: PositionConfig):
         """
@@ -545,7 +556,6 @@ class PositionContext(LeekContext):
                 ratio=0,
                 current_price=order.execution_price,
                 executor_id=order.executor_id,
-                is_fake=order.is_fake,
                 fee=0,
                 friction=0,
                 leverage=order.leverage,
@@ -579,6 +589,8 @@ class PositionContext(LeekContext):
             delta_friction = (order.friction or Decimal('0')) - order_state.friction
             delta_pnl = (order.pnl or Decimal('0')) - order_state.pnl
             delta_sz = (order.sz or Decimal('0')) - order_state.sz
+            if delta_sz < 0: # 先发出的信息后到 不处理
+                return
 
             # 更新订单执行状态
             order_state.settle_amount = order.settle_amount or Decimal('0')
@@ -587,23 +599,31 @@ class PositionContext(LeekContext):
             order_state.pnl = order.pnl or Decimal('0')
             order_state.sz = order.sz or Decimal('0')
 
-            position.friction += delta_friction
-            position.fee += delta_fee
-
-            position.pnl += delta_friction + delta_fee
-            if position.is_fake:
-                self.virtual_pnl += delta_pnl
+            if order.is_fake:
+                # 虚拟订单，更新虚拟仓位
+                self._update_virtual_position(position, order)
+                self.event_bus.publish_event(Event(
+                    event_type=EventType.POSITION_UPDATE,
+                    data=position
+                ))
+                logger.info(f"虚拟仓位更新完成，当前可用余额: {self.activate_amount}, 资产仓位: {len(self.asset_positions)}, "
+                            f"总价值: {self.total_amount}, 总仓位: {len(self.positions)}")
+                return
             else:
+                # 真实订单，更新真实仓位
                 self.pnl += delta_pnl
                 self.friction += delta_friction
                 self.fee += delta_fee
+                position.friction += delta_friction
+                position.fee += delta_fee
+                position.pnl += delta_friction + delta_fee
             if order.is_open: # 如果是开仓订单
                 position.executor_sz[order.executor_id] = position.executor_sz.get(order.executor_id, Decimal('0')) + delta_sz
                 position.total_amount += delta_amount
                 position.total_sz += delta_sz
                 if position.total_sz > 0:
                     position.cost_price = order.leverage * position.total_amount / position.total_sz
-                if order.order_status == OrderStatus.FILLED and not position.is_fake:
+                if order.order_status == OrderStatus.FILLED and not order.is_fake:
                     position.ratio += order.ratio
             else:
                 position.total_back_amount += delta_amount
@@ -614,12 +634,11 @@ class PositionContext(LeekContext):
                     position.close_price = position.total_back_amount * position.leverage / closed_sz
                     if position.side.is_short:
                         position.close_price = 2 * position.cost_price - position.close_price
-                if order.order_status == OrderStatus.FILLED and not position.is_fake:
+                if order.order_status == OrderStatus.FILLED and not order.is_fake:
                     position.ratio -= order.ratio
             
             position.amount = position.sz * position.cost_price / position.leverage
-            if position.sz <= 0:
-                self._remove_position(position.position_id)
+            position.update_time = datetime.now()
             self.event_bus.publish_event(Event(
                 event_type=EventType.POSITION_UPDATE,
                 data=position
@@ -628,3 +647,66 @@ class PositionContext(LeekContext):
                         f"总价值: {self.total_amount}, 总仓位: {len(self.positions)}")
         except Exception as e:
             logger.error(f"更新仓位信息失败: {e}", exc_info=True)
+        finally:
+            if position.is_closed:
+                self._remove_position(position.position_id)
+
+    def _update_virtual_position(self, position: Position, order: Order):
+        """
+        更新虚拟仓位信息
+        
+        Args:
+            position: 仓位信息
+            order: 订单信息
+        """
+        if not order.order_status.is_finished:
+            return
+        if order.is_open:
+            # 开虚拟仓位
+            virtual_position = VirtualPosition(
+                policy_id=order.extra.get("policy_id") if order.extra else None,
+                signal_id=order.signal_id,
+                amount=order.settle_amount,
+                ratio=order.ratio,
+                cost_price=order.execution_price,
+                sz=order.sz,
+                timestamp=int(order.order_time.timestamp() * 1000)
+            )
+            position.virtual_positions.append(virtual_position)
+        else:
+            # 平虚拟仓位，根据订单的virtual_sz来平仓
+            if position.virtual_positions:
+                # 按时间戳排序，优先平最近的
+                position.virtual_positions.sort(key=lambda x: x.timestamp, reverse=True)
+                
+                remaining_close_sz = abs(order.sz)
+                for virtual_pos in position.virtual_positions:
+                    if remaining_close_sz <= 0:
+                        break
+                    
+                    if virtual_pos.sz <= 0:
+                        continue
+                    
+                    close_sz = min(remaining_close_sz, virtual_pos.sz)
+                    virtual_pos.closed_sz += close_sz
+                    virtual_pos.sz -= close_sz
+                    
+                    # 计算加权平均平仓价格
+                    if virtual_pos.closed_sz > 0:
+                        if virtual_pos.closed_sz == close_sz:
+                            # 第一次平仓，直接使用执行价格
+                            virtual_pos.close_price = order.execution_price
+                        else:
+                            # 多次平仓，计算加权平均价格
+                            virtual_pos.close_price = (virtual_pos.close_price * (virtual_pos.closed_sz - close_sz) + order.execution_price * close_sz) / virtual_pos.closed_sz
+                    
+                    # 计算虚拟仓位的盈亏
+                    if position.side.is_long:
+                        virtual_pos.pnl = (virtual_pos.close_price - virtual_pos.cost_price) * close_sz
+                    else:
+                        virtual_pos.pnl = (virtual_pos.cost_price - virtual_pos.close_price) * close_sz
+                    
+                    remaining_close_sz -= close_sz
+                
+                # 更新虚拟盈亏
+                self.virtual_pnl += virtual_pos.pnl

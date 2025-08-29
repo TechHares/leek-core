@@ -15,7 +15,7 @@ from leek_core.base import LeekContext, create_component, LeekComponent
 from leek_core.event import EventBus, EventType, Event, EventSource
 from leek_core.info_fabricator import FabricatorContext
 from leek_core.models import PositionSide, StrategyState, Signal, StrategyConfig, LeekComponentConfig, Data, \
-    StrategyInstanceState, Position, Asset, OrderType, StrategyPositionConfig
+    StrategyInstanceState, Position, Asset, OrderType, StrategyPositionConfig, RiskEventType, RiskEvent
 from leek_core.policy import PositionPolicy
 from leek_core.utils import get_logger
 from leek_core.utils import generate_str, thread_lock
@@ -147,12 +147,9 @@ class StrategyContext(LeekContext):
                     )
                 )
             )
-        
-
-
 
     def create_component(self) -> "StrategyWrapper":
-        wrapper = StrategyWrapper(create_component(self.config.cls, **self.config.config.strategy_config),
+        wrapper = StrategyWrapper(self.event_bus, create_component(self.config.cls, **self.config.config.strategy_config),
                                create_component(self.config.config.enter_strategy_cls,
                                                 **(self.config.config.enter_strategy_config or {})),
                                create_component(self.config.config.exit_strategy_cls,
@@ -247,7 +244,7 @@ class StrategyWrapper(LeekComponent):
     2. 管理进出场策略
     """
 
-    def __init__(self, strategy: Strategy, enter_strategy: EnterStrategy, exit_strategy: ExitStrategy,
+    def __init__(self, event_bus: EventBus, strategy: Strategy, enter_strategy: EnterStrategy, exit_strategy: ExitStrategy,
                  policies: List[PositionPolicy]):
         """
         初始化策略上下文
@@ -257,6 +254,7 @@ class StrategyWrapper(LeekComponent):
             enter_strategy: 进场策略
             exit_strategy: 出场策略
         """
+        self.event_bus = event_bus
         self.strategy = strategy
         # 进出场策略
         self.enter_strategy = enter_strategy
@@ -336,17 +334,17 @@ class StrategyWrapper(LeekComponent):
             return None
         logger.debug(f"{self.strategy.display_name} 当前状态: {self.state}, 仓位[{self.position_rate}]: "
                     f"{['%s:%s-%s:%s, %s, %s' % (p.position_id, p.symbol, p.quote_currency, p.side, p.ratio, p.sz) for p in list(self.position.values())]}")
-        if len(self.position) > 0: # 有仓位 暂时支持单策略单仓位， 后续有需要在扩展
-            pos = list(self.position.values())[0]
-            res = {p.__class__.__name__: p.evaluate(data, pos) for p in self.policies}
-            logger.debug(f"仓位风控策略结果: {res}")
-            if not all(res.values()):
+        for pos in list(self.position.values()):
+            for p in self.policies:
+                if p.evaluate(data, pos):
+                    continue
                 try:
-                    logger.info(f"仓位风控策略执行完成: {res}, 触发策略{self.strategy.display_name}仓位清理, 当前仓位比例: {self.position_rate}， 仓位: {self.position}")
+                    logger.info(f"仓位风控策略执行完成: {p.display_name}, 触发策略{self.strategy.display_name}仓位清理, 当前仓位比例: {self.position_rate}， 仓位: {self.position}")
                     self.current_command = StrategyCommand(pos.side.switch(), Decimal("1"))
                     state = StrategyInstanceState.STOPPED if self.state == StrategyInstanceState.STOPPING else StrategyInstanceState.READY
                     r = self.exiting_handler()
                     self.state = state
+                    self._publish_embedded_risk_event(pos, p, data)
                     return r
                 finally:
                     try:
@@ -479,7 +477,7 @@ class StrategyWrapper(LeekComponent):
         # 更新策略仓位信息
         logger.info(f"{self.strategy.display_name} 更新仓位[{self.position_rate}]: {position}")
         self.position[position.position_id] = position
-        if position.sz <= 0:
+        if position.is_closed:
             self.position.pop(position.position_id)
 
     def close_position(self, position: Position):
@@ -504,3 +502,51 @@ class StrategyWrapper(LeekComponent):
         停止组件
         """
         self.strategy.on_stop()
+
+    def _publish_embedded_risk_event(self, position: Position, policy: PositionPolicy, data: Data):
+        """
+        发布内嵌风控事件
+        
+        Args:
+            position: 触发风控的仓位
+            policy_results: 风控策略评估结果
+            data: 触发的数据
+        """
+        try:
+            # 创建风控事件数据
+            data = RiskEvent(
+                risk_type=RiskEventType.EMBEDDED,
+                strategy_id=position.strategy_id,
+                strategy_instance_id=position.strategy_instance_id,
+                strategy_class_name=f"{self.strategy.__class__.__module__}|{self.strategy.__class__.__name__}",
+                risk_policy_id=policy.policy_id,
+                risk_policy_class_name=f"{policy.__class__.__module__}|{policy.__class__.__name__}",
+                trigger_time=datetime.now(),
+                trigger_reason=f"内嵌风控策略 {policy.display_name} 触发，执行仓位清理",
+                signal_id=None,
+                execution_order_id=None,
+                position_id=position.position_id,
+                original_amount=position.amount,
+                pnl=None,
+                extra_info={
+                    "position_symbol": position.symbol,
+                    "position_quote_currency": position.quote_currency,
+                    "position_ins_type": position.ins_type,
+                    "position_side": position.side.value if hasattr(position.side, 'value') else str(position.side),
+                    "position_ratio": float(self.position_rate),
+                    "position_pnl": float(position.pnl) if position.pnl else 0,
+                },
+            )
+            # 发布风控触发事件
+            event = Event(
+                event_type=EventType.RISK_TRIGGERED,
+                data=data,
+                source=EventSource(
+                    instance_id=self.instance_id,
+                    name=self.strategy.display_name,
+                    cls=self.__class__.__name__
+                )
+            )
+            self.event_bus.publish_event(event)
+        except Exception as e:
+            logger.error(f"发布内嵌风控事件失败: {e}", exc_info=True)

@@ -383,14 +383,6 @@ class ProcessEngineClient(Engine):
         position_setting = config.get('position_setting', {})
         position_setting['data'] = config.get('position_data', None)
         try:
-            # 检查 risk_policies 是否存在，如果不存在则设为空列表
-            risk_policies = position_setting.get('risk_policies', [])
-            position_setting['risk_policies'] = [LeekComponentConfig(
-                instance_id=instance_id,
-                name=policy.get('name'),
-                cls=load_class_from_str(policy.get('class_name')),
-                config=policy.get('params')) for policy in risk_policies if policy.get('enabled')]
-            
             # 为 PositionConfig 提供默认值
             position_setting.setdefault('init_amount', Decimal('100000'))
             position_setting.setdefault('max_strategy_amount', Decimal('50000'))
@@ -399,6 +391,7 @@ class ProcessEngineClient(Engine):
             position_setting.setdefault('max_symbol_ratio', Decimal('0.25'))
             position_setting.setdefault('max_amount', Decimal('10000'))
             position_setting.setdefault('max_ratio', Decimal('0.1'))
+            position_setting.setdefault('virtual_position_fee_rate', Decimal('0'))
             
             engine = ProcessEngine(conn, instance_id, name, PositionConfig(**position_setting), event_hook)
         except Exception as e:
@@ -493,13 +486,6 @@ class ProcessEngineClient(Engine):
         self.send_action("remove_data_source", instance_id)
 
     def update_position_config(self, position_config, data=None) -> None:
-        # 检查 risk_policies 是否存在，如果不存在则设为空列表
-        risk_policies = position_config.get('risk_policies', [])
-        position_config['risk_policies'] = [LeekComponentConfig(
-                instance_id=self.instance_id,
-                name=policy.get('name'),
-                cls=load_class_from_str(policy.get('class_name')),
-                config=policy.get('params')) for policy in risk_policies if policy.get('enabled')]
         position_config['data'] = data
         self.send_action("update_position_config", PositionConfig(**position_config))
 

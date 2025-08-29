@@ -9,15 +9,19 @@
 from .position import PositionPolicy
 from .position_stop_loss import PositionStopLoss
 from .position_take_profit import PositionTakeProfit
+from .position_target_trailing_exit import PositionTargetTrailingExit
 from .strategy import StrategyPolicy
 from .strategy_signal_limit import StrategySignalLimit
 from .strategy_profit_control import StrategyProfitControl
+from .strategy_time_window import StrategyTimeWindow
 
 __all__ = [
     'StrategyProfitControl',
     'PositionTakeProfit',
+    'PositionTargetTrailingExit',
     'PositionStopLoss',
     'PositionPolicy',
     'StrategyPolicy',
     'StrategySignalLimit',
+    'StrategyTimeWindow',
 ]

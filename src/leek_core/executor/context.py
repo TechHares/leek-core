@@ -72,14 +72,14 @@ class ExecutorContext(LeekContext):
                 return
             except Exception as e:
                 if retry_count <= 1:
-                    logger.error(f"执行订单失败: {e}", exc_info=True)
+                    logger.error(f"{self.instance_id}/{self.name}执行订单失败: {e}", exc_info=True)
                     for order in orders:
                         order.order_status = OrderStatus.ERROR
                         # 发布事件时深拷贝，避免后续修改影响已派发事件
                         self.event_bus.publish_event(Event(EventType.ORDER_UPDATED, copy.deepcopy(order)))
                     return
                 else:
-                    logger.warning(f"执行订单失败, 重试次数: {retry_count}: {e}, ")
+                    logger.warning(f"{self.instance_id}/{self.name}执行订单失败, 重试次数: {retry_count}: {e}, ")
                 if self.retry_interval > 0:
                     time.sleep(self.retry_interval)
 
@@ -112,7 +112,10 @@ class ExecutorContext(LeekContext):
         order.unrealized_pnl = msg.unrealized_pnl
         order.finish_time = msg.finish_time
         order.friction = msg.friction
-        order.extra = msg.extra
+        if msg.extra:
+            if not order.extra:
+                order.extra = {}
+            order.extra.update(msg.extra)
         order.market_order_id = msg.market_order_id
         try:
             # 用户自定义回调

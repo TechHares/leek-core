@@ -24,6 +24,7 @@ from leek_core.models import (
 )
 from leek_core.models.data import KLine
 from leek_core.strategy import StrategyContext, Strategy, StrategyWrapper
+from leek_core.base import load_class_from_str
 from leek_core.manager import StrategyManager
 from leek_core.sub_strategy import EnterStrategy, ExitStrategy
 from leek_core.position import PositionContext
@@ -110,6 +111,7 @@ class WalkForwardOptimizer:
         strategy: 'StrategySearchConfig',
         evaluation: 'EvaluationConfig',
         executor_cfg: 'ExecutorConfig',
+        risk_policies: Optional[List[Dict[str, Any]]] = None,
         on_progress: Optional[Callable[[int, int], None]] = None,
     ) -> Dict[str, Any]:
         """Run walk-forward optimization.
@@ -194,7 +196,7 @@ class WalkForwardOptimizer:
                     if score > best_score:
                         best_params, best_score = p, score
             assert best_params is not None, "参数搜索未产生结果"
-            test_res = bt.run(strategy.strategy_cls, best_params, te_s, te_e)
+            test_res = bt.run(strategy.strategy_cls, best_params, te_s, te_e, None, None, risk_policies=risk_policies)
             res = {
                 "symbol": symbol,
                 "timeframe": timeframe.value if hasattr(timeframe, "value") else str(timeframe),
@@ -536,6 +538,7 @@ class StrategyBacktester:
         end: datetime | str,
         enter_strategy: EnterStrategy | None = None,
         exit_strategy: ExitStrategy | None = None,
+        risk_policies: Optional[List[Dict[str, Any]]] = None,
     ) -> BacktestResult:
         start_dt = _to_datetime(start)
         end_dt = _to_datetime(end)
@@ -624,6 +627,26 @@ class StrategyBacktester:
             LeekComponentConfig(instance_id="s0", name="策略管理", cls=StrategyContext, config=None),
         )
         strat_manager.on_start()
+        # 转换风控策略
+        policies_cfg = []
+        try:
+            for idx, rp in enumerate(risk_policies or []):
+                try:
+                    cls_path = rp.get("class_name") or rp.get("cls")
+                    if not cls_path:
+                        continue
+                    rp_cls = load_class_from_str(cls_path)
+                    policies_cfg.append(LeekComponentConfig(
+                        instance_id=f"rp{idx}",
+                        name=rp.get("name", "risk"),
+                        cls=rp_cls,
+                        config=rp.get("config") or rp.get("params") or {},
+                    ))
+                except Exception:
+                    ...
+        except Exception:
+            policies_cfg = []
+
         strat_cfg = StrategyConfig(
             data_source_configs=[],
             info_fabricator_configs=[],
@@ -633,7 +656,7 @@ class StrategyBacktester:
             enter_strategy_config={},
             exit_strategy_cls=ExitStrategy,
             exit_strategy_config={},
-            risk_policies=[],
+            risk_policies=policies_cfg,
         )
         strat_component = LeekComponentConfig(
             instance_id="s1",
@@ -676,7 +699,19 @@ class StrategyBacktester:
 
         self.data_source.disconnect()
 
-        perf = calculate_performance_from_values(equity_values)
+        # 依据时间粒度设置每年期数，保证 Sharpe/波动率等年化换算正确
+        try:
+            tf_ms = getattr(self.timeframe, "milliseconds", None)
+            if callable(tf_ms):
+                tf_ms = self.timeframe.milliseconds
+            periods_per_year = 365
+            if tf_ms:
+                periods_per_year = int((365 * 24 * 60 * 60 * 1000) // int(tf_ms))
+                periods_per_year = max(periods_per_year, 1)
+        except Exception:
+            periods_per_year = 365
+
+        perf = calculate_performance_from_values(equity_values, periods_per_year=periods_per_year)
         sharpe = float(perf.get("sharpe_ratio", 0.0))
         mdd = float(perf.get("max_drawdown", {}).get("max_drawdown", 0.0))
 

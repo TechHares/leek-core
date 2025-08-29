@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Optional, Dict, Any
 
 from leek_core.policy.strategy import StrategyPolicy
-from leek_core.models import Signal, PositionInfo, Field, FieldType
+from leek_core.models import ExecutionContext, PositionInfo, Field, FieldType
 from leek_core.utils import get_logger
 
 logger = get_logger(__name__)
@@ -137,7 +137,7 @@ class StrategyProfitControl(StrategyPolicy):
             return 0.0
         return sum(self.profit_history) / len(self.profit_history)
 
-    def evaluate(self, signal: Signal, context: PositionInfo) -> bool:
+    def evaluate(self, signal: ExecutionContext, context: PositionInfo) -> bool:
         """
         评估信号是否应该放行
 

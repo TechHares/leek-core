@@ -5,7 +5,7 @@
 订单模型定义
 """
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from typing import Dict, Optional, List, Any
@@ -213,11 +213,11 @@ class ExecutionAsset:
     side: PositionSide        # 多空方向，PositionSide 枚举（LONG/SHORT/NEUTRAL等）
     price: Decimal            # 交易价格
     is_open: bool             # 是否开仓
-    is_fake: bool             # 是否是虚拟仓位
 
     ratio: Decimal            # 此次出手仓位比例
     sz: Decimal = None        # 订单数量
     amount: Decimal = None    # 交易金额
+    virtual_sz: Decimal = None # 虚拟仓位大小
 
     quote_currency: str = None# 计价币种，如 USDT、USD、CNY
     extra: Any = None         # 其他扩展信息（如信号置信度、触发条件、备注等，可选）
@@ -246,6 +246,7 @@ class ExecutionContext:
     signal_id: str
     strategy_id: str
     strategy_instant_id: str
+    strategy_cls: str
     target_executor_id: str
 
     leverage: int

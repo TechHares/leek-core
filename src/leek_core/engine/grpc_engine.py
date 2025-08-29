@@ -531,14 +531,6 @@ class GrpcEngineClient():
             position_setting = config.get('position_setting', {})
             position_setting['data'] = config.get('position_data', None)
             try:
-                # 检查 risk_policies 是否存在，如果不存在则设为空列表
-                risk_policies = position_setting.get('risk_policies', [])
-                position_setting['risk_policies'] = [LeekComponentConfig(
-                    instance_id=instance_id,
-                    name=policy.get('name'),
-                    cls=load_class_from_str(policy.get('class_name')),
-                    config=policy.get('params')) for policy in risk_policies if policy.get('enabled')]
-                
                 # 为 PositionConfig 提供默认值
                 position_setting.setdefault('init_amount', Decimal('100000'))
                 position_setting.setdefault('max_strategy_amount', Decimal('50000'))
@@ -547,7 +539,9 @@ class GrpcEngineClient():
                 position_setting.setdefault('max_symbol_ratio', Decimal('0.25'))
                 position_setting.setdefault('max_amount', Decimal('10000'))
                 position_setting.setdefault('max_ratio', Decimal('0.1'))
-                
+                position_setting.setdefault('virtual_position_fee_rate', Decimal('0'))
+                position_setting.pop('risk_policies', None)
+                position_setting.pop('virtual_position_fee_rate', None)
                 position_config = PositionConfig(**position_setting)
             except Exception as e:
                 logger.error(f"设置仓位配置时出错: {e}", exc_info=True)

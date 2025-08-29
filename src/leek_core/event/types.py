@@ -44,14 +44,7 @@ class EventType(Enum):
     RISK_PLUGIN_STOP = "risk_plugin_stop"  # 插件绑定停止 todo
 
     # 风控事件
-    RISK_MANAGER_INIT = "risk_manager_init"  # 风控检查开始 todo
-    RISK_MANAGER_START = "risk_manager_start"  # 风控检查开始 todo
-    RISK_MANAGER_STOP = "risk_manager_stop"  # 风控检查开始 todo
-    RISK_MANAGER_UPDATE = "risk_manager_update"  # 风控检查开始 todo
-
-    RISK_CHECK_START = "risk_check_start"  # 风控检查开始 todo
-    RISK_CHECK_PASS = "risk_check_pass"  # 风控检查通过 todo
-    RISK_CHECK_REJECT = "risk_check_reject"  # 风控检查拒绝 todo
+    RISK_TRIGGERED = "risk_triggered"  # 风控触发事件
 
     # 仓位管理事件
     POSITION_POLICY_ADD = "position_policy_add"  # 仓位风控添加 todo

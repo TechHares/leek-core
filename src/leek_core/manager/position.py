@@ -8,6 +8,7 @@ from leek_core.event import EventBus, Event, EventType
 from leek_core.models import LeekComponentConfig, PositionConfig, Signal, Order, ExecutionContext
 from leek_core.models import Position, Data
 from leek_core.position import PositionContext
+from leek_core.policy import StrategyPolicy
 from leek_core.utils import get_logger, LeekJSONEncoder
 logger = get_logger(__name__)
 
@@ -42,7 +43,7 @@ class PositionManager(ComponentManager[None, None, PositionConfig]):
 
     def process_signal_event(self, event: Event):
         assert isinstance(event.data, Signal)
-        self.position_context.process_signal(event.data)
+        self.position_context.process_signal(event.data, event.source.extra.get("class_name") if event.source and event.source.extra else None)
 
     def process_order_update(self, event: Event):
         assert isinstance(event.data, Order)
@@ -76,6 +77,12 @@ class PositionManager(ComponentManager[None, None, PositionConfig]):
 
     def remove(self, instance_id: str):
         ...
+    
+    def add_policy(self, config: LeekComponentConfig[StrategyPolicy, Dict[str, Any]]):
+        self.position_context.add_policy(config)
+    
+    def remove_policy(self, instance_id: str):
+        self.position_context.remove_policy(instance_id)
 
     def get_state(self) -> dict:
         return json.loads(json.dumps(self.position_context.get_state(), cls=LeekJSONEncoder))

@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Dict, List
 
-from leek_core.models import Signal, PositionInfo
+from leek_core.models import ExecutionContext, PositionInfo
 from .strategy import StrategyPolicy
 from leek_core.utils import get_logger
 from leek_core.models import Field, FieldType
@@ -57,7 +57,7 @@ class StrategySignalLimit(StrategyPolicy):
         # 存储每个策略实例的信号时间列表
         self.strategy_signal_times: Dict[str, List[datetime]] = {}
 
-    def evaluate(self, signal: Signal, context: PositionInfo) -> bool:
+    def evaluate(self, signal: ExecutionContext, context: PositionInfo) -> bool:
         """
         检查信号是否符合风控规则，即特定策略实例在 per_hours 小时内的信号数量是否超过 max_signals。
 
@@ -65,8 +65,8 @@ class StrategySignalLimit(StrategyPolicy):
         :param context: 持仓信息
         :return: 如果信号有效返回 True，否则返回 False。
         """
-        strategy_instance_id = signal.strategy_instance_id
-        signal_time = signal.signal_time
+        strategy_instance_id = signal.strategy_instant_id
+        signal_time = signal.created_time
         # 获取当前时间窗口的起始时间
         time_window_start = signal_time - timedelta(hours=self.per_hours)
         # 获取该策略实例的信号时间列表，若不存在则初始化为空列表
