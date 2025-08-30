@@ -519,7 +519,7 @@ class StrategyWrapper(LeekComponent):
                 strategy_id=position.strategy_id,
                 strategy_instance_id=position.strategy_instance_id,
                 strategy_class_name=f"{self.strategy.__class__.__module__}|{self.strategy.__class__.__name__}",
-                risk_policy_id=policy.policy_id,
+                risk_policy_id=0,
                 risk_policy_class_name=f"{policy.__class__.__module__}|{policy.__class__.__name__}",
                 trigger_time=datetime.now(),
                 trigger_reason=f"内嵌风控策略 {policy.display_name} 触发，执行仓位清理",
