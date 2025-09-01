@@ -181,7 +181,6 @@ class Position:
     friction: Decimal = Decimal("0")  # 摩擦成本 特指合约资金费之类的磨损， 冲击成本不算
     leverage: Decimal = Decimal("1")  # 杠杆倍数，默认1倍
     open_time: datetime = datetime.now()  # 开仓时间
-    update_time: datetime = datetime.now()  # 更新时间
 
     # 订单执行状态跟踪
     executor_sz: Dict[str, Decimal] = field(default_factory=dict)  # 执行器的仓位大小

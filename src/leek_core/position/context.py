@@ -6,6 +6,7 @@ from re import S
 import signal
 import sys
 from threading import Lock, RLock
+import time
 from typing import Dict, List, Any
 
 from leek_core.base import LeekContext, create_component, load_class_from_str
@@ -638,7 +639,6 @@ class PositionContext(LeekContext):
                     position.ratio -= order.ratio
             
             position.amount = position.sz * position.cost_price / position.leverage
-            position.update_time = datetime.now()
             self.event_bus.publish_event(Event(
                 event_type=EventType.POSITION_UPDATE,
                 data=position

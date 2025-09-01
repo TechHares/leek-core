@@ -290,7 +290,6 @@ class Engine(LeekComponent, ABC):
             position_config.setdefault('max_symbol_ratio', Decimal('0.25'))
             position_config.setdefault('max_amount', Decimal('10000'))
             position_config.setdefault('max_ratio', Decimal('0.1'))
-            position_config.setdefault('virtual_position_fee_rate', Decimal('0'))
             
             position_config = PositionConfig(**position_config)
             position_config.data = data

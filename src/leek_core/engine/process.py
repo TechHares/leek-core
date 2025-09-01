@@ -391,7 +391,6 @@ class ProcessEngineClient(Engine):
             position_setting.setdefault('max_symbol_ratio', Decimal('0.25'))
             position_setting.setdefault('max_amount', Decimal('10000'))
             position_setting.setdefault('max_ratio', Decimal('0.1'))
-            position_setting.setdefault('virtual_position_fee_rate', Decimal('0'))
             
             engine = ProcessEngine(conn, instance_id, name, PositionConfig(**position_setting), event_hook)
         except Exception as e:

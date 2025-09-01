@@ -542,9 +542,9 @@ class StrategyWrapper(LeekComponent):
                 event_type=EventType.RISK_TRIGGERED,
                 data=data,
                 source=EventSource(
-                    instance_id=self.instance_id,
+                    instance_id=position.strategy_id,
                     name=self.strategy.display_name,
-                    cls=self.__class__.__name__
+                    cls=f"{policy.__class__.__module__}|{policy.__class__.__name__}"
                 )
             )
             self.event_bus.publish_event(event)

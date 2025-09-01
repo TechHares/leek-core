@@ -539,9 +539,7 @@ class GrpcEngineClient():
                 position_setting.setdefault('max_symbol_ratio', Decimal('0.25'))
                 position_setting.setdefault('max_amount', Decimal('10000'))
                 position_setting.setdefault('max_ratio', Decimal('0.1'))
-                position_setting.setdefault('virtual_position_fee_rate', Decimal('0'))
                 position_setting.pop('risk_policies', None)
-                position_setting.pop('virtual_position_fee_rate', None)
                 position_config = PositionConfig(**position_setting)
             except Exception as e:
                 logger.error(f"设置仓位配置时出错: {e}", exc_info=True)

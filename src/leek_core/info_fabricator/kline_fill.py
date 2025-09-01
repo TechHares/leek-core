@@ -137,6 +137,9 @@ class KLineFillFabricator(Fabricator):
                     continue
                 k.metadata = {"is_filled": True}
                 r.append(k)
+        if len(r) == 0:
+            logger.error(f"填充OKX的K线数据失败: 最后K线时间{last_start_time}, 当前K线时间{kline.start_time}, k线时间间隔{kline.timeframe.milliseconds}, okx查询结果klines={klines}")
+            return [kline]
         if r[-1].start_time < kline.start_time:
             r.append(kline)
         for k in r:
