@@ -253,8 +253,9 @@ class TestEventBus(unittest.TestCase):
         self.assertEqual(info["subscribers"]["EventType.POSITION_UPDATE"], 1)
         self.assertEqual(info["subscribers"]["EventType.ORDER_UPDATED"], 1)
         self.assertEqual(info["all_event_subscribers_count"], 1)
-        self.assertEqual(info["callback_queues_count"], 3)  # 2个特定类型 + 1个全局
-        self.assertEqual(info["worker_threads_count"], 3)
+        self.assertEqual(info["subscriber_queues_count"], 3)  # 2个特定类型 + 1个全局
+        self.assertEqual(info["ready_subscribers_count"], 3)
+        self.assertEqual(info["thread_pool_max_workers"], 10)
 
     def test_shutdown(self):
         """测试关闭事件总线"""
