@@ -27,7 +27,6 @@ from leek_core.strategy import StrategyContext, Strategy, StrategyWrapper
 from leek_core.base import load_class_from_str
 from leek_core.manager import StrategyManager
 from leek_core.sub_strategy import EnterStrategy, ExitStrategy
-from leek_core.position import PositionContext
 from leek_core.analysis.performance import calculate_performance_from_values
 from leek_core.utils import get_logger, run_func_timeout, DateTimeUtils, generate_str
 
@@ -691,7 +690,7 @@ class StrategyBacktester:
             last_position_rate = current_rate
             # 推给仓位管理处理
             position_manager.process_data_update(Event(EventType.DATA_RECEIVED, kline))
-            equity_values.append(position_manager.position_context.value)
+            equity_values.append(position_manager.position_context.total_value)
             try:
                 equity_times.append(int(getattr(kline, "current_time", None) or getattr(kline, "end_time", None) or 0))
             except Exception:

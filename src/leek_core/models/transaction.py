@@ -77,7 +77,7 @@ class Transaction:
             signal_id=self.signal_id,
             asset_key=self.asset_key,
             type=TransactionType.UNFROZEN,
-            amount=self.amount,
+            amount=abs(self.amount),
             balance_before=self.balance_after,
             balance_after=self.balance_before,
             desc=f"解冻({self.desc})",

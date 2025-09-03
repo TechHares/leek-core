@@ -16,7 +16,7 @@ from leek_core.data import DataSource, ClickHouseKlineDataSource
 from leek_core.models import TimeFrame, TradeInsType, LeekComponentConfig, PositionConfig, Signal, Order, Position
 from leek_core.executor import ExecutorContext
 from leek_core.manager import PositionManager, ExecutorManager
-from leek_core.position import PositionContext
+from leek_core.position import Portfolio
 from leek_core.executor import BacktestExecutor
 from leek_core.utils import get_logger, DateTimeUtils, decimal_quantize, generate_str
 
@@ -39,7 +39,8 @@ class StrategyDebugView(LeekComponent):
                  ins_type: TradeInsType = TradeInsType.SWAP, data_source: DataSource = ClickHouseKlineDataSource()):
         super().__init__()
 
-        self.strategy = StrategyWrapper(strategy, enter_strategy, exit_strategy, policies)
+        self.event_bus = SerializableEventBus()
+        self.strategy = StrategyWrapper(self.event_bus, strategy, enter_strategy, exit_strategy, policies)
         self.strategy.on_start()
         self.data_source = data_source
         self.symbol = symbol
@@ -58,12 +59,11 @@ class StrategyDebugView(LeekComponent):
         self.initial_balance = 10000
         self.bechmark = None
 
-        self.event_bus = SerializableEventBus()
         self.event_bus.subscribe_event(EventType.ORDER_UPDATED, self.process_order_update)
         self.event_bus.subscribe_event(EventType.POSITION_UPDATE, self.on_position_update_event)
 
         limit_amt = self.initial_balance * 1000
-        self.position_context: PositionContext = PositionContext(
+        self.position_context: Portfolio = Portfolio(
             self.event_bus, LeekComponentConfig(
                 instance_id="p0",
                 name="仓位",
@@ -73,6 +73,7 @@ class StrategyDebugView(LeekComponent):
                                       max_symbol_amount=limit_amt, max_symbol_ratio=Decimal("1"), max_ratio=Decimal("1")),
             ))
         self.position_context.on_start()
+        self.strategy.positon_getter = lambda: self.position_context.position_tracker.positions.values()
         self.executor_manager: ExecutorManager = ExecutorManager(
             self.event_bus, LeekComponentConfig(
                 instance_id="p1",
@@ -130,7 +131,7 @@ class StrategyDebugView(LeekComponent):
             count += 1
             assets = self.strategy.on_data(kline)
             data["position"].append(self.strategy.position_rate * 100)
-            self.position_context.on_data(kline)
+            self.position_context.position_tracker.on_data(kline)
             if self.bechmark is None:
                 self.bechmark = kline.close
                 for k in kline.dynamic_attrs.keys():
@@ -174,7 +175,7 @@ class StrategyDebugView(LeekComponent):
                     else:
                         data["close_long"][-1] = kline.low * Decimal("1.02")
                 self.position_context.process_signal(signal)
-            data["profit"].append((self.position_context.value - self.initial_balance) / self.initial_balance * 100)
+            data["profit"].append((self.position_context.total_value - self.initial_balance) / self.initial_balance * 100)
         self.data_source.disconnect()
         logger.info(f"数据执行完成，共{count}条")
         self.draw(data, row, custom_draw, **kwargs)

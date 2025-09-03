@@ -9,13 +9,14 @@ from decimal import Decimal
 from datetime import datetime
 import json
 from threading import Lock
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Callable, Dict, Any, List, Tuple, Optional
 
 from leek_core.base import LeekContext, create_component, LeekComponent
 from leek_core.event import EventBus, EventType, Event, EventSource
 from leek_core.info_fabricator import FabricatorContext
 from leek_core.models import PositionSide, StrategyState, Signal, StrategyConfig, LeekComponentConfig, Data, \
     StrategyInstanceState, Position, Asset, OrderType, StrategyPositionConfig, RiskEventType, RiskEvent
+from leek_core.models.ctx import leek_context
 from leek_core.policy import PositionPolicy
 from leek_core.utils import get_logger
 from leek_core.utils import generate_str, thread_lock
@@ -73,7 +74,7 @@ class StrategyContext(LeekContext):
         key = self.strategy_mode.build_instance_key(data)
 
         if key not in self.strategies:
-            self.strategies[key] = self.create_component()
+            self.strategies[key] = self.create_component(key)
         r = self.strategies[key].on_data(data)
         if r:
             self.event_bus.publish_event(
@@ -101,12 +102,6 @@ class StrategyContext(LeekContext):
             signal_time=datetime.now(),
             assets=assets
         )
-
-    def on_position_update(self, position: Position):
-        """
-        处理仓位更新
-        """
-        self.strategies.get(position.strategy_instance_id).on_position_update(position)
 
     def on_signal_rollback(self, signal: Signal):
         """
@@ -148,7 +143,7 @@ class StrategyContext(LeekContext):
                 )
             )
 
-    def create_component(self) -> "StrategyWrapper":
+    def create_component(self, key: str) -> "StrategyWrapper":
         wrapper = StrategyWrapper(self.event_bus, create_component(self.config.cls, **self.config.config.strategy_config),
                                create_component(self.config.config.enter_strategy_cls,
                                                 **(self.config.config.enter_strategy_config or {})),
@@ -156,6 +151,7 @@ class StrategyContext(LeekContext):
                                                 **(self.config.config.exit_strategy_config or {})),
                                [create_component(c.cls, **c.config) for c in self.config.config.risk_policies or []]
                                )
+        wrapper.positon_getter = lambda:leek_context.position_tracker.find_position(strategy_id=self.instance_id, strategy_instance_id=key)
         wrapper.on_start()
         return wrapper
 
@@ -231,7 +227,7 @@ class StrategyContext(LeekContext):
             return
         for k, v in data.items():
             if k not in self.strategies:
-                self.strategies[k] = self.create_component()
+                self.strategies[k] = self.create_component(k)
             self.strategies[k].load_state(v)
 
 
@@ -267,8 +263,14 @@ class StrategyWrapper(LeekComponent):
         self.position_rate: Decimal = Decimal("0")
         self.current_command: StrategyCommand = None  # 当前命令
 
-        self.position: Dict[str, Position] = {}
+        # self.position: Dict[str, Position] = {}
         self.lock = Lock()
+        self.positon_getter = None
+    
+    @property
+    def position(self) -> Dict[str, Position]:
+        ps = self.positon_getter()
+        return {p.position_id: p for p in ps}
 
     def on_data(self, data: Data = None) -> Optional[List[Asset]]:
         if not self.lock.acquire(blocking=False):
@@ -464,21 +466,8 @@ class StrategyWrapper(LeekComponent):
                 side=PositionSide(state["current_command"]["side"]),
                 ratio=Decimal(state["current_command"]["ratio"])
             )
-        position = [Position(**p) for p in state.get("position", [])]
-        assert len(position) < 1 or all(isinstance(p, Position) for p in position), "position must be Position"
-        self.position = {str(p.position_id): p for p in position}
         logger.info(f"加载策略{self.strategy.display_name}状态: {state.get('strategy_state')}")
         self.strategy.load_state(state.get("strategy_state", {}))
-
-    def on_position_update(self, position: Position):
-        """
-        处理仓位更新
-        """
-        # 更新策略仓位信息
-        logger.info(f"{self.strategy.display_name} 更新仓位[{self.position_rate}]: {position}")
-        self.position[position.position_id] = position
-        if position.is_closed:
-            self.position.pop(position.position_id)
 
     def close_position(self, position: Position):
         """
@@ -520,7 +509,7 @@ class StrategyWrapper(LeekComponent):
                 strategy_instance_id=position.strategy_instance_id,
                 strategy_class_name=f"{self.strategy.__class__.__module__}|{self.strategy.__class__.__name__}",
                 risk_policy_id=0,
-                risk_policy_class_name=f"{policy.__class__.__module__}|{policy.__class__.__name__}",
+                risk_policy_class_name=f"{policy.display_name}",
                 trigger_time=datetime.now(),
                 trigger_reason=f"内嵌风控策略 {policy.display_name} 触发，执行仓位清理",
                 signal_id=None,

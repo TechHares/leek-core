@@ -96,7 +96,7 @@ class BacktestExecutor(Executor):
                 transaction_volume = decimal_quantize(transaction_volume * random_num / 100, 6)
 
             pnl = 0
-            if self.check_hold_size:
+            if self.check_hold_size and order.is_fake is False:
                 if order.is_open:
                     hold_size = self._holder_size.get(key, Decimal(0))
                     hold_price = self._holder_price.get(key, Decimal(0))
