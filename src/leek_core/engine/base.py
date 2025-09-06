@@ -361,12 +361,27 @@ class Engine(LeekComponent, ABC):
     def on_stop(self):
         """引擎停止时的回调"""
         self.running = False
-        
-        # 停止引擎组件
-        self.data_source_manager.on_stop()
-        self.position_manager.on_stop()
+        # 先取消全局事件订阅，避免停止期间产生无关处理
+        try:
+            self.event_bus.unsubscribe_event(None, self.handle_event)
+        except Exception:
+            pass
+
+        # 停止引擎组件（顺序很重要）
+        # 1) 策略先停止（会发布数据源取消订阅事件）
         self.strategy_manager.on_stop()
+        # 2) 执行器停止
         self.executor_manager.on_stop()
+        # 3) 仓位管理停止
+        self.position_manager.on_stop()
+        # 4) 数据源最后停止（确保能处理取消订阅）
+        self.data_source_manager.on_stop()
+
+        # 最后关闭事件总线
+        try:
+            self.event_bus.shutdown()
+        except Exception:
+            pass
         logger.info(f"引擎已停止: {self.instance_id} {self.name}")
     
     def start(self) -> None:

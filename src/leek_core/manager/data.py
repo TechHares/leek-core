@@ -83,7 +83,9 @@ class DataManager(ComponentManager[DataSourceContext, DataSource, Dict[str, Any]
         data_source_id = event.source.extra['data_source_id']
         data_source = self.get(data_source_id)
         if data_source is None:
-            raise ValueError(f"未找到对应数据源: {data_source_id}")
+            # 关闭过程中可能先移除了数据源，再收到取消订阅事件，这里容错处理
+            logger.warning(f"未找到对应数据源(取消订阅忽略): {data_source_id}")
+            return
         data_source.unsubscribe(event.source.instance_id, **event.data)
 
     def on_start(self):
@@ -94,4 +96,16 @@ class DataManager(ComponentManager[DataSourceContext, DataSource, Dict[str, Any]
         self.event_bus.subscribe_event(EventType.DATA_SOURCE_SUBSCRIBE, self.handle_data_subscribe)
         self.event_bus.subscribe_event(EventType.DATA_SOURCE_UNSUBSCRIBE, self.handle_data_unsubscribe)
         logger.info(f"事件订阅: 数据源管理-{self.name}@{self.instance_id} 订阅 {[e.value for e in [EventType.DATA_REQUEST, EventType.DATA_SOURCE_UNSUBSCRIBE, EventType.DATA_SOURCE_SUBSCRIBE]]}")
+
+    def on_stop(self):
+        """
+        取消事件订阅并停止所有数据源
+        """
+        try:
+            self.event_bus.unsubscribe_event(EventType.DATA_REQUEST, self.handle_data_request)
+            self.event_bus.unsubscribe_event(EventType.DATA_SOURCE_SUBSCRIBE, self.handle_data_subscribe)
+            self.event_bus.unsubscribe_event(EventType.DATA_SOURCE_UNSUBSCRIBE, self.handle_data_unsubscribe)
+        except Exception:
+            pass
+        super().on_stop()
 
