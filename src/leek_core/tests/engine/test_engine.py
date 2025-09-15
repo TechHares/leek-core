@@ -5,10 +5,10 @@ from collections import deque
 from leek_core.executor import OkxWebSocketExecutor
 from leek_core.info_fabricator import KLineFillFabricator, DataThrottleFabricator, KlineInitFabricator
 from leek_core.models import StrategyPositionConfig, OrderType, PositionConfig
-from leek_core.policy import PositionStopLoss
+from leek_core.sub_strategy import PositionStopLoss
 from leek_core.strategy import CTAStrategy
 from leek_core.strategy import StrategyCommand
-from leek_core.sub_strategy import EnterStrategy, ExitStrategy
+ 
 from leek_core.utils import get_logger, setup_logging
 
 setup_logging(use_colors=True, level="INFO")
@@ -124,10 +124,6 @@ class TestEngine(unittest.TestCase):
                         order_type=OrderType.MarketOrder,
                         executor_id="1"
                     ),
-                    enter_strategy_cls=EnterStrategy,
-                    enter_strategy_config={},
-                    exit_strategy_cls=ExitStrategy,
-                    exit_strategy_config={},
 
                     risk_policies=[
                         LeekComponentConfig(

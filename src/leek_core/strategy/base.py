@@ -11,6 +11,7 @@ from decimal import Decimal
 from typing import Any, Dict, Set, List
 
 from leek_core.base import LeekComponent
+from leek_core.event import Event, EventType
 from leek_core.models import PositionSide, Field, Data, DataType, Position, Signal
 from leek_core.utils import get_logger, StrategyStateSerializer
 from .strategy_mode import StrategyMode, KlineSimple
@@ -81,7 +82,6 @@ class Strategy(LeekComponent, ABC):
         """
         ...
 
-    @abstractmethod
     def close(self, position: Position) -> Any:
         ...
 
@@ -92,9 +92,9 @@ class Strategy(LeekComponent, ABC):
         """
         ...
 
-    def on_signal_finish(self, signal: Signal):
+    def on_event(self, event: Event):
         """
-        处理信号完成, 信号处理完成时调用，一般无需重写， 策略自己管理仓位的话需要重写此方法处理自己相关参数
+        处理任意事件，默认无操作。策略可根据需要重写。
         """
         ...
 

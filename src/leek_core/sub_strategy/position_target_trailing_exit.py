@@ -2,13 +2,13 @@ from decimal import Decimal
 from typing import Dict, List, Set
 
 from leek_core.models import PositionSide, Position, Data, DataType, Field, FieldType
-from .position import PositionPolicy
+from .position import SubStrategy
 from leek_core.utils import get_logger
 
 logger = get_logger(__name__)
 
 
-class PositionTargetTrailingExit(PositionPolicy):
+class PositionTargetTrailingExit(SubStrategy):
     """
     目标追踪离场：止损、目标、预留百分比。
 
@@ -25,6 +25,7 @@ class PositionTargetTrailingExit(PositionPolicy):
             default=2,
             min=0,
             max=100,
+            required=True,
             description="相对开仓价的止损比例，例如 5 表示 5%"
         ),
         Field(
@@ -34,6 +35,7 @@ class PositionTargetTrailingExit(PositionPolicy):
             default=5,
             min=0,
             max=1000,
+            required=True,
             description="相对开仓价的目标比例，达到后启动追踪止盈"
         ),
         Field(
@@ -43,6 +45,7 @@ class PositionTargetTrailingExit(PositionPolicy):
             default=60,
             min=0,
             max=100,
+            required=True,
             description="在止损价与突破后极值之间保留的比例(0~100)"
         ),
     ]
@@ -151,5 +154,6 @@ class PositionTargetTrailingExit(PositionPolicy):
             return True
 
         return False
+
 
 

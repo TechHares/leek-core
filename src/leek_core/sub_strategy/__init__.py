@@ -1,14 +1,16 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""
-策略子模块，包含进出场策略等辅助策略组件。
-"""
-
-from .base import SubStrategy, EnterStrategy, ExitStrategy
+from .position import SubStrategy
+from .position_stop_loss import PositionStopLoss
+from .position_take_profit import PositionTakeProfit
+from .position_target_trailing_exit import PositionTargetTrailingExit
 
 __all__ = [
     'SubStrategy',
-    'EnterStrategy',
-    'ExitStrategy',
+    'PositionStopLoss',
+    'PositionTakeProfit',
+    'PositionTargetTrailingExit',
 ]
+
+

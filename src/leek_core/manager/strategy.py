@@ -119,25 +119,15 @@ class StrategyManager(ComponentManager[StrategyContext, Strategy, StrategyConfig
             return
         strategy_context.close_position(position)
     
-    def on_signal_finish_event(self, event: Event):
-        assert isinstance(event.data, Signal)
-        strategy_context = self.get(event.data.strategy_id)
-        if strategy_context is None:
-            return
-        logger.info(f"策略完成: {event.data.strategy_id}@{event.data.strategy_instance_id} 完成信号: {event.data}")
-        strategy_context.on_signal_finish(event.data)
-
     def on_start(self):
         self.event_bus.subscribe_event(EventType.DATA_RESPONSE, self.on_data_event)
         self.event_bus.subscribe_event(EventType.DATA_RECEIVED, self.on_data_event)
-        self.event_bus.subscribe_event(EventType.STRATEGY_SIGNAL_FINISH, self.on_signal_finish_event)
         logger.info(
             f"事件订阅: 策略管理-{self.name}@{self.instance_id} 订阅 {[e.value for e in [EventType.DATA_RESPONSE, EventType.DATA_RECEIVED]]}")
         
     def on_stop(self):
         self.event_bus.unsubscribe_event(EventType.DATA_RESPONSE, self.on_data_event)
         self.event_bus.unsubscribe_event(EventType.DATA_RECEIVED, self.on_data_event)
-        self.event_bus.unsubscribe_event(EventType.STRATEGY_SIGNAL_FINISH, self.on_signal_finish_event)
         self.executor.shutdown(wait=True)
         super().on_stop()
 

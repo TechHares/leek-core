@@ -57,7 +57,7 @@ class Order:
     order_id: str  # 订单ID
     position_id: str  # 仓位ID
     strategy_id: str  # 策略ID
-    strategy_instant_id: str  # 策略实例ID
+    strategy_instance_id: str  # 策略实例ID
     signal_id: str  # 信号ID
     exec_order_id: str  # 执行订单ID
     order_status: OrderStatus  # 订单状态
@@ -102,7 +102,7 @@ class Order:
             return
         return Transaction(
             strategy_id=self.strategy_id,
-            strategy_instance_id=self.strategy_instant_id,
+            strategy_instance_id=self.strategy_instance_id,
             position_id=self.position_id,
             exec_order_id=self.exec_order_id,
             order_id=self.order_id,
@@ -119,7 +119,7 @@ class Order:
             return
         return Transaction(
             strategy_id=self.strategy_id,
-            strategy_instance_id=self.strategy_instant_id,
+            strategy_instance_id=self.strategy_instance_id,
             position_id=self.position_id,
             exec_order_id=self.exec_order_id,
             order_id=self.order_id,
@@ -137,7 +137,7 @@ class Order:
             order_id=self.order_id,
             position_id=self.position_id,
             strategy_id=self.strategy_id,
-            strategy_instant_id=self.strategy_instant_id,
+            strategy_instance_id=self.strategy_instance_id,
             signal_id=self.signal_id,
             exec_order_id=self.exec_order_id,
             order_status=self.order_status,
@@ -238,14 +238,14 @@ class ExecutionContext:
 
     属性:
         strategy_id (str): 策略的唯一标识符
-        strategy_instant_id (str): 策略实例的唯一标识符
+        strategy_instance_id (str): 策略实例的唯一标识符
         target_executor_id (str): 目标执行器的ID
         execution_assets (List[ExecutionAsset]): 待执行的资产列表
     """
     context_id: str
     signal_id: str
     strategy_id: str
-    strategy_instant_id: str
+    strategy_instance_id: str
     strategy_cls: str
     target_executor_id: str
 

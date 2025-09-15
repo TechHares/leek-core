@@ -1,11 +1,16 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from typing import Dict, Any, List
+from typing import TYPE_CHECKING, Dict, Any, List, Set
+
+
+if TYPE_CHECKING:
+    from leek_core.event import EventType, Event
+    from leek_core.models import Field
 
 
 class LeekComponent:
     display_name: str = None
-    init_params: List['Field'] = []
+    init_params: List["Field"] = []
 
     def on_start(self):
         """
@@ -28,5 +33,14 @@ class LeekComponent:
     def load_state(self, state: Dict[str, Any]):
         """
         加载组件状态
+        """
+        ...
+
+    def on_event(self, event: "Event"):
+        """
+        处理事件，子类可重写。默认不做任何处理。
+
+        参数:
+            event: 事件对象
         """
         ...

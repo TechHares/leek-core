@@ -82,7 +82,7 @@ class StrategyPolicyContext(LeekContext):
             data = RiskEvent(
                 risk_type=RiskEventType.SIGNAL,
                 strategy_id=signal.strategy_id,
-                strategy_instance_id=signal.strategy_instant_id,
+                strategy_instance_id=signal.strategy_instance_id,
                 strategy_class_name=signal.strategy_cls,
                 risk_policy_id=self.instance_id,
                 risk_policy_class_name=f"{self.policy.__class__.__module__}|{self.policy.__class__.__name__}",

@@ -83,7 +83,7 @@ class CapitalAccount(LeekComponent):
                 self.available_balance -= asset.amount
                 transaction = Transaction(
                         strategy_id = execution_context.strategy_id,
-                        strategy_instance_id = execution_context.strategy_instant_id,
+                        strategy_instance_id = execution_context.strategy_instance_id,
                         position_id = asset.position_id,
                         exec_order_id = execution_context.context_id,
                         order_id = None,
@@ -204,6 +204,7 @@ class CapitalAccount(LeekComponent):
     def get_state(self) -> dict:
         """获取资金账户状态"""
         return {
+            'principal': str(self.init_balance),
             'available_balance': str(self.available_balance),
             'frozen_by_strategy': {k: str(v) for k, v in self.frozen_by_strategy.items()}
         }

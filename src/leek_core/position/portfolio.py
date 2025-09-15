@@ -114,7 +114,7 @@ class Portfolio(LeekContext):
             context_id=generate_str(),
             signal_id=signal.signal_id,
             strategy_id=signal.strategy_id,
-            strategy_instant_id=signal.strategy_instance_id,
+            strategy_instance_id=signal.strategy_instance_id,
             target_executor_id=signal.config.executor_id if signal.config else None,
             execution_assets=execution_assets,
             created_time=signal.signal_time,
@@ -405,7 +405,6 @@ class Portfolio(LeekContext):
         return {
             # 资金相关
             'activate_amount': str(self.available_amount),  # 可用资金（对应原 activate_amount）
-            'total_amount': str(self.total_amount),  # 总资产
             'total_value': str(self.total_value),  # 总价值
             'available_amount': str(self.available_amount),  # 可用资金
             'position_value': str(self.position_value),  # 仓位价值
@@ -419,9 +418,7 @@ class Portfolio(LeekContext):
             
             # 仓位统计
             'asset_count': len(set((pos.symbol, pos.quote_currency) for pos in self.position_tracker.positions.values())),  # 资产数量
-            'position_count': len(self.position_tracker.positions),  # 仓位数量
-            'positions': list(self.position_tracker.positions.values()),  # 仓位列表
-            'signals': self.signals,  # 信号
+            'signals': list(self.signals.values()),  # 信号
 
             # 详细信息
             'capital': self.capital_account.get_state(),  # 资金详情

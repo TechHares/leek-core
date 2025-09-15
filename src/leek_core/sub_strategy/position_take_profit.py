@@ -4,10 +4,10 @@ from decimal import Decimal
 from typing import List, Set
 
 from leek_core.models import PositionSide, Position, Data, DataType, Field, FieldType
-from .position import PositionPolicy
+from .position import SubStrategy
 
 
-class PositionTakeProfit(PositionPolicy):
+class PositionTakeProfit(SubStrategy):
     """
     仓位止盈风控策略。
 
@@ -54,3 +54,5 @@ class PositionTakeProfit(PositionPolicy):
             return data.close < position.cost_price * (1 + self.profit_ratio)
         elif position.side == PositionSide.SHORT:
             return data.close > position.cost_price * (1 - self.profit_ratio)
+
+

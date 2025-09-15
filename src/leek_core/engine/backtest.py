@@ -26,7 +26,7 @@ from leek_core.models.data import KLine
 from leek_core.strategy import StrategyContext, Strategy, StrategyWrapper
 from leek_core.base import load_class_from_str
 from leek_core.manager import StrategyManager
-from leek_core.sub_strategy import EnterStrategy, ExitStrategy
+ 
 from leek_core.analysis.performance import calculate_performance_from_values
 from leek_core.utils import get_logger, run_func_timeout, DateTimeUtils, generate_str
 
@@ -535,8 +535,8 @@ class StrategyBacktester:
         params: Dict[str, Any],
         start: datetime | str,
         end: datetime | str,
-        enter_strategy: EnterStrategy | None = None,
-        exit_strategy: ExitStrategy | None = None,
+        enter_strategy: None = None,
+        exit_strategy: None = None,
         risk_policies: Optional[List[Dict[str, Any]]] = None,
     ) -> BacktestResult:
         start_dt = _to_datetime(start)
@@ -618,8 +618,7 @@ class StrategyBacktester:
             )
         )
 
-        enter = enter_strategy or EnterStrategy()
-        exit_ = exit_strategy or ExitStrategy()
+        # 进出场子策略已移除
         # 使用 StrategyManager + StrategyContext 管理策略
         strat_manager: StrategyManager = StrategyManager(
             event_bus,
@@ -651,10 +650,7 @@ class StrategyBacktester:
             info_fabricator_configs=[],
             strategy_config=params or {},
             strategy_position_config=None,
-            enter_strategy_cls=EnterStrategy,
-            enter_strategy_config={},
-            exit_strategy_cls=ExitStrategy,
-            exit_strategy_config={},
+            # 无进出场子策略
             risk_policies=policies_cfg,
         )
         strat_component = LeekComponentConfig(

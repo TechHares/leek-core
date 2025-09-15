@@ -14,15 +14,15 @@ from typing import Callable, Dict, Any, List, Tuple, Optional
 from leek_core.base import LeekContext, create_component, LeekComponent
 from leek_core.event import EventBus, EventType, Event, EventSource
 from leek_core.info_fabricator import FabricatorContext
-from leek_core.models import PositionSide, StrategyState, Signal, StrategyConfig, LeekComponentConfig, Data, \
+from leek_core.models import ExecutionContext, PositionSide, StrategyState, Signal, StrategyConfig, LeekComponentConfig, Data, \
     StrategyInstanceState, Position, Asset, OrderType, StrategyPositionConfig, RiskEventType, RiskEvent
 from leek_core.models.ctx import leek_context
-from leek_core.policy import PositionPolicy
+from leek_core.sub_strategy import SubStrategy
 from leek_core.utils import get_logger
 from leek_core.utils import generate_str, thread_lock
 from .base import Strategy, StrategyCommand
 from .cta import CTAStrategy
-from leek_core.sub_strategy import EnterStrategy, ExitStrategy
+ 
 from leek_core.utils import LeekJSONEncoder
 
 logger = get_logger(__name__)
@@ -36,7 +36,6 @@ class StrategyContext(LeekContext):
     1. 管理策略的配置（标的、时间周期、数据源等）
     2. 管理策略调用逻辑
     3. 管理策略的状态
-    4. 管理进出场策略
     """
 
     def __init__(self, event_bus: EventBus, config: LeekComponentConfig[Strategy, StrategyConfig]):
@@ -58,6 +57,8 @@ class StrategyContext(LeekContext):
                                                            config=config.config.info_fabricator_configs
                                                        ))
         self.strategies: Dict[str, "StrategyWrapper"] = {}
+
+        self.event_bus.subscribe_event(None, self.on_event)
 
     def on_data(self, data: Data):
         try:
@@ -103,18 +104,10 @@ class StrategyContext(LeekContext):
             assets=assets
         )
 
-    def on_signal_rollback(self, signal: Signal):
-        """
-        处理信号回滚
-        """
-        self.strategies.get(signal.strategy_instance_id).on_signal_rollback(signal)
-
     def close_position(self, position: Position):
         """
         处理仓位关闭
         """
-        if self.strategies.get(position.strategy_instance_id):
-            self.strategies.get(position.strategy_instance_id).close_position(position)
         cfg = self.config.config.strategy_position_config or StrategyPositionConfig()
         cfg.order_type = OrderType.MarketOrder
         self.event_bus.publish_event(
@@ -144,13 +137,11 @@ class StrategyContext(LeekContext):
             )
 
     def create_component(self, key: str) -> "StrategyWrapper":
-        wrapper = StrategyWrapper(self.event_bus, create_component(self.config.cls, **self.config.config.strategy_config),
-                               create_component(self.config.config.enter_strategy_cls,
-                                                **(self.config.config.enter_strategy_config or {})),
-                               create_component(self.config.config.exit_strategy_cls,
-                                                **(self.config.config.exit_strategy_config or {})),
-                               [create_component(c.cls, **c.config) for c in self.config.config.risk_policies or []]
-                               )
+        wrapper = StrategyWrapper(
+            self.event_bus,
+            create_component(self.config.cls, **self.config.config.strategy_config),
+            [create_component(c.cls, **c.config) for c in self.config.config.risk_policies or []]
+        )
         wrapper.positon_getter = lambda:leek_context.position_tracker.find_position(strategy_id=self.instance_id, strategy_instance_id=key)
         wrapper.on_start()
         return wrapper
@@ -177,13 +168,26 @@ class StrategyContext(LeekContext):
             ))
         logger.info(f"策略{self.instance_id}启动完成, 实例数: {len(self.strategies)} 数据源: {len(self.config.config.data_source_configs)}")
     
-    def on_signal_finish(self, signal: Signal):
+    def on_event(self, event: Event):
         """
-        处理信号完成
+        接收所有事件，按策略ID和实例ID分发到对应 StrategyWrapper
         """
-        strategy = self.strategies.get(signal.strategy_instance_id)
-        if strategy:
-            strategy.on_signal_finish(signal)
+        # 仅处理与本策略上下文相关的事件
+        data = event.data
+        strategy_id = getattr(data, 'strategy_id', None)
+        if strategy_id is not None and strategy_id != self.instance_id:
+            return
+
+        target_instance_id = getattr(data, 'strategy_instance_id', None)
+        if target_instance_id is None:
+            # 无实例ID的事件，广播给所有实例
+            for wrapper in self.strategies.values():
+                wrapper.on_event(event)
+            return
+
+        wrapper = self.strategies.get(str(target_instance_id))
+        if wrapper:
+            wrapper.on_event(event)
 
     def on_stop(self):
         """
@@ -240,32 +244,33 @@ class StrategyWrapper(LeekComponent):
     2. 管理进出场策略
     """
 
-    def __init__(self, event_bus: EventBus, strategy: Strategy, enter_strategy: EnterStrategy, exit_strategy: ExitStrategy,
-                 policies: List[PositionPolicy]):
+    def __init__(self, event_bus: EventBus, strategy: Strategy, policies: List[SubStrategy]):
         """
         初始化策略上下文
 
         参数:
             strategy: 策略实例
-            enter_strategy: 进场策略
-            exit_strategy: 出场策略
         """
         self.event_bus = event_bus
         self.strategy = strategy
-        # 进出场策略
-        self.enter_strategy = enter_strategy
-        self.exit_strategy = exit_strategy
+        # 已移除进出场子策略
         # 风控策略
         self.policies = policies
 
         # 策略状态
         self.state = StrategyInstanceState.CREATED
-        self.position_rate: Decimal = Decimal("0")
         self.current_command: StrategyCommand = None  # 当前命令
+        self.position_rate: Decimal = Decimal("0")
 
         # self.position: Dict[str, Position] = {}
         self.lock = Lock()
         self.positon_getter = None
+    
+    # @property
+    # def position_rate(self) -> Decimal:
+    #     if len(self.position) == 0:
+    #         return Decimal("0")
+    #     return sum(p.ratio for p in self.position.values())
     
     @property
     def position(self) -> Dict[str, Position]:
@@ -302,19 +307,31 @@ class StrategyWrapper(LeekComponent):
         """
         处理信号完成
         """
-        logger.info(f"策略信号处理完成: {signal}, 当前仓位比例: {self.position_rate}")
+        self.current_command = None
         for asset in signal.assets:
             if asset.is_open:
-                self.position_rate -= (asset.ratio - (asset.actual_ratio or 0))
+                self.position_rate += asset.actual_ratio
             else:
-                self.position_rate += (asset.ratio - (asset.actual_ratio or 0))
-        logger.info(f"策略信号处理完成: {signal.signal_id}, 当前仓位比例: {self.position_rate}")
+                self.position_rate -= asset.actual_ratio
+        # 进出场状态转换：将 ENTERING/EXITING 归一到正常态
         if self.position_rate == 0:
-            self.state = StrategyInstanceState.READY
-            self.current_command = None
-        self.strategy.on_signal_finish(signal)
+            self.state = StrategyInstanceState.STOPPED if self.state == StrategyInstanceState.STOPPING else StrategyInstanceState.READY
+        elif self.position_rate > 0:
+            self.state = StrategyInstanceState.HOLDING
+        
+        logger.info(f"策略信号处理完成: {signal.signal_id}, {self.state}, 当前仓位比例: {self.position_rate}")
 
 
+    def on_event(self, event: Event):
+        # 先将常见事件进行内置处理，再转交策略
+        if event.event_type == EventType.STRATEGY_SIGNAL_FINISH and isinstance(event.data, Signal):
+            self.on_signal_finish(event.data)
+
+        # 将事件转交给策略
+        try:
+            self.strategy.on_event(event)
+        except Exception as e:
+            logger.error(f"策略事件处理异常: {e}", exc_info=True)
 
     def on_cta_data(self, data: Data = None) -> (PositionSide, Decimal, bool):
         """
@@ -328,10 +345,6 @@ class StrategyWrapper(LeekComponent):
             return
         # 更新计算信息
         self.strategy.on_data(data)
-        if data.data_type in self.enter_strategy.accepted_data_types:
-            self.enter_strategy.on_data(data)
-        if data.data_type in self.exit_strategy.accepted_data_types:
-            self.exit_strategy.on_data(data)
         if data.get("history_data", False):
             return None
         logger.debug(f"{self.strategy.display_name} 当前状态: {self.state}, 仓位[{self.position_rate}]: "
@@ -357,11 +370,11 @@ class StrategyWrapper(LeekComponent):
         if self.state == StrategyInstanceState.READY:  # 无仓位
             return self.ready_handler()
         elif self.state == StrategyInstanceState.ENTERING:
-            return self.entering_handler()
+            return
         elif self.state == StrategyInstanceState.HOLDING:
             return self.holding_handler()
         elif self.state == StrategyInstanceState.EXITING:
-            return self.exiting_handler()
+            return
         elif self.state == StrategyInstanceState.STOPPING:
             return self.stopping_handler()
 
@@ -377,20 +390,10 @@ class StrategyWrapper(LeekComponent):
 
         self.state = StrategyInstanceState.ENTERING
         self.current_command = res
-        return self.entering_handler()
-
-    def entering_handler(self):
-        rt = self.enter_strategy.ratio(self.current_command.side)
-        if rt > 0:
-            try:
-                position_change = min(self.current_command.ratio * rt, 1 - self.position_rate)
-                self.position_rate += position_change
-                return self.current_command.side, position_change, True
-            finally:
-                if self.enter_strategy.is_finished:
-                    self.state = StrategyInstanceState.HOLDING
-                    self.enter_strategy.reset()
-                    self.current_command = None
+        ratio = min(self.current_command.ratio, 1 - self.position_rate)
+        if ratio <= 0:
+            return
+        return self.current_command.side, ratio, True
 
     def holding_handler(self):
         if len(self.position) == 0:
@@ -403,34 +406,24 @@ class StrategyWrapper(LeekComponent):
                 raise ValueError("should_close return value must be Decimal or bool")
             self.state = StrategyInstanceState.EXITING
             self.current_command = StrategyCommand(list(self.position.values())[0].side.switch(), res)
-            return self.exiting_handler()
+            return self.current_command.side, min(self.current_command.ratio, self.position_rate), False
 
         # 策略要求重复开仓
         if self.strategy.open_just_no_pos is False:
             return self.ready_handler()
-
-    def exiting_handler(self):
-        rt = self.exit_strategy.ratio(self.current_command.side)
-        if rt > 0:
-            try:
-                position_change = min(self.current_command.ratio * rt, self.position_rate)
-                self.position_rate -= position_change
-                return self.current_command.side, position_change, False
-            finally:
-                if self.exit_strategy.is_finished:
-                    self.state = StrategyInstanceState.HOLDING if self.position_rate > 0 else StrategyInstanceState.READY
-                    self.enter_strategy.reset()
-                    self.current_command = None
 
     def stopping_handler(self):
         if self.state == StrategyInstanceState.READY or self.position_rate == 0:
             self.state = StrategyInstanceState.STOPPED
             return
 
-        res = self.exiting_handler()
-        if res is not None and self.state == StrategyInstanceState.READY:
+        # 直接按剩余仓位一次性退出
+        if self.position_rate > 0:
+            position_change = self.position_rate
             self.state = StrategyInstanceState.STOPPED
-        return res
+            return self.current_command.side.switch(), position_change, False
+        self.state = StrategyInstanceState.STOPPED
+        return None
 
     def get_state(self) -> Dict[str, Any]:
         """
@@ -459,7 +452,6 @@ class StrategyWrapper(LeekComponent):
             state: 状态字典
         """
         self.state = StrategyInstanceState(state.get("state", self.state))
-        self.position_rate = Decimal(state.get("position_rate", str(self.position_rate)))
         current_command = state.get("current_command", {})
         if current_command and "side" in state.get("current_command", {}) and "ratio" in state.get("current_command", {}):
             self.current_command = StrategyCommand(
@@ -468,15 +460,6 @@ class StrategyWrapper(LeekComponent):
             )
         logger.info(f"加载策略{self.strategy.display_name}状态: {state.get('strategy_state')}")
         self.strategy.load_state(state.get("strategy_state", {}))
-
-    def close_position(self, position: Position):
-        """
-        处理仓位关闭
-        """
-        potion = self.position.get(position.position_id, None)
-        if potion:
-            self.position_rate -= min(position.ratio / sum(p.ratio for p in self.position.values()), self.position_rate)
-            self.state = StrategyInstanceState.READY if self.position_rate == 0 else StrategyInstanceState.HOLDING
     
     def on_start(self):
         """
@@ -492,7 +475,7 @@ class StrategyWrapper(LeekComponent):
         """
         self.strategy.on_stop()
 
-    def _publish_embedded_risk_event(self, position: Position, policy: PositionPolicy, data: Data):
+    def _publish_embedded_risk_event(self, position: Position, policy: SubStrategy, data: Data):
         """
         发布内嵌风控事件
         
@@ -511,7 +494,7 @@ class StrategyWrapper(LeekComponent):
                 risk_policy_id=0,
                 risk_policy_class_name=f"{policy.display_name}",
                 trigger_time=datetime.now(),
-                trigger_reason=f"内嵌风控策略 {policy.display_name} 触发，执行仓位清理",
+                trigger_reason=f"「{policy.display_name}」触发平仓",
                 signal_id=None,
                 execution_order_id=None,
                 position_id=position.position_id,
@@ -521,9 +504,9 @@ class StrategyWrapper(LeekComponent):
                     "position_symbol": position.symbol,
                     "position_quote_currency": position.quote_currency,
                     "position_ins_type": position.ins_type,
-                    "position_side": position.side.value if hasattr(position.side, 'value') else str(position.side),
-                    "position_ratio": float(self.position_rate),
-                    "position_pnl": float(position.pnl) if position.pnl else 0,
+                    "position_side": position.side.value,
+                    "position_ratio": str(self.position_rate),
+                    "position_pnl": str(position.pnl) if position.pnl else "0",
                 },
             )
             # 发布风控触发事件

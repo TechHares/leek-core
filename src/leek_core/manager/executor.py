@@ -212,7 +212,7 @@ class ExecutorManager(ComponentManager[ExecutorContext, Executor, Dict[str, Any]
                 position_id=asset.position_id,
                 signal_id=execution_order.signal_id,
                 strategy_id=execution_order.strategy_id,
-                strategy_instant_id=execution_order.strategy_instant_id,
+                strategy_instance_id=execution_order.strategy_instance_id,
                 exec_order_id=execution_order.context_id,
                 order_status=OrderStatus.CREATED,
                 signal_time=execution_order.created_time,

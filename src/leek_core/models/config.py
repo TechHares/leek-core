@@ -2,10 +2,17 @@
 # -*- coding: utf-8 -*-
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Dict, Any, List, Type, Tuple, TypeVar, Generic
+from typing import Dict, Any, List, Tuple, TypeVar, Generic, TYPE_CHECKING
 
 from leek_core.base import LeekComponent
 from .constants import OrderType, TradeInsType, TradeMode
+if TYPE_CHECKING:
+    from leek_core.sub_strategy import SubStrategy
+    from leek_core.strategy import Strategy
+    from leek_core.data import DataSource
+    from leek_core.info_fabricator import Fabricator
+    from leek_core.executor import Executor
+    from leek_core.data import DataSourceContext
 
 
 @dataclass
@@ -63,12 +70,7 @@ class StrategyConfig:
     strategy_config: Dict[str, Any] = None
     strategy_position_config: StrategyPositionConfig = None
 
-    enter_strategy_cls: Type["EnterStrategy"] = None
-    enter_strategy_config: Dict[str, Any] = None
-    exit_strategy_cls: Type['ExitStrategy'] = None
-    exit_strategy_config: Dict[str, Any] = None
-
-    risk_policies: List[LeekComponentConfig["PositionPolicy", Dict[str, Any]]] = field(default_factory=list)
+    risk_policies: List[LeekComponentConfig["SubStrategy", Dict[str, Any]]] = field(default_factory=list)
     runtime_data: Dict[Tuple, Dict[str, Any]] = None
 
 

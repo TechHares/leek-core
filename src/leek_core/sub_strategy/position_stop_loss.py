@@ -5,10 +5,10 @@ from decimal import Decimal
 from typing import List, Set
 
 from leek_core.models import PositionSide, Position, Data, DataType, Field, FieldType
-from .position import PositionPolicy
+from .position import SubStrategy
 
 
-class PositionStopLoss(PositionPolicy):
+class PositionStopLoss(SubStrategy):
     """
     仓位止损风控策略。
 
@@ -55,3 +55,5 @@ class PositionStopLoss(PositionPolicy):
             return data.close > position.cost_price * (1 - self.stop_loss_ratio)
         elif position.side == PositionSide.SHORT:
             return data.close < position.cost_price * (1 + self.stop_loss_ratio)
+
+

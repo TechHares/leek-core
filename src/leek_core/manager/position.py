@@ -98,7 +98,10 @@ class PositionManager(ComponentManager[None, None, PositionConfig]):
         self.position_context.load_state(state)
 
     def get_position(self, position_id: str) -> Position:
-        return self.position_context.get_position(str(position_id))
+        ps = self.position_tracker.find_position(position_id=position_id)
+        if not ps:
+            return None
+        return ps[0]
     
     def reset_position_state(self):
         self.position_context.load_state({"reset_position_state": True})

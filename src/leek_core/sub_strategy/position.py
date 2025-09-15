@@ -15,7 +15,7 @@ from leek_core.utils import get_logger
 logger = get_logger(__name__)
 
 
-class PositionPolicy(LeekComponent, ABC):
+class SubStrategy(LeekComponent, ABC):
     # 策略接受的数据类型
     accepted_data_types: Set[DataType] = {DataType.KLINE}
     """
@@ -44,3 +44,5 @@ class PositionPolicy(LeekComponent, ABC):
             是否通过检查
         """
         ...
+
+

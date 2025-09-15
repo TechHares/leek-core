@@ -294,7 +294,7 @@ class PositionTracker(LeekComponent):
             order: 订单对象
         """
         if order.is_open and not order.position_id: # 兼容下前面消息堆积的情况
-            positions = self.find_position(strategy_id=order.strategy_id, strategy_instance_id=order.strategy_instant_id)
+            positions = self.find_position(strategy_id=order.strategy_id, strategy_instance_id=order.strategy_instance_id)
             for position in positions:
                 if position.order_states and order.order_id in position.order_states:
                     order.position_id = position.position_id
@@ -304,7 +304,7 @@ class PositionTracker(LeekComponent):
             position = Position(
                 position_id=generate_str(),
                 strategy_id=order.strategy_id,
-                strategy_instance_id=order.strategy_instant_id,
+                strategy_instance_id=order.strategy_instance_id,
                 symbol=order.symbol,
                 quote_currency=order.quote_currency,
                 ins_type=order.ins_type,
@@ -352,10 +352,11 @@ class PositionTracker(LeekComponent):
         
         返回:
             dict: 状态数据
-        """
+        """ 
         return {
             'positions': list(self.positions.values()),
             'position_count': len(self.positions),
+            "asset_count": len(set((pos.symbol, pos.quote_currency) for pos in self.positions.values())),
             'total_value': str(self.get_total_position_value())
         }
     

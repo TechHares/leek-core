@@ -6,8 +6,8 @@ from typing import List, Dict, Any
 
 from leek_core.models.data import KLine
 from leek_core.strategy import StrategyWrapper, Strategy
-from leek_core.sub_strategy import EnterStrategy, ExitStrategy
-from leek_core.policy import PositionPolicy
+ 
+from leek_core.sub_strategy import SubStrategy
 from .base import LeekComponent
 
 from leek_core.event import SerializableEventBus, EventType, Event, EventSource
@@ -29,8 +29,8 @@ colors = [
 ]
 
 class StrategyDebugView(LeekComponent):
-    def __init__(self, strategy: Strategy, enter_strategy: EnterStrategy = EnterStrategy(), exit_strategy: ExitStrategy=ExitStrategy(),
-                 policies: List[PositionPolicy]=[],
+    def __init__(self, strategy: Strategy,
+                 policies: List[SubStrategy]=[],
                  symbol: str = "ETH", start_time: datetime|str = datetime.now() - timedelta(days=10),
                  end_time: datetime|str = datetime.now(),
                  timeframe: TimeFrame = TimeFrame.M5, market: str = "okx", quote_currency: str = "USDT",
@@ -40,7 +40,7 @@ class StrategyDebugView(LeekComponent):
         super().__init__()
 
         self.event_bus = SerializableEventBus()
-        self.strategy = StrategyWrapper(self.event_bus, strategy, enter_strategy, exit_strategy, policies)
+        self.strategy = StrategyWrapper(self.event_bus, strategy, policies)
         self.strategy.on_start()
         self.data_source = data_source
         self.symbol = symbol

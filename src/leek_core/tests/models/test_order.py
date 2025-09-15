@@ -23,7 +23,7 @@ class TestOrderDeepcopy(unittest.TestCase):
             order_id="o1",
             position_id="p1",
             strategy_id="s1",
-            strategy_instant_id="inst1",
+            strategy_instance_id="inst1",
             signal_id="sig1",
             exec_order_id="exec1",
             order_status=OrderStatus.SUBMITTED,

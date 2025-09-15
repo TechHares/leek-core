@@ -65,7 +65,7 @@ class StrategySignalLimit(StrategyPolicy):
         :param context: 持仓信息
         :return: 如果信号有效返回 True，否则返回 False。
         """
-        strategy_instance_id = signal.strategy_instant_id
+        strategy_instance_id = signal.strategy_instance_id
         signal_time = signal.created_time
         # 获取当前时间窗口的起始时间
         time_window_start = signal_time - timedelta(hours=self.per_hours)

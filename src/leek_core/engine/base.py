@@ -208,10 +208,6 @@ class Engine(LeekComponent, ABC):
                 ) for cfg in config.get("info_fabricator_configs", [])],
                 strategy_config=config.get("params", {}),
                 strategy_position_config=StrategyPositionConfig(**config.get("position_config")) if config.get("position_config") else None,
-                enter_strategy_cls=load_class_from_str(config.get("enter_strategy_class_name")),
-                enter_strategy_config=config.get("enter_strategy_config", {}),
-                exit_strategy_cls=load_class_from_str(config.get("exit_strategy_class_name")),
-                exit_strategy_config=config.get("exit_strategy_config", {}),
                 risk_policies=[LeekComponentConfig(
                     instance_id=str(config.get("id")),
                     name=config.get("name", ""),
