@@ -114,7 +114,9 @@ class PositionTracker(LeekComponent):
         返回:
             Decimal: 总价值
         """
-        return sum((pos.value for pos in self.positions.values()), Decimal('0'))
+        if not self.positions:
+            return Decimal('0')
+        return sum(pos.value for pos in list(self.positions.values()))
 
     
     def on_data(self, data: Data):
