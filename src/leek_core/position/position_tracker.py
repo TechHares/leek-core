@@ -57,7 +57,7 @@ class PositionTracker(LeekComponent):
             List[Position]: 仓位对象列表
         """
         res = []
-        for position in self.positions.values():
+        for position in list(self.positions.values()):
             if position_id and position.position_id != position_id:
                 continue
             if strategy_id and position.strategy_id != strategy_id:
@@ -114,7 +114,7 @@ class PositionTracker(LeekComponent):
         返回:
             Decimal: 总价值
         """
-        return sum(pos.value for pos in self.positions.values())
+        return sum((pos.value for pos in self.positions.values()), Decimal('0'))
 
     
     def on_data(self, data: Data):

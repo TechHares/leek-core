@@ -356,11 +356,9 @@ class StrategyWrapper(LeekComponent):
                 try:
                     logger.info(f"仓位风控策略执行完成: {p.display_name}, 触发策略{self.strategy.display_name}仓位清理, 当前仓位比例: {self.position_rate}， 仓位: {self.position}")
                     self.current_command = StrategyCommand(pos.side.switch(), Decimal("1"))
-                    state = StrategyInstanceState.STOPPED if self.state == StrategyInstanceState.STOPPING else StrategyInstanceState.READY
-                    r = self.exiting_handler()
-                    self.state = state
+                    self.state = StrategyInstanceState.STOPPED if self.state == StrategyInstanceState.STOPPING else StrategyInstanceState.READY
                     self._publish_embedded_risk_event(pos, p, data)
-                    return r
+                    return self.current_command.side, min(self.current_command.ratio, self.position_rate), False
                 finally:
                     try:
                         logger.info(f"仓位风控策略执行完成, 触发策略{self.strategy.display_name}仓位清理")

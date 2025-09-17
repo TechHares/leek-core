@@ -195,7 +195,8 @@ class Position:
         profit = (self.current_price - self.cost_price) * self.sz
         if self.side.is_short:
             profit = -profit
-        return self.amount + profit + self.fee + self.friction
+        # 仅返回仓位成本与未实现盈亏之和。费用与摩擦已在资金账户中结转，避免重复计入。
+        return self.amount + profit
 
     @property
     def sz(self):
