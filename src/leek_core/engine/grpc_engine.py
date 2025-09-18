@@ -151,18 +151,45 @@ class GrpcEngine(Engine):
             logger.error(f"服务异常: {e}", exc_info=True)
         finally:
             try:
-                if self._check_task and not self._check_task.done():
-                    self._check_task.cancel()
-                    try:
-                        await self._check_task
-                    except asyncio.CancelledError:
-                        pass
-                await self.engine_server.stop(grace=5)
-                self.on_stop()
-            except Exception:
-                ...
+                await self._cleanup_all_tasks()
+            except Exception as e:
+                logger.error(f"清理异步任务时出错: {e}", exc_info=True)
         
-
+    async def _cleanup_all_tasks(self):
+        """清理所有异步任务"""
+        logger.info(f"开始清理异步任务: {self.instance_id}")
+        
+        # 取消周期性检查任务
+        if self._check_task and not self._check_task.done():
+            logger.info("取消周期性检查任务")
+            self._check_task.cancel()
+            try:
+                await self._check_task
+            except asyncio.CancelledError:
+                pass
+        
+        # 停止gRPC服务器
+        if self.engine_server:
+            logger.info("停止gRPC服务器")
+            await self.engine_server.stop(grace=3)
+        
+        # 调用引擎停止逻辑
+        logger.info("调用引擎停止逻辑")
+        self.on_stop()
+        
+        # 取消所有剩余任务
+        current_task = asyncio.current_task()
+        tasks = [task for task in asyncio.all_tasks() if task != current_task and not task.done()]
+        if tasks:
+            logger.info(f"取消 {len(tasks)} 个剩余异步任务")
+            for task in tasks:
+                task.cancel()
+            # 等待所有任务完成或被取消
+            await asyncio.gather(*tasks, return_exceptions=True)
+            logger.info("所有异步任务已清理完成")
+        
+        logger.info(f"异步任务清理完成: {self.instance_id}")
+        
     def start(self) -> None:
         try:
             asyncio.run(self.start_engine_server())
@@ -176,24 +203,9 @@ class GrpcEngine(Engine):
         """关闭引擎（在引擎事件循环内执行）"""
         logger.info(f"收到关闭请求: {self.instance_id} {self.name}")
         try:
-            if self._check_task and not self._check_task.done():
-                self._check_task.cancel()
-                try:
-                    await self._check_task
-                except asyncio.CancelledError:
-                    pass
-        except Exception:
-            pass
-        try:
-            if self.engine_server:
-                await self.engine_server.stop(grace=5)
+            await self._cleanup_all_tasks()
         except Exception as e:
-            logger.error(f"停止引擎服务器时出错: {e}")
-        finally:
-            try:
-                self.on_stop()
-            except Exception:
-                pass
+            logger.error(f"关闭引擎时清理异步任务出错: {e}", exc_info=True)
 
 class GrpcEngineClient():
     """主进程的 gRPC 客户端"""
@@ -340,17 +352,19 @@ class GrpcEngineClient():
         except Exception as e:
             logger.warning(f"关闭 gRPC 连接时出错: {e}")
         
-        # 停止子进程
+        # 停止子进程 - 增强终止逻辑
         if self.process and self.process.is_alive():
             logger.info(f"停止子进程: {self.instance_id} (PID: {self.process.pid})")
             try:
                 self.process.terminate()
-                # 等待进程结束
-                self.process.join(timeout=5)
+                # 减少等待时间到3秒，更快进入强制终止
+                self.process.join(timeout=3)
                 if self.process.is_alive():
-                    logger.warning(f"子进程未在5秒内结束，强制杀死: {self.instance_id}")
+                    logger.warning(f"子进程未在3秒内结束，强制杀死: {self.instance_id}")
                     self.process.kill()
-                    self.process.join()
+                    self.process.join(timeout=2)  # 给kill一点时间
+                    if self.process.is_alive():
+                        logger.error(f"子进程无法终止: {self.instance_id}")
             except Exception as e:
                 logger.error(f"停止子进程异常: {e}")
         
