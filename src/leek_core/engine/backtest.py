@@ -229,10 +229,11 @@ class WalkForwardOptimizer:
             for symbol, timeframe, tr, te in jobs:
                 results.append(eval_job(symbol, timeframe, tr, te))
         else:
-            from concurrent.futures import ThreadPoolExecutor, as_completed
+            from concurrent.futures import ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futs = [executor.submit(eval_job, symbol, timeframe, tr, te) for (symbol, timeframe, tr, te) in jobs]
-                for fut in as_completed(futs):
+                # 保持确定性顺序：按提交顺序收集结果，而不是完成顺序
+                for fut in futs:
                     results.append(fut.result())
         summary = self.summarize_results(
             results,

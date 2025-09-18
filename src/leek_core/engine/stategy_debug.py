@@ -60,7 +60,8 @@ class StrategyDebugView(LeekComponent):
         self.bechmark = None
 
         self.event_bus.subscribe_event(EventType.ORDER_UPDATED, self.process_order_update)
-        self.event_bus.subscribe_event(EventType.POSITION_UPDATE, self.on_position_update_event)
+        # 订阅执行订单更新事件，驱动 Portfolio.exec_update -> STRATEGY_SIGNAL_FINISH
+        self.event_bus.subscribe_event(EventType.EXEC_ORDER_UPDATED, lambda e: self.position_context.exec_update(e.data))
 
         limit_amt = self.initial_balance * 1000
         self.position_context: Portfolio = Portfolio(
@@ -88,10 +89,7 @@ class StrategyDebugView(LeekComponent):
             cls=executor,
             config=executor_cfg
         ))
-
-    def on_position_update_event(self, event: Event):
-        assert isinstance(event.data, Position)
-        self.strategy.on_position_update(event.data)
+        self.event_bus.subscribe_event(None, self.strategy.on_event)
 
     def process_order_update(self, event: Event):
         assert isinstance(event.data, Order)

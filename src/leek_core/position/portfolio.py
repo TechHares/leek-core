@@ -77,9 +77,7 @@ class Portfolio(LeekContext):
     @property
     def total_value(self) -> Decimal:
         """总价值（可用资金 + 仓位价值）"""
-        if len(self.position_tracker.positions) == 0:
-            return self.available_amount
-        return self.available_amount + self.position_value
+        return self.capital_account.total_balance + self.position_value
     
     @property
     def profit(self) -> Decimal:
@@ -404,9 +402,7 @@ class Portfolio(LeekContext):
         """
         return {
             # 资金相关
-            'activate_amount': str(self.available_amount),  # 可用资金（对应原 activate_amount）
             'total_value': str(self.total_value),  # 总价值
-            'available_amount': str(self.available_amount),  # 可用资金
             'position_value': str(self.position_value),  # 仓位价值
             
             # 盈亏统计
