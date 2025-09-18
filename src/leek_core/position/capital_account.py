@@ -111,6 +111,7 @@ class CapitalAccount(LeekComponent):
         """
         balance_before = self.available_balance
         self.available_balance += amount
+        self.init_balance += amount
         self._publish_transaction_event(Transaction(
             type=TransactionType.DEPOSIT if amount > 0 else TransactionType.WITHDRAW,
             amount=amount,
