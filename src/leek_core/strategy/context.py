@@ -76,7 +76,11 @@ class StrategyContext(LeekContext):
 
         if key not in self.strategies:
             self.strategies[key] = self.create_component(key)
-        r = self.strategies[key].on_data(data)
+        try:
+            r = self.strategies[key].on_data(data)
+        except Exception as e:
+            logger.error(f"策略{self.name}|{self.instance_id}|{key}:  数据{data}处理异常: {e}", exc_info=True)
+            return
         if r:
             self.event_bus.publish_event(
                 Event(
@@ -450,6 +454,7 @@ class StrategyWrapper(LeekComponent):
             state: 状态字典
         """
         self.state = StrategyInstanceState(state.get("state", self.state))
+        self.position_rate = Decimal(state.get("position_rate", self.position_rate))
         current_command = state.get("current_command", {})
         if current_command and "side" in state.get("current_command", {}) and "ratio" in state.get("current_command", {}):
             self.current_command = StrategyCommand(

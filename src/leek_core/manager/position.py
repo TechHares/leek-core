@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import json
+from decimal import Decimal
 from typing import Dict, Any
 
 from leek_core.data import DataSource
@@ -106,3 +107,7 @@ class PositionManager(ComponentManager[None, None, PositionConfig]):
     def reset_position_state(self):
         self.position_context.load_state({"reset_position_state": True})
         return self.get_state()
+
+    @property
+    def total_value(self) -> Decimal:
+        return self.position_context.total_value

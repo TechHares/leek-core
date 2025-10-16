@@ -80,7 +80,7 @@ class DataSource(LeekComponent, ABC):
         raise NotImplementedError("数据源不支持订阅")
 
     @abstractmethod
-    def get_history_data(self, row_key: str, start_time: datetime | int = None, end_time: datetime | int = None, limit: int = None) -> Iterator[Any]:
+    def get_history_data(self, row_key: str, start_time: datetime | int = None, end_time: datetime | int = None, limit: int = None, **kwargs) -> Iterator[Any]:
         """
         获取历史K线/蜡烛图数据。
 

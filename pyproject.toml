@@ -1,10 +1,8 @@
-[project]
+[tool.poetry]
 name = "leek-core"
-version = "1.6.2"
+version = "1.7.0"
 description = "Leek Core 量化交易引擎/组件化事件驱动框架"
-authors = [
-    {name = "shenglin.li", email = "764935704@qq.com"}
-]
+authors = ["shenglin.li <764935704@qq.com>"]
 readme = "README.md"
 homepage = "https://github.com/shenglin-li/leek-core"
 repository = "https://github.com/shenglin-li/leek-core"
@@ -34,6 +32,11 @@ classifiers = [
     "Framework :: AsyncIO",
 ]
 
+# Use src/ layout
+packages = [
+    { include = "leek_core", from = "src" }
+]
+
 [tool.poetry.dependencies]
 python = ">=3.11,<3.13"
 cachetools = "5.3.3"
@@ -51,6 +54,8 @@ websocket-client = "1.8.0"
 websockets = "15.0.1"
 zope-interface = "~=5"
 plotly = "~=6.2.0"
+diskcache = "~=5.6.3"
+concurrent_log_handler = "~=0.9.28"
 
 [tool.poetry.group.dev.dependencies]
 black = "~=24.4.2"

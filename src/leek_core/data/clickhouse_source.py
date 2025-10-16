@@ -341,3 +341,9 @@ class ClickHouseKlineDataSource(DataSource):
             logger.error(f"获取 K 线数据时出错: {e}")
             # 当出错时返回空生成器
             return
+    
+    def on_start(self):
+        self.connect()
+    
+    def on_stop(self):
+        self.disconnect()

@@ -9,13 +9,22 @@ from .base import Engine
 from .process import ProcessEngine, ProcessEngineClient
 from .indicator_view import IndicatorView
 from .stategy_debug import StrategyDebugView
-from .backtest import StrategyBacktester, WalkForwardOptimizer
+from .backtest.backtest import EnhancedBacktester
+from .backtest.types import BacktestMode, BacktestResult, BacktestConfig, ParameterSearchResult, WalkForwardResult, WindowResult, OptimizationObjective, NormalBacktestResult
 __all__ = [
     "Engine",
     "ProcessEngine",
     "ProcessEngineClient",
     "StrategyDebugView",
     "IndicatorView",
-    "StrategyBacktester",
-    "WalkForwardOptimizer",
+    "EnhancedBacktester",
+    "BacktestConfig",
+    "BacktestResult",
+    "NormalBacktestResult",
+    "BacktestMode",
+    "ParameterSearchResult",
+    "WalkForwardResult",
+    "ParameterSearchResult",
+    "WindowResult",
+    "OptimizationObjective",
 ]

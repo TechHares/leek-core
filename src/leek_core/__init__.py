@@ -27,8 +27,12 @@ def get_version_from_pyproject():
         if pyproject_path.exists():
             with open(pyproject_path, "rb") as f:
                 data = tomllib.load(f)
-                # 从project配置中获取版本
-                version = data.get("project", {}).get("version", "0.1.0")
+                # 优先读取 PEP 621 的 [project].version，如不存在则回退到 Poetry 的 [tool.poetry].version
+                version = (
+                    data.get("project", {}).get("version")
+                    or data.get("tool", {}).get("poetry", {}).get("version")
+                    or "0.1.0"
+                )
                 return version
         else:
             return "0.1.0"

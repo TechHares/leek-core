@@ -79,7 +79,7 @@ class ExecutorContext(LeekContext):
                         self.event_bus.publish_event(Event(EventType.ORDER_UPDATED, copy.deepcopy(order)))
                     return
                 else:
-                    logger.warning(f"{self.instance_id}/{self.name}执行订单失败, 重试次数: {retry_count}: {e}, ")
+                    logger.warning(f"{self.instance_id}/{self.name}执行订单失败, 重试次数: {retry_count}: {e}", exc_info=True)
                 if self.retry_interval > 0:
                     time.sleep(self.retry_interval)
 

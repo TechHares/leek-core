@@ -269,6 +269,8 @@ class Portfolio(LeekContext):
                     execution_asset.virtual_sz = min(virtual_sz, close_sz)
                     execution_asset.sz = max(0, close_sz - virtual_sz)
                     execution_asset.ratio = total_ratio * close_ratio if execution_asset.sz < total_sz else total_ratio
+                    if execution_asset.ratio == 0 or execution_asset.sz == 0:
+                        return None
                     execution_asset.amount = decimal_quantize(current_position.amount * close_ratio, 8)
                     continue
             
