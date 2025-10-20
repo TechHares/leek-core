@@ -118,6 +118,17 @@ class PositionTracker(LeekComponent):
             return Decimal('0')
         return sum(pos.value for pos in list(self.positions.values()))
 
+    def get_unpnl(self) -> Dict[str, str]:
+        """
+        获取总未平仓盈亏
+
+        返回:
+            Decimal: 总未平仓盈亏
+        """
+        if not self.positions:
+            return {}
+        return {k:str(pos.unpnl) for k, pos in self.positions.items()}
+
     
     def on_data(self, data: Data):
         """

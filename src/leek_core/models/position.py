@@ -189,14 +189,19 @@ class Position:
 
     @property
     def value(self):
+        # 仅返回仓位成本与未实现盈亏之和。费用与摩擦已在资金账户中结转，避免重复计入。
+        return self.amount + self.unpnl
+
+    @property
+    def unpnl(self):
         if self.current_price is None:
             return self.amount
-        
+
         profit = (self.current_price - self.cost_price) * self.sz
         if self.side.is_short:
             profit = -profit
-        # 仅返回仓位成本与未实现盈亏之和。费用与摩擦已在资金账户中结转，避免重复计入。
-        return self.amount + profit
+        return profit
+
 
     @property
     def sz(self):

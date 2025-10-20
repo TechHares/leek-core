@@ -93,10 +93,12 @@ class SimpleEngine(LeekComponent):
         """
         处理数据事件
         """
-        for signal in self.strategy_manager.process_data(data):
-            if signal is None:
-                continue
-            self._on_signal(signal)
+        try:
+            for signal in self.strategy_manager.process_data(data):
+                if signal is None:
+                    continue
+                self._on_signal(signal)
+        finally:
             self.position_tracker.on_data(data)
 
 
@@ -149,6 +151,12 @@ class SimpleEngine(LeekComponent):
         获取仓位状态
         """
         return json.loads(json.dumps(self.portfolio.get_state(), cls=LeekJSONEncoder))
+
+    def get_unpnl(self):
+        """
+        获取未平仓
+        """
+        return self.position_tracker.get_unpnl()
 
     def get_strategy_state(self):
         """
