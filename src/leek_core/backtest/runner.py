@@ -12,13 +12,14 @@ from leek_core.utils import get_logger, DateTimeUtils, setup_logging
 from leek_core.base import load_class_from_str, create_component
 from leek_core.data import DataSource
 from leek_core.models import PositionConfig, LeekComponentConfig, Position, Signal, StrategyConfig, KLine
-from leek_core.manager import PositionManager, ExecutorManager, StrategyManager
+from leek_core.manager import ExecutorManager, StrategyManager
 from leek_core.event import SerializableEventBus, Event, EventType
-from .performance import vectorized_operations
 from leek_core.executor import ExecutorContext
 from leek_core.strategy import StrategyContext
 from leek_core.sub_strategy import SubStrategy
+from leek_core.engine import SimpleEngine
 
+from .performance import vectorized_operations
 from .types import RunConfig, PerformanceMetrics, BacktestResult
 from .data_cache import DataCache
 from concurrent_log_handler import ConcurrentRotatingFileHandler
@@ -74,39 +75,9 @@ class BacktestRunner:
             self.data_source = datasource
         self.data_source.on_start()
 
-    def _init_position_manager(self):
-        self.position_manager = PositionManager(
-            self.event_bus,
-            LeekComponentConfig(
-                instance_id="pos_mgr",
-                name="仓位管理",
-                cls=None,
-                config=PositionConfig(
-                    init_amount=self.config.initial_balance,
-                    max_amount=self.config.initial_balance * 1000,
-                    max_strategy_amount=self.config.initial_balance * 1000,
-                    max_strategy_ratio=Decimal("0.5"),
-                    max_symbol_amount=self.config.initial_balance * 1000,
-                    max_symbol_ratio=Decimal("1"),
-                    max_ratio=Decimal("1"),
-                ),
-            ),
-        )
-        self.position_manager.on_start()
-
     def _init_executor(self):
-        self.executor_manager = ExecutorManager(
-            self.event_bus,
-            LeekComponentConfig(
-                instance_id="exec_mgr",
-                name="执行器管理",
-                cls=ExecutorContext,
-                config=None,
-            ),
-        )
-        self.executor_manager.on_start()
         executor_cls = load_class_from_str(self.config.executor_class)
-        self.executor_manager.add(
+        self.engine.add_executor(
             LeekComponentConfig(
                 instance_id="executor",
                 name="执行器",
@@ -116,17 +87,6 @@ class BacktestRunner:
         )
 
     def _init_strategy(self):
-        # 创建策略管理器
-        self.strategy_manager = StrategyManager(
-            self.event_bus,
-            LeekComponentConfig(
-                instance_id="strat_mgr",
-                name="策略管理",
-                cls=StrategyContext,
-                config=None
-            ),
-        )
-        self.strategy_manager.on_start()
         # 准备风控策略
         risk_policies_cfg = []
         for risk_cfg in self.config.risk_policies:
@@ -149,18 +109,27 @@ class BacktestRunner:
 
         strategy_cls = load_class_from_str(self.config.strategy_class)
         strategy_component = LeekComponentConfig(
-            instance_id="strategy",
+            instance_id="0",
             name="策略",
             cls=strategy_cls,
             config=strategy_cfg,
         )
-        self.strategy_manager.add(strategy_component)
+        self.engine.add_strategy(strategy_component)
 
-    def run(self):
+    def _init(self):
         self.event_bus = SerializableEventBus()
         self._load_mount_dirs()
+        self.engine = SimpleEngine("p2", "backtest", PositionConfig(
+            init_amount=self.config.initial_balance,
+            max_amount=self.config.initial_balance * 1000,
+            max_strategy_amount=self.config.initial_balance * 1000,
+            max_strategy_ratio=Decimal("0.5"),
+            max_symbol_amount=self.config.initial_balance * 1000,
+            max_symbol_ratio=Decimal("1"),
+            max_ratio=Decimal("1"),
+        ), 0, self.event_bus)
+        self.engine.on_start()
         self._init_data_source()
-        self._init_position_manager()
         self._init_executor()
         self._init_strategy()
 
@@ -168,12 +137,15 @@ class BacktestRunner:
         self.event_bus.subscribe_event(EventType.POSITION_UPDATE, self._on_position_update)
         self.event_bus.subscribe_event(EventType.STRATEGY_SIGNAL, self._on_signal_generated)
 
+    def run(self):
+        self._init()
+
         # 执行回测
         last_position_rate = Decimal("0")
         turnover_acc = Decimal("0")
         row_key = KLine.pack_row_key(self.config.symbol, self.config.quote_currency, self.config.ins_type, self.config.timeframe)
         logger.info(f"Generated row_key: {row_key}")
-        strategy_ctx = self.strategy_manager.get("strategy")
+        strategy_ctx = self.engine.strategy_manager.get("strategy")
         wrapper = None
         for kline in self.data_source.get_history_data(
                 start_time=min(self.config.start_time, self.config.pre_start) if  self.config.pre_start else self.config.start_time,
@@ -184,12 +156,11 @@ class BacktestRunner:
             if kline.end_time > self.config.end_time:
                 break
             # 更新仓位管理
-            self.position_manager.process_data_update(Event(EventType.DATA_RECEIVED, kline))
+            kline.target_instance_id = set(["0"])
+            self.engine.on_data(kline)
             # 处理策略数据
-            strategy_ctx.on_data(kline)
-
             if wrapper is None:
-                wrapper = list(strategy_ctx.strategies.values())[0]
+                wrapper = list(list(self.engine.strategy_manager.components.values())[0].strategies.values())[0]
 
             # 获取当前仓位率
             current_rate = wrapper.position_rate if wrapper else last_position_rate
@@ -197,7 +168,7 @@ class BacktestRunner:
             last_position_rate = current_rate
 
             # 记录净值
-            total_value = self.position_manager.total_value
+            total_value = self.engine.portfolio.total_value
             self.equity_values.append(float(total_value))
             self.equity_times.append(int(kline.end_time))
 
@@ -308,7 +279,7 @@ class BacktestRunner:
 
         # 使用向量化操作
         equity_array = np.array(self.equity_values)
-        periods_per_year = (24 * 3600 * 1000 / self.config.timeframe.milliseconds) * 365
+        periods_per_year = int((24 * 3600 * 1000 / self.config.timeframe.milliseconds) * 365)
         # 并行计算基础指标
         vectorized_results = vectorized_operations(equity_array, ['returns', 'moving_average', 'volatility'], periods_per_year=periods_per_year)
 
@@ -448,7 +419,5 @@ class BacktestRunner:
         )
 
     def on_stop(self):
-        self.strategy_manager.on_stop()
-        self.executor_manager.on_stop()
-        self.position_manager.on_stop()
+        self.engine.on_stop()
         self.data_source.on_stop()

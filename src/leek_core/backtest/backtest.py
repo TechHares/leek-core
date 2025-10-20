@@ -9,8 +9,8 @@ from typing import Optional, Callable, Union, Dict, List, Tuple, Any
 
 from leek_core.utils import get_logger, DateTimeUtils
 
-from leek_core.engine.backtest.types import BacktestConfig, BacktestResult, WalkForwardResult, BacktestMode, NormalBacktestResult, PerformanceMetrics, WindowResult, OptimizationObjective
-from leek_core.engine.backtest.runner import run_backtest
+from .types import BacktestConfig, BacktestResult, WalkForwardResult, BacktestMode, NormalBacktestResult, PerformanceMetrics, WindowResult, OptimizationObjective
+from .runner import run_backtest
 
 logger = get_logger(__name__)
 class EnhancedBacktester:

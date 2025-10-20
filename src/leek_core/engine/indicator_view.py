@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 
 from leek_core.models.data import KLine
-from .base import Engine, LeekComponent
+from leek_core.base import LeekComponent
 
 from leek_core.indicators import T, MERGE
 from leek_core.data import DataSource, ClickHouseKlineDataSource

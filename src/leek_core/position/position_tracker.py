@@ -77,8 +77,8 @@ class PositionTracker(LeekComponent):
                 continue
             res.append(position)
         return res
-    
-    def get_strategy_used(self, strategy_id: str) -> Decimal:
+
+    def get_strategy_used(self, strategy_id: str):
         """
         获取策略已使用本金, 比例
         
@@ -92,7 +92,7 @@ class PositionTracker(LeekComponent):
         total_ratio = sum(pos.ratio for pos in postions)
         return total_amount, total_ratio
     
-    def get_symbol_used(self, symbol: str, quote_currency: str) -> Decimal:
+    def get_symbol_used(self, symbol: str, quote_currency: str):
         """
         获取标的已使用本金, 比例
         
@@ -107,7 +107,7 @@ class PositionTracker(LeekComponent):
         total_ratio = sum(pos.ratio for pos in postions)
         return total_amount, total_ratio
     
-    def get_total_position_value(self) -> Decimal:
+    def get_total_position_value(self):
         """
         获取总仓位价值
         
@@ -312,13 +312,13 @@ class PositionTracker(LeekComponent):
                 ins_type=order.ins_type,
                 asset_type=order.asset_type,
                 side=order.side,
-                cost_price=0,
-                amount=0,
-                ratio=0,
+                cost_price=order.execution_price,
+                amount=Decimal(0),
+                ratio=Decimal(0),
                 current_price=order.execution_price,
                 executor_id=order.executor_id,
-                fee=0,
-                friction=0,
+                fee=Decimal(0),
+                friction=Decimal(0),
                 leverage=order.leverage,
                 open_time=order.order_time
             )

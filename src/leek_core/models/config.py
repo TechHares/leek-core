@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Dict, Any, List, Tuple, TypeVar, Generic, TYPE_CHECKING
+from typing import Dict, Any, List, Tuple, TypeVar, Generic, TYPE_CHECKING, Optional
 
 from leek_core.base import LeekComponent
 from .constants import OrderType, TradeInsType, TradeMode
@@ -37,10 +37,10 @@ class LeekComponentConfig(Generic[T, CFG]):
     """
     instance_id: str = None
     name: str = None
-    cls: type[T] = None
+    cls: Optional[type[T]] = None
     config: CFG = None
-    data: Dict[str, Any] = None  # 存储组件的运行数据
-    extra: Dict[str, Any] = None  # 存储组件的扩展数据
+    data: Optional[Dict[str, Any]] = None  # 存储组件的运行数据
+    extra: Optional[Dict[str, Any]] = None  # 存储组件的扩展数据
 
 @dataclass
 class StrategyPositionConfig:
@@ -71,7 +71,7 @@ class StrategyConfig:
     strategy_position_config: StrategyPositionConfig = None
 
     risk_policies: List[LeekComponentConfig["SubStrategy", Dict[str, Any]]] = field(default_factory=list)
-    runtime_data: Dict[Tuple, Dict[str, Any]] = None
+    runtime_data: Dict[str, Dict[str, Any]] = None
 
 
 @dataclass

@@ -49,7 +49,7 @@ class StrategyContext(LeekContext):
         self.state = StrategyState.CREATED
         self.config = config
         self.strategy_mode = config.cls.strategy_mode
-        self.info_fabricators = FabricatorContext(self.process_data, event_bus,
+        self.info_fabricators = FabricatorContext(event_bus,
                                                        LeekComponentConfig(
                                                            instance_id=self.instance_id,
                                                            name=self.name,
@@ -57,16 +57,47 @@ class StrategyContext(LeekContext):
                                                            config=config.config.info_fabricator_configs
                                                        ))
         self.strategies: Dict[str, "StrategyWrapper"] = {}
+        self.signals: Dict[str, Signal] = {}
 
-        self.event_bus.subscribe_event(None, self.on_event)
-
-    def on_data(self, data: Data):
+    def on_data(self, data: Data) -> Signal|None:
         try:
-            self.info_fabricators.on_data(data)
+            ds = self.info_fabricators.on_data(data)
+            s = None
+            for d in ds:
+                s = self._process_data(d)
+            if s:
+                self.signals[s.signal_id] = s
+            return s
         except Exception as e:
             logger.error(f"info_fabricator {self.instance_id} process error: {e}", exc_info=True)
 
-    def process_data(self, data: Data):
+    def exec_update(self, execution_context: ExecutionContext | str):
+        if isinstance(execution_context, str):
+            signal = self.signals.pop(execution_context, None)
+            logger.error(f"信号处理失败: {signal}")
+            if not signal:
+                return
+            for signal_asset in signal.assets:
+                signal_asset.actual_ratio = 0
+        else:
+            logger.info(f"执行订单更新: {execution_context.is_finish}, {execution_context}")
+            if not execution_context.is_finish:
+                return
+            signal = self.signals.pop(execution_context.signal_id, None)
+            if not signal:
+                return
+            for signal_asset in signal.assets:
+                signal_asset.actual_ratio = signal_asset.actual_ratio or 0
+                for asset in execution_context.execution_assets:
+                    if asset.asset_key == signal_asset.asset_key and asset.is_open == signal_asset.is_open:
+                        signal_asset.actual_ratio += asset.ratio
+        self.strategies[signal.strategy_instance_id].on_signal_finish(signal=signal)
+        self.event_bus.publish_event(Event(
+            event_type=EventType.STRATEGY_SIGNAL_FINISH,
+            data=signal
+        ))
+
+    def _process_data(self, data: Data) -> None|Signal:
         """
         处理数据，更新策略状态
         """
@@ -81,18 +112,11 @@ class StrategyContext(LeekContext):
         except Exception as e:
             logger.error(f"策略{self.name}|{self.instance_id}|{key}:  数据{data}处理异常: {e}", exc_info=True)
             return
+        finally:
+            if self.strategies[key].state == StrategyState.STOPPED:
+                del self.strategies[key]
         if r:
-            self.event_bus.publish_event(
-                Event(
-                    event_type=EventType.STRATEGY_SIGNAL,
-                    source=EventSource(self.instance_id, self.name, self.config.cls.__name__, {
-                        "class_name": f"{self.config.cls.__module__}|{self.config.cls.__name__}",
-                    }),
-                    data=self.build_signal(assets=r, data=data, key=key)
-                )
-            )
-        if self.strategies[key].state == StrategyState.STOPPED:
-            del self.strategies[key]
+            return self.build_signal(assets=r, data=data, key=key)
 
     def build_signal(self, assets: List[Asset], data: Data, key) -> Signal:
         """
@@ -103,6 +127,7 @@ class StrategyContext(LeekContext):
             data_source_instance_id=data.data_source_id,
             strategy_id=self.instance_id,
             strategy_instance_id=key,
+            strategy_cls=f"{self.config.cls.__module__}|{self.config.cls.__name__}",
             config=self.config.config.strategy_position_config,
             signal_time=datetime.now(),
             assets=assets
@@ -114,33 +139,28 @@ class StrategyContext(LeekContext):
         """
         cfg = self.config.config.strategy_position_config or StrategyPositionConfig()
         cfg.order_type = OrderType.MarketOrder
-        self.event_bus.publish_event(
-                Event(
-                    event_type=EventType.STRATEGY_SIGNAL,
-                    source=EventSource(self.instance_id, self.name, self.config.cls.__name__, {
-                        "class_name": f"{self.config.cls.__module__}|{self.config.cls.__name__}",
-                    }),
-                    data=Signal(
-                        signal_id=generate_str(),
-                        data_source_instance_id=0,
-                        strategy_id=self.instance_id,
-                        strategy_instance_id=position.strategy_instance_id,
-                        config=cfg,
-                        signal_time=datetime.now(),
-                        assets=[Asset(
-                            asset_type=position.asset_type,
-                            ins_type=position.ins_type,
-                            symbol=position.symbol,
-                            quote_currency=position.quote_currency,
-                            side=position.side.switch(),
-                            ratio=Decimal("1"),
-                            price=position.current_price,
-                        )]
-                    )
-                )
-            )
+        s = Signal(
+            signal_id=generate_str(),
+            data_source_instance_id="0",
+            strategy_id=self.instance_id,
+            strategy_cls=f"{self.config.cls.__module__}|{self.config.cls.__name__}",
+            strategy_instance_id=position.strategy_instance_id,
+            config=cfg,
+            signal_time=datetime.now(),
+            assets=[Asset(
+                asset_type=position.asset_type,
+                ins_type=position.ins_type,
+                symbol=position.symbol,
+                quote_currency=position.quote_currency,
+                side=position.side.switch(),
+                ratio=Decimal("1"),
+                price=position.current_price,
+            )]
+        )
+        self.signals[s.signal_id] = s
+        return s
 
-    def create_component(self, key: str) -> "StrategyWrapper":
+    def create_component(self, key: str=None) -> "StrategyWrapper":
         wrapper = StrategyWrapper(
             self.event_bus,
             create_component(self.config.cls, **self.config.config.strategy_config),
@@ -172,26 +192,26 @@ class StrategyContext(LeekContext):
             ))
         logger.info(f"策略{self.instance_id}启动完成, 实例数: {len(self.strategies)} 数据源: {len(self.config.config.data_source_configs)}")
     
-    def on_event(self, event: Event):
-        """
-        接收所有事件，按策略ID和实例ID分发到对应 StrategyWrapper
-        """
-        # 仅处理与本策略上下文相关的事件
-        data = event.data
-        strategy_id = getattr(data, 'strategy_id', None)
-        if strategy_id is not None and strategy_id != self.instance_id:
-            return
-
-        target_instance_id = getattr(data, 'strategy_instance_id', None)
-        if target_instance_id is None:
-            # 无实例ID的事件，广播给所有实例
-            for wrapper in self.strategies.values():
-                wrapper.on_event(event)
-            return
-
-        wrapper = self.strategies.get(str(target_instance_id))
-        if wrapper:
-            wrapper.on_event(event)
+    # def on_event(self, event: Event):
+    #     """
+    #     接收所有事件，按策略ID和实例ID分发到对应 StrategyWrapper
+    #     """
+    #     # 仅处理与本策略上下文相关的事件
+    #     data = event.data
+    #     strategy_id = getattr(data, 'strategy_id', None)
+    #     if strategy_id is not None and strategy_id != self.instance_id:
+    #         return
+    #
+    #     target_instance_id = getattr(data, 'strategy_instance_id', None)
+    #     if target_instance_id is None:
+    #         # 无实例ID的事件，广播给所有实例
+    #         for wrapper in self.strategies.values():
+    #             wrapper.on_event(event)
+    #         return
+    #
+    #     wrapper = self.strategies.get(str(target_instance_id))
+    #     if wrapper:
+    #         wrapper.on_event(event)
 
     def on_stop(self):
         """
@@ -218,7 +238,10 @@ class StrategyContext(LeekContext):
         """
         序列化策略状态
         """
-        return {k: json.loads(json.dumps(v.get_state(), cls=LeekJSONEncoder)) for k, v in self.strategies.items()}
+        d = {k: json.loads(json.dumps(v.get_state(), cls=LeekJSONEncoder)) for k, v in self.strategies.items()}
+        for k, v in d.items():
+            v["signals"] = [s for s in self.signals.values() if s.strategy_instance_id == k]
+        return d
 
     def load_state(self, state: Dict[Tuple, Dict[str, Any]]):
         """
@@ -236,8 +259,11 @@ class StrategyContext(LeekContext):
         for k, v in data.items():
             if k not in self.strategies:
                 self.strategies[k] = self.create_component(k)
+            if "signals" in v:
+                for s in v["signals"]:
+                    signal = Signal(**s)
+                    self.signals[signal.signal_id] = signal
             self.strategies[k].load_state(v)
-
 
 class StrategyWrapper(LeekComponent):
     """
@@ -264,17 +290,17 @@ class StrategyWrapper(LeekComponent):
         # 策略状态
         self.state = StrategyInstanceState.CREATED
         self.current_command: StrategyCommand = None  # 当前命令
-        self.position_rate: Decimal = Decimal("0")
+        # self.position_rate: Decimal = Decimal("0")
 
         # self.position: Dict[str, Position] = {}
         self.lock = Lock()
         self.positon_getter = None
     
-    # @property
-    # def position_rate(self) -> Decimal:
-    #     if len(self.position) == 0:
-    #         return Decimal("0")
-    #     return sum(p.ratio for p in self.position.values())
+    @property
+    def position_rate(self) -> Decimal:
+        if len(self.position) == 0:
+            return Decimal("0")
+        return Decimal(sum(p.ratio + sum(v.ratio for v in p.virtual_positions) for p in self.position.values()))
     
     @property
     def position(self) -> Dict[str, Position]:
@@ -312,11 +338,11 @@ class StrategyWrapper(LeekComponent):
         处理信号完成
         """
         self.current_command = None
-        for asset in signal.assets:
-            if asset.is_open:
-                self.position_rate += asset.actual_ratio
-            else:
-                self.position_rate -= asset.actual_ratio
+        # for asset in signal.assets:
+        #     if asset.is_open:
+        #         self.position_rate += asset.actual_ratio
+        #     else:
+        #         self.position_rate -= asset.actual_ratio
         # 进出场状态转换：将 ENTERING/EXITING 归一到正常态
         if self.position_rate == 0:
             self.state = StrategyInstanceState.STOPPED if self.state == StrategyInstanceState.STOPPING else StrategyInstanceState.READY
@@ -327,10 +353,6 @@ class StrategyWrapper(LeekComponent):
 
 
     def on_event(self, event: Event):
-        # 先将常见事件进行内置处理，再转交策略
-        if event.event_type == EventType.STRATEGY_SIGNAL_FINISH and isinstance(event.data, Signal):
-            self.on_signal_finish(event.data)
-
         # 将事件转交给策略
         try:
             self.strategy.on_event(event)
@@ -454,7 +476,7 @@ class StrategyWrapper(LeekComponent):
             state: 状态字典
         """
         self.state = StrategyInstanceState(state.get("state", self.state))
-        self.position_rate = Decimal(state.get("position_rate", self.position_rate))
+        # self.position_rate = Decimal(state.get("position_rate", self.position_rate))
         current_command = state.get("current_command", {})
         if current_command and "side" in state.get("current_command", {}) and "ratio" in state.get("current_command", {}):
             self.current_command = StrategyCommand(

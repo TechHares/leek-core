@@ -3,16 +3,17 @@
 """
 引擎策略管理子模块，给引擎提供策略组件管理相关功能
 """
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import datetime
 from decimal import Decimal
-from typing import Dict, Any
+from typing import Dict, Any, Generator
 
 from leek_core.event.types import EventSource
 from leek_core.manager import ComponentManager
 from leek_core.event import Event, EventType, EventBus
-from leek_core.models import StrategyState, LeekComponentConfig, Position, StrategyConfig, StrategyPositionConfig, OrderType, Asset, Signal
+from leek_core.models import StrategyState, LeekComponentConfig, Position, StrategyConfig, StrategyPositionConfig, \
+    OrderType, Asset, Signal, Data, ExecutionContext
 from leek_core.strategy import StrategyContext, Strategy
 from leek_core.utils import get_logger
 from leek_core.utils.id_generator import generate_str
@@ -26,7 +27,7 @@ class StrategyManager(ComponentManager[StrategyContext, Strategy, StrategyConfig
     处理策略的生命周期、信号分发。
     """
 
-    def __init__(self, event_bus: EventBus, config: LeekComponentConfig[StrategyContext, None], max_workers: int=5):
+    def __init__(self, event_bus: EventBus, config: LeekComponentConfig[StrategyContext, None], max_workers: int=0):
         """
         初始化策略管理器。
 
@@ -35,7 +36,10 @@ class StrategyManager(ComponentManager[StrategyContext, Strategy, StrategyConfig
         """
         super().__init__(event_bus, config)
         self.event_bus = event_bus
-        self.executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="StrategyManager-")
+        self.executor = None
+        if max_workers > 0:
+            self.executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="StrategyManager-")
+
 
     def update(self, config: LeekComponentConfig[Strategy, StrategyConfig]):
         """
@@ -64,44 +68,47 @@ class StrategyManager(ComponentManager[StrategyContext, Strategy, StrategyConfig
             if instance:
                 instance.on_stop()
 
-    def on_data_event(self, event: Event):
+    def exec_update(self, strategy_id: str, execution_context: ExecutionContext | str):
+        strategy_ctx = self.get(strategy_id)
+        if strategy_ctx:
+            strategy_ctx.exec_update(execution_context)
+
+    def process_data(self, data: Data) -> Generator[Signal, None, None]:
         """
         处理数据
         参数:
             data: 数据
         """
-        del_list = [instance_id for instance_id, context in self.components.items() if context.state == StrategyState.STOPPED]
+        del_list = [instance_id for instance_id, context in self.components.items() if
+                    context.state == StrategyState.STOPPED]
         for instance_id in del_list:
-            del self.components[instance_id]
-        data = event.data
-        tasks = []
-        for instance_id in data.target_instance_id:
-            if instance_id in self.components:
-                strategy_context = self.components[instance_id]
-                tasks.append(strategy_context.on_data)
-        if len(tasks) == 0:
-            return
-        if len(tasks) == 1:
-            self.executor.submit(tasks[0](data))
-            return
-        for task in tasks:
-            self.executor.submit(task, deepcopy(data))
+            self.remove(instance_id)
+
+        futures = []
+        if self.executor: # 使用线程池执行
+            for instance_id in data.target_instance_id:
+                if instance_id in self.components:
+                    strategy_context = self.components[instance_id]
+                    future = self.executor.submit(strategy_context.on_data, deepcopy(data))
+                    futures.append(future)
+            for future in as_completed(futures):
+                yield future.result()
+        else:  # 使用单线程执行 用于debug backtest等场景
+            for instance_id in data.target_instance_id:
+                if instance_id in self.components:
+                    strategy_context = self.components[instance_id]
+                    yield strategy_context.on_data(data)
 
     def close_position(self, position: Position):
         strategy_context = self.get(position.strategy_id)
         if strategy_context is None:
             logger.info(f"策略上下文不存在: {position.strategy_id}， 直接平仓{position.position_id}")
-            self.event_bus.publish_event(
-                Event(
-                    event_type=EventType.STRATEGY_SIGNAL,
-                    source=EventSource(position.strategy_id, self.name, self.__class__.__name__, {
-                        "class_name": f"{self.__class__.__module__}|{self.__class__.__name__}",
-                    }),
-                    data=Signal(
+            return Signal(
                         signal_id=generate_str(),
-                        data_source_instance_id=0,
+                        data_source_instance_id="0",
                         strategy_id=self.instance_id,
                         strategy_instance_id=position.strategy_instance_id,
+                        strategy_cls=f"",
                         config=StrategyPositionConfig(order_type=OrderType.MarketOrder),
                         signal_time=datetime.now(),
                         assets=[Asset(
@@ -114,22 +121,14 @@ class StrategyManager(ComponentManager[StrategyContext, Strategy, StrategyConfig
                             price=position.current_price,
                         )]
                     )
-                )
-            )
-            return
-        strategy_context.close_position(position)
+        return strategy_context.close_position(position)
     
-    def on_start(self):
-        self.event_bus.subscribe_event(EventType.DATA_RESPONSE, self.on_data_event)
-        self.event_bus.subscribe_event(EventType.DATA_RECEIVED, self.on_data_event)
-        logger.info(
-            f"事件订阅: 策略管理-{self.name}@{self.instance_id} 订阅 {[e.value for e in [EventType.DATA_RESPONSE, EventType.DATA_RECEIVED]]}")
-        
-    def on_stop(self):
-        self.event_bus.unsubscribe_event(EventType.DATA_RESPONSE, self.on_data_event)
-        self.event_bus.unsubscribe_event(EventType.DATA_RECEIVED, self.on_data_event)
-        self.executor.shutdown(wait=True)
-        super().on_stop()
+    def check_component(self, instance_id: str = None):
+        del_list = [inst_id for inst_id, context in self.components.items() if
+                    context.state == StrategyState.STOPPED]
+        for inst_id in del_list:
+            self.remove(inst_id)
+        return super().check_component(instance_id)
 
 
 if __name__ == '__main__':

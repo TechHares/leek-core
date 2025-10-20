@@ -133,7 +133,7 @@ class RiskManager(LeekComponent):
             action: 动作（REJECTED, APPROVED等）
         """
         self.event_bus.publish_event(Event(
-            event_type=EventType.RISK_EVENT,
+            event_type=EventType.RISK_TRIGGERED,
             data={
                 "signal_id": execution_context.signal_id,
                 "strategy_id": execution_context.strategy_id,

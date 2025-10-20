@@ -26,12 +26,12 @@ class classproperty:
     def __get__(self, instance, owner=None):
         return self.func(owner if owner is not None else type(instance))
 
-def thread_lock(lock: Optional[threading.Lock] = None, try_lock: bool = False, on_trylock_fail: Optional[Callable[[], None]] = None):
+def thread_lock(lock: Optional[Union[threading.RLock, threading.Lock]] = None, try_lock: bool = False, on_trylock_fail: Optional[Callable[[], None]] = None):
     """
     线程锁装饰器，支持传入自定义锁实例。
 
     Args:
-        lock (Optional[threading.Lock]): 传入的锁实例。如果不传，则为每个函数自动生成一个锁。
+        lock (Optional[threading.RLock]): 传入的锁实例。如果不传，则为每个函数自动生成一个锁。
         try_lock (bool): 是否尝试获取锁（非阻塞），否则阻塞。
         on_trylock_fail (Optional[Callable[[], None]]): try_lock 模式下获取锁失败时的回调，默认为 None。
 

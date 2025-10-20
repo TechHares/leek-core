@@ -8,9 +8,9 @@ from leek_core.models import DataType, Data, KLine, LeekComponentConfig
 from .base import DataSource
 from leek_core.utils import run_func_timeout
 from leek_core.utils import get_logger, thread_lock
-from threading import Lock
+from threading import RLock
 logger = get_logger(__name__)
-_lock = Lock()
+_lock = RLock()
 
 class DataSourceContext(LeekContext):
     """
@@ -23,6 +23,7 @@ class DataSourceContext(LeekContext):
         self._data_source.callback = self.send_data
         self.is_connected = False
         self.params_list = None
+        self.callback = None
         self.subscribe_info: Dict[str, set[str]] = {}
 
     def send_data(self, data: Data):
@@ -38,12 +39,7 @@ class DataSourceContext(LeekContext):
         data.target_instance_id = self.subscribe_info.get(data.row_key, set())
         if isinstance(data, KLine):
             data.data_type = DataType.KLINE
-        self.event_bus.publish_event(Event(EventType.DATA_RECEIVED, data, EventSource(
-            instance_id=self.instance_id,
-            name=self.name,
-            cls=self.config.cls.__name__,
-            extra={"params": [p.name for p in self.params_list]}
-        )))
+        self.callback(data)
 
     @thread_lock(_lock)
     def subscribe(self, instance_id, **kwargs):

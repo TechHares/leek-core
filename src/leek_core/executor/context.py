@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from typing import Dict, Any
+from typing import Dict, Any, List
 import copy
 
 from leek_core.base import LeekContext
@@ -48,7 +48,7 @@ class ExecutorContext(LeekContext):
             logger.error(f"执行器{self.name}更新超时")
             return
 
-    def send_order(self, orders: Order):
+    def send_order(self, orders: List[Order]):
         """
         下单
 

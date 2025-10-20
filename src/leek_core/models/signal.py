@@ -52,6 +52,7 @@ class Signal:
     strategy_id: str              # 策略实例ID，标识产生该信号的策略实例
     strategy_instance_id: str     # 策略实例ID，标识产生该信号的策略实例
     signal_time: datetime         # 信号产生时间，用于标识信号的产生时间
+    strategy_cls: str
 
     assets: list[Asset] = list            # 断言信息，用于描述信号的约束条件（如仓位限制、风险控制等）
     config: StrategyPositionConfig = None # 仓位配置

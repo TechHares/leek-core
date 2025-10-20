@@ -31,8 +31,8 @@ class DataManager(ComponentManager[DataSourceContext, DataSource, Dict[str, Any]
             event_bus: 事件总线
             config: 数据源管理器配置
         """
-        self.callback = callback
         super().__init__(event_bus, config)
+        self.callback = callback
 
     def after_ctx_created(self, ctx: CTX):
         ctx.callback = self.callback

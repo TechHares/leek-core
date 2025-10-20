@@ -18,7 +18,7 @@ class ComponentManager(LeekContext, Generic[CTX, T, CFG]):
     通用简化组件管理器（ComponentManager）。
 
     该类用于统一管理和调度多种数据源或组件，适用于插件式、批量化场景。
-    支持数据源的批量添加、移除、启动和销毁。
+    支持组件的添加、移除、启动和销毁。
 
     参数泛型：
         CTX: 继承自 LeekContext 的上下文类型
@@ -39,7 +39,7 @@ class ComponentManager(LeekContext, Generic[CTX, T, CFG]):
             config:   顶层配置，包含多个数据源的配置信息
         """
         super().__init__(event_bus, config)
-        self.components: Dict[str, LeekContext] = {}
+        self.components: Dict[str, CTX] = {}
 
     def add(self, config: LeekComponentConfig[T, CFG]):
         """
@@ -52,6 +52,7 @@ class ComponentManager(LeekContext, Generic[CTX, T, CFG]):
         if ins_id in self.components:
             return
         self.components[ins_id] = self.config.cls(self.event_bus, config)
+        self.after_ctx_created(self.components[ins_id])
         if config.data:
             self.components[ins_id].load_state(config.data)
 
@@ -61,6 +62,12 @@ class ComponentManager(LeekContext, Generic[CTX, T, CFG]):
             logger.error(f"组件{config.name}启动超时")
             return
         logger.info(f"组件{config.name}启动完成")
+
+    def after_ctx_created(self, ctx: CTX):
+        """
+        组件init完成
+        """
+        ...
 
     def get(self, instance_id: str) -> CTX:
         """

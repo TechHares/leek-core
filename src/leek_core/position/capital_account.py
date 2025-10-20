@@ -67,6 +67,8 @@ class CapitalAccount(LeekComponent):
         返回:
             bool: 是否成功
         """
+        if execution_context.extra and "policy_id" in execution_context.extra:
+            return True
         amount = 0
         for asset in execution_context.execution_assets:
             if asset.is_open and asset.amount > 0:

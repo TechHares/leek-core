@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
-"""
-交易引擎核心实现
-"""
+import json
 from abc import ABC, abstractmethod
 from decimal import Decimal
 import os
@@ -16,48 +13,74 @@ from leek_core.base import LeekComponent, load_class_from_str, create_component
 from leek_core.data import DataSource
 from leek_core.event import EventBus, EventType, Event
 from leek_core.executor import Executor, ExecutorContext
-from leek_core.models import LeekComponentConfig, StrategyConfig, PositionConfig, StrategyPositionConfig
+from leek_core.models import LeekComponentConfig, StrategyConfig, PositionConfig, StrategyPositionConfig, Data, \
+    PositionInfo, ExecutionContext, Order
+from leek_core.models.ctx import initialize_context
+from leek_core.position import RiskManager, PositionTracker, Portfolio, CapitalAccount
 from leek_core.strategy import Strategy, StrategyContext
-from leek_core.manager import PositionManager, ExecutorManager, StrategyManager, DataManager
+from leek_core.manager import StrategyManager, ExecutorManager, DataManager
 from leek_core.data import DataSourceContext
+from leek_core.utils import get_logger, LeekJSONEncoder
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
+from datetime import datetime
+from decimal import Decimal
+from typing import Dict, Any
+
+from leek_core.event.types import EventSource
+from leek_core.manager import ComponentManager
+from leek_core.event import Event, EventType, EventBus
+from leek_core.models import StrategyState, LeekComponentConfig, Position, StrategyConfig, StrategyPositionConfig, \
+    OrderType, Asset, Signal
+from leek_core.strategy import StrategyContext, Strategy
 from leek_core.utils import get_logger
+from leek_core.utils.id_generator import generate_str
 
 logger = get_logger(__name__)
 
 
-class Engine(LeekComponent, ABC):
-    def __init__(self, instance_id: str, name: str, position_config: PositionConfig = None):
+class SimpleEngine(LeekComponent):
+    """
+    执行引擎
+    """
+
+    def __init__(self, instance_id: str, name: str, position_config: PositionConfig = None, max_workers: int=0,
+                 event_bus: EventBus = None):
         super().__init__()
         self.running = False
         self.instance_id = instance_id
         self.name = name
         self.position_config = position_config
         self._start_time = time.time()
-        
+
         # 引擎组件
-        self.event_bus = EventBus()
+        self.event_bus = event_bus if event_bus else EventBus()
+        self.event_bus.subscribe_event(EventType.ORDER_UPDATED, self.on_order_update)
+        self.event_bus.subscribe_event(EventType.STRATEGY_SIGNAL_MANUAL, lambda e: self._on_signal(e.data))
+
         self.data_source_manager: DataManager = DataManager(
             self.event_bus, LeekComponentConfig(
                 instance_id=instance_id,
                 name=name + "-数据源管理",
                 cls=DataSourceContext,
                 config=None
-            ))
+            ), self.on_data)
         self.strategy_manager: StrategyManager = StrategyManager(
             self.event_bus, LeekComponentConfig(
                 instance_id=instance_id,
                 name=name + "-策略管理",
                 cls=StrategyContext,
                 config=None
-            ))
-        self.position_manager: PositionManager = PositionManager(
-            self.event_bus, LeekComponentConfig(
-                instance_id=instance_id,
-                name=name + "-仓位管理",
-                cls=None,
-                config=position_config,
-                data=position_config.data if position_config else None
-            ))
+            ), max_workers=max_workers)
+
+        self.risk_manager: RiskManager = RiskManager(self.event_bus)
+        self.position_tracker: PositionTracker = PositionTracker(self.event_bus)
+        self.capital_account = CapitalAccount(self.event_bus, self.position_config.init_amount)
+        self.portfolio: Portfolio = Portfolio(self.event_bus, position_config, risk_manager=self.risk_manager,
+                                              position_tracker=self.position_tracker, capital_account=self.capital_account)
+        # 初始化全局上下文
+        initialize_context(self.position_tracker)
+
         self.executor_manager: ExecutorManager = ExecutorManager(
             self.event_bus, LeekComponentConfig(
                 instance_id=instance_id,
@@ -65,7 +88,52 @@ class Engine(LeekComponent, ABC):
                 cls=ExecutorContext,
                 config=None
             ))
-    
+
+    def on_data(self, data: Data):
+        """
+        处理数据事件
+        """
+        for signal in self.strategy_manager.process_data(data):
+            if signal is None:
+                continue
+            self._on_signal(signal)
+            self.position_tracker.on_data(data)
+
+
+    def _on_signal(self, signal: Signal):
+        self.event_bus.publish_event(Event(event_type=EventType.STRATEGY_SIGNAL, data=signal))
+
+        execution_context = self.portfolio.process_signal(signal)
+        if not execution_context:
+            self.strategy_manager.exec_update(signal.strategy_id, signal.signal_id)
+            return
+
+        # 构建仓位信息上下文
+        position_info = PositionInfo(
+            positions=list(self.position_tracker.positions.values())
+        )
+        # 过风控
+        self.risk_manager.evaluate_risk(execution_context, position_info)
+
+        # 冻结资金
+        if not self.capital_account.freeze_amount(execution_context):
+            logger.error(f"Portfolio 冻结资金失败: {execution_context.signal_id}, {execution_context}")
+            self.strategy_manager.exec_update(signal.strategy_id, signal.signal_id)
+            return
+
+        self.event_bus.publish_event(Event(event_type=EventType.EXEC_ORDER_CREATED, data=execution_context))
+        self.executor_manager.handle_order(execution_context)
+
+    def on_order_update(self, event: Event):  # 处理订单更新
+        order = event.data
+        self.portfolio.order_update(order)
+        execution_order = self.executor_manager.order_update(order)
+        if execution_order is None:
+            return
+        self.event_bus.publish_event(Event(EventType.EXEC_ORDER_UPDATED, execution_order))
+
+        self.strategy_manager.exec_update(order.strategy_id, execution_order)
+
     def check_component(self):
         """
         检查组件状态
@@ -73,26 +141,21 @@ class Engine(LeekComponent, ABC):
         return {
             "data_source_manager": self.data_source_manager.check_component(),
             "strategy_manager": self.strategy_manager.check_component(),
-            "position_manager": self.position_manager.check_component(),
             "executor_manager": self.executor_manager.check_component(),
         }
-    
-    def handle_event(self, event: Event):
-        if not event.event_type.value.startswith("data_"):
-            self._handle_event(event)
 
     def get_position_state(self):
         """
         获取仓位状态
         """
-        return self.position_manager.get_state()
+        return json.loads(json.dumps(self.portfolio.get_state(), cls=LeekJSONEncoder))
 
     def get_strategy_state(self):
         """
         获取策略状态
         """
         return {instance_id: strategy.get_state() for instance_id, strategy in self.strategy_manager.components.items()}
-    
+
     def update_strategy_state(self, instance_id: str, state: Dict):
         """
         更新策略
@@ -106,39 +169,6 @@ class Engine(LeekComponent, ABC):
         """
         self.strategy_manager.clear_state(strategy_id, instance_id)
         return self.get_strategy_state()
-
-    def handle_message(self, msg: Dict):
-        """
-        处理主进程发来的消息，自动分发到对应方法
-        """
-        if not isinstance(msg, dict) or "action" not in msg:
-            logger.error(f"未知消息: {msg}")
-            return
-            
-        action = msg["action"]
-        args = msg.get("args", [])
-        kwargs = msg.get("kwargs", {})
-        msg_id = msg.get("msg_id")
-        
-        # 反序列化参数
-        args = [arg for arg in args]
-        kwargs = {k: v for k, v in kwargs.items()}
-        
-        if hasattr(self, action):
-            method = getattr(self, action)
-            try:
-                result = method(*args, **kwargs)
-                # 如果是invoke请求（有msg_id），则发送响应
-                if msg_id:
-                    self.send_msg("response", msg_id=msg_id, result=result)
-            except Exception as e:
-                logger.error(f"处理命令 {action} 时出错，参数{args} {kwargs}，错误信息: {e}", exc_info=True)
-                if msg_id:
-                    self.send_msg("response", msg_id=msg_id, error=str(e))
-        else:
-            logger.error(f"未知action: {action}")
-            if msg_id:
-                self.send_msg("response", msg_id=msg_id, error=f"未知action: {action}")
 
     def engine_state(self):
         """
@@ -187,6 +217,7 @@ class Engine(LeekComponent, ABC):
                 }
             }
         }
+
     def format_strategy_config(self, config: Dict):
         return LeekComponentConfig(
             instance_id=str(config.get("id")),
@@ -207,7 +238,8 @@ class Engine(LeekComponent, ABC):
                     config=cfg.get("config", {})
                 ) for cfg in config.get("info_fabricator_configs", [])],
                 strategy_config=config.get("params", {}),
-                strategy_position_config=StrategyPositionConfig(**config.get("position_config")) if config.get("position_config") else None,
+                strategy_position_config=StrategyPositionConfig(**config.get("position_config")) if config.get(
+                    "position_config") else None,
                 risk_policies=[LeekComponentConfig(
                     instance_id=str(config.get("id")),
                     name=config.get("name", ""),
@@ -217,7 +249,6 @@ class Engine(LeekComponent, ABC):
             )
         )
 
-    # 下面实现所有Engine抽象方法（这里只做简单打印/存储，实际可接入管理器）
     def add_strategy(self, config: LeekComponentConfig[Strategy, StrategyConfig]):
         logger.info(f"添加策略: {config}")
         if isinstance(config, dict):
@@ -275,7 +306,7 @@ class Engine(LeekComponent, ABC):
         logger.info(f"移除数据源: {instance_id}")
         self.data_source_manager.remove(instance_id)
 
-    def update_position_config(self, position_config: PositionConfig, data: Dict=None) -> None:
+    def update_position_config(self, position_config: PositionConfig, data: Dict = None) -> None:
         logger.info(f"更新仓位配置: {position_config}")
         if isinstance(position_config, dict):
             # 为 PositionConfig 提供默认值
@@ -286,13 +317,12 @@ class Engine(LeekComponent, ABC):
             position_config.setdefault('max_symbol_ratio', Decimal('0.25'))
             position_config.setdefault('max_amount', Decimal('10000'))
             position_config.setdefault('max_ratio', Decimal('0.1'))
-            
+
             position_config = PositionConfig(**position_config)
             position_config.data = data
 
-
         self.position_config = position_config
-        self.position_manager.update(position_config)
+        self.portfolio.update_config(position_config)
 
     def add_position_policy(self, config: LeekComponentConfig[LeekComponent, Dict[str, Any]]):
         """添加全局仓位风控策略"""
@@ -305,7 +335,7 @@ class Engine(LeekComponent, ABC):
             }
             config = self.format_component_config(config)
             config.extra = data
-        self.position_manager.add_policy(config)
+        self.risk_manager.add_policy(config)
 
     def update_position_policy(self, config: LeekComponentConfig[LeekComponent, Dict[str, Any]]):
         """更新全局仓位风控策略：按类名先移除后添加"""
@@ -319,22 +349,18 @@ class Engine(LeekComponent, ABC):
 
     def remove_position_policy(self, instance_id: str):
         """移除全局仓位风控策略，优先按实例ID移除，其次按类名移除"""
-        self.position_manager.remove_policy(instance_id)
+        self.risk_manager.remove_policy(instance_id)
 
-    def ping(self, instance_id: str):
-        """响应主进程的 ping 消息，回复 pong"""
-        if instance_id == self.instance_id:
-            return True
-        return False
-    
     def close_position(self, position_id: str):
         """
         关闭仓位
         """
-        position = self.position_manager.get_position(str(position_id))
+        position = self.position_tracker.find_position(position_id=str(position_id))
         logger.info(f"关闭仓位: {position_id}, {'已找到仓位' if position else '未找到仓位'}")
         if position:
-            self.strategy_manager.close_position(position)
+            signal = self.strategy_manager.close_position(position[0])
+            if signal:
+                self.event_bus.publish_event(Event(event_type=EventType.STRATEGY_SIGNAL_MANUAL, data=signal))
             return True
         return False
 
@@ -342,34 +368,26 @@ class Engine(LeekComponent, ABC):
         """
         重置仓位状态
         """
-        self.position_manager.reset_position_state()
-        return self.position_manager.get_state()
+        self.portfolio.load_state({"reset_position_state": True})
+        return json.loads(json.dumps(self.portfolio.get_state(), cls=LeekJSONEncoder))
 
     def on_start(self):
         """启动引擎组件"""
         self.data_source_manager.on_start()
         self.strategy_manager.on_start()
-        self.position_manager.on_start()
         self.executor_manager.on_start()
-        self.event_bus.subscribe_event(None, self.handle_event)
+
         self.running = True
 
     def on_stop(self):
         """引擎停止时的回调"""
         self.running = False
-        # 先取消全局事件订阅，避免停止期间产生无关处理
-        try:
-            self.event_bus.unsubscribe_event(None, self.handle_event)
-        except Exception:
-            pass
-
         # 停止引擎组件（顺序很重要）
         # 1) 策略先停止（会发布数据源取消订阅事件）
         self.strategy_manager.on_stop()
         # 2) 执行器停止
         self.executor_manager.on_stop()
         # 3) 仓位管理停止
-        self.position_manager.on_stop()
         # 4) 数据源最后停止（确保能处理取消订阅）
         self.data_source_manager.on_stop()
 
@@ -379,12 +397,3 @@ class Engine(LeekComponent, ABC):
         except Exception:
             pass
         logger.info(f"引擎已停止: {self.instance_id} {self.name}")
-    
-    def start(self) -> None:
-        ...
-
-    def _handle_event(self, event: Event):
-        ...
-
-    def shutdown(self):
-        ...

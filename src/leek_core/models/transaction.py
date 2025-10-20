@@ -36,7 +36,7 @@ class Transaction:
     strategy_instance_id: str = None
     position_id: str = None
     exec_order_id: str = None
-    order_id: str = None
+    order_id: Optional[str] = None
     signal_id: str = None
     asset_key: str = None
 

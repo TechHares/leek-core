@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 _portfolio_lock = RLock()
 
 
-class Portfolio(LeekContext):
+class Portfolio:
     """
     投资组合管理器 - 组合使用 CapitalAccount 和 PositionTracker
     
@@ -27,7 +27,7 @@ class Portfolio(LeekContext):
     - 对外提供统一的业务接口
     """
     
-    def __init__(self, event_bus: EventBus, config: LeekComponentConfig[None, PositionConfig], 
+    def __init__(self, event_bus: EventBus, config: PositionConfig,
                 capital_account: CapitalAccount = None, 
                 position_tracker: PositionTracker = None, 
                 risk_manager: RiskManager = None):
@@ -41,8 +41,7 @@ class Portfolio(LeekContext):
             position_tracker: 仓位跟踪器
             risk_manager: 风控管理器
         """
-        super().__init__(event_bus, config)
-        self.position_config = config.config
+        self.position_config = config
         # 组合使用轻量级组件
         self.capital_account = capital_account or CapitalAccount(event_bus, self.position_config.init_amount)
         self.position_tracker = position_tracker or PositionTracker(event_bus)
@@ -54,8 +53,6 @@ class Portfolio(LeekContext):
         self.fee = Decimal(0)  # 手续费
         self.virtual_pnl = Decimal(0)  # 虚拟盈亏
         
-        # 信号和订单管理
-        self.signals: Dict[str, Signal] = {}
         logger.info(f"Portfolio 初始化完成，初始资金: {self.position_config.init_amount}")
         self.load_state(config.data)
     
@@ -83,32 +80,29 @@ class Portfolio(LeekContext):
     def profit(self) -> Decimal:
         """总收益"""
         return self.pnl + self.friction + self.fee
-    
+
     @thread_lock(_portfolio_lock)
-    def process_signal(self, signal: Signal, cls: str = None):
+    def process_signal(self, signal: Signal) -> ExecutionContext | None:
         """
         处理策略信号 - Portfolio 的核心业务逻辑
-        
+
         参数:
             signal: 策略信号
             cls: 策略类名
-            
+
         返回:
             ExecutionContext: 执行上下文
         """
         logger.debug(f"Portfolio 处理信号: {signal.signal_id}")
-        # 保存信号
-        self.signals[signal.signal_id] = signal
         # 评估信号可执行性
         execution_assets = self._evaluate_signal(signal)
         logger.info(f"处理策略信号: {signal} -> {execution_assets}")
         if not execution_assets:
             logger.warning(f"信号无法执行: {signal.signal_id}")
-            self.exec_update(signal.signal_id)
             return
-        
+
         # 创建执行上下文
-        execution_context = ExecutionContext(
+        return ExecutionContext(
             context_id=generate_str(),
             signal_id=signal.signal_id,
             strategy_id=signal.strategy_id,
@@ -120,51 +114,10 @@ class Portfolio(LeekContext):
             order_type=signal.config.order_type if signal.config and signal.config.order_type else self.position_config.order_type,
             trade_type=self.position_config.trade_type,
             trade_mode=self.position_config.trade_mode,
-            strategy_cls=cls,
+            strategy_cls=signal.strategy_cls,
         )
-        
-        # 执行风控检查
-        if not self._do_risk_policy(execution_context):
-            # 风控通过，冻结资金
-            if not self.capital_account.freeze_amount(execution_context):
-                logger.warning(f"Portfolio 冻结资金失败: {execution_context.signal_id}")
-                execution_context.is_finish = True
-                self.exec_update(execution_context.signal_id)
-                return
-        
-        # 发布执行事件
-        logger.info(f"Portfolio 信号处理完成: {signal.signal_id}, {execution_context}")
-        self.event_bus.publish_event(Event(
-            event_type=EventType.EXEC_ORDER_CREATED,
-            data=execution_context
-        ))
 
-    def exec_update(self, execution_context: ExecutionContext | str):
-        if isinstance(execution_context, str):
-            signal = self.signals.pop(execution_context, None)
-            logger.error(f"信号分配资金失败: {signal}")
-            if not signal:
-                return
-            for signal_asset in signal.assets:
-                signal_asset.actual_ratio = 0
-        else:
-            logger.info(f"执行订单更新: {execution_context.is_finish}, {execution_context}")
-            if not execution_context.is_finish:
-                return
-            signal = self.signals.pop(execution_context.signal_id, None)
-            if not signal:
-                return
-            for signal_asset in signal.assets:
-                signal_asset.actual_ratio = signal_asset.actual_ratio or 0
-                for asset in execution_context.execution_assets:
-                    if asset.asset_key == signal_asset.asset_key and asset.is_open == signal_asset.is_open:
-                        signal_asset.actual_ratio += asset.ratio
-        self.event_bus.publish_event(Event(
-            event_type=EventType.STRATEGY_SIGNAL_FINISH,
-            data=signal
-        ))
-    
-    def _evaluate_signal(self, signal: Signal) -> List[ExecutionAsset]:
+    def _evaluate_signal(self, signal: Signal) -> List[ExecutionAsset]|None:
         """
         评估信号可执行性
         
@@ -178,8 +131,8 @@ class Portfolio(LeekContext):
             return []
         
         available_balance = self.capital_account.available_balance
-        if available_balance <= 0:
-            logger.warning("可用资金不足")
+        if available_balance <= 0 and any(asset.is_open for asset in signal.assets):
+            logger.warning(f"可用资金不足[{available_balance}], 信号: {signal}")
             return []
         
         # 获取策略当前使用的资金和比例
@@ -248,7 +201,7 @@ class Portfolio(LeekContext):
                 side=asset.side,
                 price=asset.price,
                 ratio=asset.ratio,
-                amount=0,
+                amount=Decimal(0),
                 is_open=asset.is_open,
                 quote_currency=asset.quote_currency,
                 extra=asset.extra,
@@ -263,13 +216,15 @@ class Portfolio(LeekContext):
                     total_sz = current_position.sz + sum(vp.sz for vp in current_position.virtual_positions)
                     total_ratio = current_position.ratio + sum(vp.ratio for vp in current_position.virtual_positions)
                     
-                    close_ratio = min(1, asset.ratio / total_ratio)
+                    close_ratio = min(Decimal(1), asset.ratio / total_ratio)
                     close_sz = total_sz * close_ratio
                     virtual_sz = sum(vp.sz for vp in current_position.virtual_positions)
                     execution_asset.virtual_sz = min(virtual_sz, close_sz)
                     execution_asset.sz = max(0, close_sz - virtual_sz)
                     execution_asset.ratio = total_ratio * close_ratio if execution_asset.sz < total_sz else total_ratio
-                    if execution_asset.ratio == 0 or execution_asset.sz == 0:
+                    if execution_asset.ratio == 0 or (execution_asset.sz + execution_asset.virtual_sz) == 0:
+                        logger.error(f"信号 {signal.signal_id} 的资产 {asset.asset_key} 平仓sz为0, ratio={execution_asset.ratio}, sz={execution_asset.sz}, "\
+                            f"virtual_sz={execution_asset.virtual_sz}, total_sz={total_sz}, total_ratio={total_ratio}, close_ratio={close_ratio}, close_sz={close_sz}, virtual_sz={virtual_sz}")
                         return None
                     execution_asset.amount = decimal_quantize(current_position.amount * close_ratio, 8)
                     continue
@@ -278,24 +233,6 @@ class Portfolio(LeekContext):
             execution_asset.amount = decimal_quantize(principal * asset.ratio, 8)
             execution_asset.ratio = decimal_quantize(execution_asset.amount / self.total_amount, 8)
         return execution_assets
-    
-    def _do_risk_policy(self, execution_context: ExecutionContext) -> bool:
-        """
-        执行风控策略检查
-        
-        参数:
-            execution_context: 执行上下文
-            
-        返回:
-            bool: True表示风控拦截，False表示风控通过
-        """
-        # 构建仓位信息上下文
-        position_info = PositionInfo(
-            positions=list(self.position_tracker.positions.values())
-        )
-        
-        # 委托给风控管理器执行检查
-        return self.risk_manager.evaluate_risk(execution_context, position_info)
     
     def update_config(self, config: PositionConfig):
         """
@@ -310,9 +247,7 @@ class Portfolio(LeekContext):
             self.capital_account.change_amount(delta_amount, f"修改初始化资金: {self.position_config.init_amount} -> {config.init_amount}")
         
         # 更新配置
-        self.config.config = config
         self.position_config = config
-        
         logger.info(f"Portfolio 配置更新完成: 初始资金 {self.position_config.init_amount}")
     
     @thread_lock(_portfolio_lock)
@@ -351,8 +286,6 @@ class Portfolio(LeekContext):
         self.capital_account.reset()
         # 重置仓位跟踪器
         self.position_tracker.reset()
-        # 重置信号
-        self.signals = {}
         self.pnl = Decimal(0)
         self.fee = Decimal(0)
         self.friction = Decimal(0)
@@ -381,18 +314,11 @@ class Portfolio(LeekContext):
         self.virtual_pnl = Decimal(state.get('virtual_pnl', self.virtual_pnl))
         
         # 加载资金状态
-        self.capital_account.load_state(state.get('capital', None))
+        self.capital_account.load_state(state.get('capital'))
         # 加载仓位状态
-        self.position_tracker.load_state(state.get('position', None))
+        self.position_tracker.load_state(state.get('position'))
         # 加载风控状态
-        self.risk_manager.load_state(state.get('risk', None))
-
-        # 加载信号
-        signals_data = state.get('signals', [])
-        for signal in signals_data:
-            if isinstance(signal, dict):
-                signal = Signal(**signal)
-            self.signals[signal.signal_id] = signal
+        self.risk_manager.load_state(state.get('risk'))
         logger.info("Portfolio 状态加载完成")
     
     def get_state(self) -> dict:
@@ -416,8 +342,6 @@ class Portfolio(LeekContext):
             
             # 仓位统计
             'asset_count': len(set((pos.symbol, pos.quote_currency) for pos in self.position_tracker.positions.values())),  # 资产数量
-            'signals': list(self.signals.values()),  # 信号
-
             # 详细信息
             'capital': self.capital_account.get_state(),  # 资金详情
             'position': self.position_tracker.get_state(),  # 仓位详情

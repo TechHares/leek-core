@@ -14,10 +14,9 @@ class FabricatorContext(LeekContext):
     """
     数据处理器上下文类，用于管理数据处理器实例和事件处理，伴随策略存在
     """
-    def __init__(self, data_callback, event_bus: EventBus, config: LeekComponentConfig[None, List[LeekComponentConfig[Fabricator, Dict[str, Any]]]]):
+    def __init__(self, event_bus: EventBus, config: LeekComponentConfig[None, List[LeekComponentConfig[Fabricator, Dict[str, Any]]]]):
         super().__init__(event_bus, config)
         self.fabricators: List[Fabricator] = []
-        self.data_callback = data_callback
 
         for pla in config.config:
             plugin = create_component(pla.cls, **pla.config)
@@ -57,8 +56,7 @@ class FabricatorContext(LeekContext):
                 logger.error(f"fabricator {fabricator.display_name} process error: {e}", exc_info=True)
                 continue
 
-        for d in datas:
-            self.data_callback(d)
+        return datas
 
 
     def on_start(self):

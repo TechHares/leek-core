@@ -12,10 +12,8 @@ from multiprocessing import Process
 from decimal import Decimal
 from leek_core.utils.serialization import LeekJSONEncoder, LeekJSONDecoder
 from leek_core.utils import get_logger, generate
-from leek_core.engine.base import Engine
 from leek_core.event import Event, EventType, EventSource
 from leek_core.models import LeekComponentConfig, PositionConfig
-from leek_core.manager import DataManager, StrategyManager, PositionManager, ExecutorManager
 from leek_core.event import EventBus
 from leek_core.data import DataSourceContext
 from leek_core.strategy import StrategyContext
@@ -25,6 +23,9 @@ from leek_core.base import load_class_from_str
 from leek_core.alarm import alarm_manager, ErrorAlarmHandler
 from concurrent import futures  
 import uuid
+
+from .engine import SimpleEngine
+
 logger = get_logger(__name__)
 
 try:
@@ -63,7 +64,7 @@ options = [
     # 启用 HTTP/2 ping 的频率控制（可选）
     ('grpc.http2.min_time_between_pings_ms', 10000),
 ]
-class GrpcEngine(Engine):
+class GrpcEngine(SimpleEngine):
     """
     独立进程中的交易引擎实现。
     通过gRPC与主进程通信，接收指令并执行。
@@ -71,8 +72,7 @@ class GrpcEngine(Engine):
     """
 
     def __init__(self, instance_id: str, name: str, position_config: PositionConfig = None):
-        super().__init__(instance_id, name, position_config)
-        
+        super().__init__(instance_id, name, position_config, 10)
         self.engine_server = None
         self.engine_port = None
 
@@ -83,10 +83,14 @@ class GrpcEngine(Engine):
         except (RuntimeError, Exception):
             self._event_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._event_loop)
-        
+    
+    def ping(self, instance_id: str):
+        """响应主进程的 ping 消息，回复 pong"""
+        if instance_id == self.instance_id:
+            return True
+        return False
 
-
-    def _handle_event(self, event: Event):
+    def handle_event(self, event: Event):
         """处理事件，推送到主进程"""
         try:
             # 创建EventMessage对象
@@ -125,6 +129,7 @@ class GrpcEngine(Engine):
         # 保持服务器运行
         logger.info(f"gRPC服务器已启动，保持运行状态: {self.instance_id}")
         self.on_start()
+        self.event_bus.subscribe_event(None, self.handle_event)
 
         # 启动周期性组件检查任务
         self._check_task = None
@@ -132,7 +137,7 @@ class GrpcEngine(Engine):
         async def periodic_component_check():
             try:
                 while True:
-                    await asyncio.sleep(60)  # 每60秒检查一次
+                    await asyncio.sleep(120)  # 每60秒检查一次
                     component_status = self.check_component()
                     logger.info(f"周期性组件状态检查: {component_status}")
             except asyncio.CancelledError:
@@ -174,6 +179,7 @@ class GrpcEngine(Engine):
             await self.engine_server.stop(grace=3)
         
         # 调用引擎停止逻辑
+        self.event_bus.unsubscribe_event(None, self.handle_event)
         logger.info("调用引擎停止逻辑")
         self.on_stop()
         

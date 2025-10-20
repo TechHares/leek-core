@@ -35,7 +35,7 @@ class ExecutorManager(ComponentManager[ExecutorContext, Executor, Dict[str, Any]
     def handle_order(self, execution_order: ExecutionContext):
         """
         处理订单，根据订单属性决定路由到哪个执行器。
-        :param order: 订单对象，需包含executor_id/route等字段
+        :param execution_order: 订单对象，需包含executor_id/route等字段
         :return: 执行结果
         """
         if len(self.components) == 0:
@@ -50,13 +50,13 @@ class ExecutorManager(ComponentManager[ExecutorContext, Executor, Dict[str, Any]
         self.execution_order_map[execution_order.context_id] = execution_order
         exec_map = self.route_order(execution_order)
         self.order_map[execution_order.context_id]=set()
-        for exec, orders in exec_map.items():
+        for exec_ctx, orders in exec_map.items():
             for order in orders:
                 self.order_map[execution_order.context_id].add(order.order_id)
-            exec.send_order(orders)
+            exec_ctx.send_order(orders)
 
     @thread_lock()
-    def order_update(self, order: Order):
+    def order_update(self, order: Order) -> ExecutionContext|None:
         try:
             if not order.order_status.is_finished or order.exec_order_id not in self.order_map:
                 return
@@ -80,7 +80,7 @@ class ExecutorManager(ComponentManager[ExecutorContext, Executor, Dict[str, Any]
                 self.order_map.pop(order.exec_order_id)
                 self.execution_order_map.pop(order.exec_order_id)
                 execution_order.is_finish = True
-            self.event_bus.publish_event(Event(EventType.EXEC_ORDER_UPDATED, execution_order))
+            return execution_order
         except BaseException as e:
             logger.error(f"执行订单更新异常: {e}", exc_info=True)
 
@@ -88,7 +88,7 @@ class ExecutorManager(ComponentManager[ExecutorContext, Executor, Dict[str, Any]
         """
         路由策略：根据订单属性决定分发到哪个执行器。
         可自定义扩展（如按类型、标的、策略等）。
-        :param order: 订单对象
+        :param execution_order: 订单对象
         :return: 执行器ID
         """
         exec_map = {}
@@ -191,7 +191,7 @@ class ExecutorManager(ComponentManager[ExecutorContext, Executor, Dict[str, Any]
             executor_sz=original_asset.executor_sz
         )
     
-    def to_asset_order(self, execution_order: ExecutionContext, exec: Executor, assets: List[ExecutionAsset] = None) -> List[Order]:
+    def to_asset_order(self, execution_order: ExecutionContext, exec: ExecutorContext, assets: List[ExecutionAsset] = None) -> List[Order]:
         """
         将执行上下文转换为订单列表。
         
@@ -257,8 +257,6 @@ class ExecutorManager(ComponentManager[ExecutorContext, Executor, Dict[str, Any]
         return None
 
     def on_start(self):
-        self.event_bus.subscribe_event(EventType.EXEC_ORDER_CREATED, lambda e: self.handle_order(e.data))
-        self.event_bus.subscribe_event(EventType.ORDER_UPDATED, lambda e: self.order_update(e.data))
         self.add(
             LeekComponentConfig(
                 instance_id="-1",
@@ -274,4 +272,3 @@ class ExecutorManager(ComponentManager[ExecutorContext, Executor, Dict[str, Any]
                 data=None
             )
         )
-        logger.info(f"事件订阅: 执行器管理-{self.name}@{self.instance_id} 订阅 {[e.value for e in [EventType.EXEC_ORDER_CREATED]]}")
