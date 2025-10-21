@@ -30,7 +30,7 @@ class BBI(T):
             self.bbi = sum(values) / 4
             return self.bbi
         finally:
-            if data.is_finished:
+            if data.is_finished and self.bbi is not None:
                 self.cache.append(self.bbi)
 
 
