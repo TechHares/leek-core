@@ -3,7 +3,7 @@
 # @File    : __init__.py.py
 # @Software: PyCharm
 
-__all__ = ["T", "TR", "ATR", "RSRS", "SAR", "KDJ", "MA", "EMA", "BollBand", "DK", "LLT", "KAMA", "FRAMA", "StochRSI", "RSI",
+__all__ = ["T", "TR", "ATR", "RSRS", "SAR", "KDJ", "MA", "EMA", "BollBand", "DK", "LLT", "KAMA", "FRAMA", "StochRSI", "RSI", "BBI",
            "ChanKManager", "ChanK", "ChanUnion", "ChanBIManager", "ChanBI", "ChanFeature", "ChanSegment",
            "ChanSegmentManager", "BiFXValidMethod", "ChanFX", "ChanDirection", "ChanZSManager", "ChanZS", "Chan",
            "ChanBSPoint", "ChanFXManager",
@@ -36,6 +36,7 @@ from .sar import SAR
 from .t import MERGE
 from .wr import WR
 from .bias import BiasRatio
+from .bbi import BBI
 
 MA_TYPE = {
     "MA": MA,
