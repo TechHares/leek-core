@@ -20,17 +20,17 @@ class BBI(T):
             raise ValueError("BBI requires 4 periods")
         self.periods = tuple(int(p) for p in periods)
         self.mas = [MA(p) for p in self.periods]
+        self.bbi = None
 
     def update(self, data):
-        bbi = None
         try:
             values = [m.update(data) for m in self.mas]
             if any(v is None for v in values):
-                return bbi
-            bbi = sum(values) / 4
-            return bbi
+                return self.bbi
+            self.bbi = sum(values) / 4
+            return self.bbi
         finally:
             if data.is_finished:
-                self.cache.append(bbi)
+                self.cache.append(self.bbi)
 
 
