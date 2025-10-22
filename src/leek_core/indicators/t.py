@@ -34,7 +34,7 @@ class MERGE(T):
                 return None
             self.not_start = False
 
-        if len(self.q) > 0 and self.q[-1].is_finished:
+        if len(self.q) > 0 and not self.q[-1].is_finished:
             self.q.pop()
 
         self.q.append(data)
