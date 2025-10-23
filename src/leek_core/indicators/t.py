@@ -42,9 +42,9 @@ class MERGE(T):
         r = KLine(symbol=data.symbol,
               market=data.market,
               timeframe=TimeFrame.from_milliseconds(data.timeframe.milliseconds * self.window),
-              start_time=ls[0].timestamp,
-              end_time=ls[-1].timestamp,
-              current_time=data.current_time,
+              start_time=ls[0].start_time,
+              end_time=ls[-1].end_time,
+              current_time=data.current_time or data.end_time,
               open=ls[0].open,
               high=max(d.high for d in ls),
               low=min(d.low for d in ls),
@@ -56,6 +56,7 @@ class MERGE(T):
               is_finished=False,
               )
         r.merge = True
+        r.end_time = r.end_time + r.timeframe.milliseconds
         if len(ls) == self.window and data.is_finished:
             r.is_finished = True
             self.q.clear()
