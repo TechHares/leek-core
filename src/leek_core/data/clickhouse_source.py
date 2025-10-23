@@ -26,7 +26,7 @@ class ClickHouseKlineDataSource(DataSource):
         Field(name="host", label="主机", type=FieldType.STRING, required=True, default="127.0.0.1"),
         Field(name="port", label="端口", type=FieldType.INT, required=True, default=9000),
         Field(name="user", label="用户名", type=FieldType.STRING, required=True, default="default"),
-        Field(name="password", label="密码", type=FieldType.STRING, default=""),
+        Field(name="password", label="密码", type=FieldType.STRING, default="default"),
         Field(name="database", label="数据库名", type=FieldType.STRING, default="default"),
     ]
     # 声明显示名称
@@ -52,10 +52,8 @@ class ClickHouseKlineDataSource(DataSource):
     ) ENGINE = ReplacingMergeTree()
     PRIMARY KEY (market, timeframe, timestamp, symbol, quote_currency, ins_type)
     ORDER BY (market, timeframe, timestamp, symbol, quote_currency, ins_type)
-    PARTITION BY timeframe
-    SETTINGS index_granularity=4096,
-            index_granularity_bytes=1048576,
-            enable_mixed_granularity_parts=1;
+    PARTITION BY (timeframe, toYYYYMM(toDateTime(timestamp / 1000)))
+    SETTINGS index_granularity=8192;
     """
 
     def __init__(self, host: str="127.0.0.1", port: int = 9000, user: str = 'default',
