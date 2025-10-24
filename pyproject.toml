@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "leek-core"
-version = "1.7.3"
+version = "1.7.4"
 description = "Leek Core 量化交易引擎/组件化事件驱动框架"
 authors = ["shenglin.li <764935704@qq.com>"]
 readme = "README.md"
@@ -38,7 +38,7 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.11,<3.13"
+python = ">=3.11,<4"
 cachetools = "5.3.3"
 clickhouse-driver = "0.2.9"
 numpy = "1.26.4"

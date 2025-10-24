@@ -8,7 +8,7 @@ import sys
 
 import numpy as np
 
-from leek_core.utils import get_logger, DateTimeUtils, setup_logging
+from leek_core.utils import get_logger, DateTimeUtils, setup_logging, set_worker_id
 from leek_core.base import load_class_from_str, create_component
 from leek_core.data import DataSource
 from leek_core.models import PositionConfig, LeekComponentConfig, Position, Signal, StrategyConfig, KLine
@@ -22,15 +22,21 @@ from leek_core.engine import SimpleEngine
 from .performance import vectorized_operations
 from .types import RunConfig, PerformanceMetrics, BacktestResult
 from .data_cache import DataCache
-from concurrent_log_handler import ConcurrentRotatingFileHandler
+import logging
+import os
 
 logger = get_logger(__name__)
 def run_backtest(config: Dict[str, Any]):
     """运行回测"""
     runner = BacktestRunner(config)
     try:
-        handler = ConcurrentRotatingFileHandler(filename=f'{config.get("id", 0)}.log', mode='a', maxBytes=0, backupCount=0, encoding='utf-8')
-        setup_logging(console=False, external_handlers=[handler])
+        set_worker_id(os.getpid() % 1024)
+        if config.get("log_file", False):
+            from concurrent_log_handler import ConcurrentRotatingFileHandler
+            handler = ConcurrentRotatingFileHandler(filename=f'{config.get("id", 0)}.log', mode='a', maxBytes=0, backupCount=0, encoding='utf-8')
+            setup_logging(console=False, external_handlers=[handler])
+        else:
+            setup_logging(console=False, external_handlers=[logging.NullHandler()], log_level="CRITICAL")
         global logger
         logger = get_logger(__name__)
         return runner.run()
@@ -138,6 +144,7 @@ class BacktestRunner:
         self.event_bus.subscribe_event(EventType.STRATEGY_SIGNAL, self._on_signal_generated)
 
     def run(self):
+        time_start = DateTimeUtils.now_timestamp()
         self._init()
 
         # 执行回测
@@ -147,12 +154,19 @@ class BacktestRunner:
         logger.info(f"Generated row_key: {row_key}")
         strategy_ctx = self.engine.strategy_manager.get("strategy")
         wrapper = None
+        time_init = DateTimeUtils.now_timestamp()
+        time_data = None
+        time_run = None
         for kline in self.data_source.get_history_data(
                 start_time=min(self.config.start_time, self.config.pre_start) if  self.config.pre_start else self.config.start_time,
                 end_time=max(self.config.end_time, self.config.pre_end) if self.config.pre_end else self.config.end_time,
                row_key=row_key, market=self.config.market):
+            if time_data is None:
+                time_data = DateTimeUtils.now_timestamp()
             if kline.start_time < self.config.start_time:
                 continue
+            if time_run is None:
+                time_run = DateTimeUtils.now_timestamp()
             if kline.end_time > self.config.end_time:
                 break
             # 更新仓位管理
@@ -174,7 +188,7 @@ class BacktestRunner:
 
             # 记录基准价格（与净值一一对应）
             self.benchmark_prices.append(float(kline.close))
-
+        time_end = DateTimeUtils.now_timestamp()
         # 计算性能指标（使用优化的并行计算）
         metrics = self._calculate_performance_metrics_optimized(turnover=float(turnover_acc))
 
@@ -183,8 +197,9 @@ class BacktestRunner:
 
         # 计算基准曲线（如果有基准价格）
         benchmark_curve = self._calculate_benchmark_curve_from_prices()
-
+        time_metrics = DateTimeUtils.now_timestamp()
         return BacktestResult(
+            times=[time_start, time_init, time_data or time_init, time_run or time_init, time_end, time_metrics],
             config=self.original_config,
             metrics=metrics,
             equity_curve=self.equity_values,

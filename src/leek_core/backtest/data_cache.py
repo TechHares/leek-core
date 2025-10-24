@@ -9,33 +9,34 @@
 4. 线程安全访问
 """
 
+import os
+import pickle
+import time
 from datetime import datetime
 from typing import Any, List, Iterator
 
 from diskcache import Cache
-
+from cachetools import LRUCache, cached
 from leek_core.models import Field
-
-
-
 from leek_core.data import DataSource
 from leek_core.utils import get_logger, DateTimeUtils
 
+_GLOBAL_CACHE = LRUCache(maxsize=3)
 logger = get_logger(__name__)
+DISKCACHE_CACHE = Cache(".cache")
+
+def _get_history_data_key(_, row_key: str, start_time: int | None = None,
+                          end_time: int | None = None, limit: int = None, **kwargs):
+    return (row_key, start_time, end_time, limit, tuple(sorted(kwargs.items())))
 
 
 class DataCache(DataSource):
     """共享内存缓存管理器"""
     
-    def __init__(self, data_source: DataSource, cache_dir: str=".cache"):
+    def __init__(self, data_source: DataSource):
         super().__init__()
         self.data_source = data_source
-        logger.info(f"DataCache: cache_dir={cache_dir}")
-        self.cache = Cache(cache_dir)
         self.init = False
-        self._cached_get_history_data = self.cache.memoize(expire=3600)(
-            self._get_history_data
-        )
 
     def parse_row_key(self, **kwargs) -> List[tuple]:
         return self.data_source.parse_row_key(**kwargs)
@@ -53,14 +54,58 @@ class DataCache(DataSource):
         normalized_end = DateTimeUtils.datetime_to_timestamp(end_time) if isinstance(end_time, datetime) else end_time
         logger.info(f"get_history_data: row_key={row_key}, start_time={start_time}, end_time={end_time}, limit={limit}, **kwargs={kwargs}")
         # 调用带缓存的方法
-        result_list = self._cached_get_history_data(row_key, normalized_start, normalized_end, limit, **kwargs)
+        result_list = self._get_history_data_from_memeory(row_key, normalized_start, normalized_end, limit, **kwargs)
         logger.info(f"get_history_data: row_key={row_key}, result_list=len(result_list)={len(result_list)}")
         # 返回新的iterator
         return iter(result_list)
 
+    @cached(cache=_GLOBAL_CACHE, key=_get_history_data_key)
+    def _get_history_data_from_memeory(self, row_key: str, start_time: int | None = None,
+                          end_time: int | None = None, limit: int = None, **kwargs) -> List[Any]:
+        print(f"从本地缓存加载数据[{os.getpid()}]: row_key={row_key}, start_time={start_time}, end_time={end_time}, limit={limit}, **kwargs={kwargs}")
+        # 生成缓存 key
+        cache_key = self._make_cache_key("get_history_data", row_key, start_time, end_time, limit, **kwargs)
+
+        # 1. 先尝试读缓存
+        result = DISKCACHE_CACHE.get(cache_key)
+        if result is not None:
+            logger.debug(f"Cache hit: {cache_key}")
+            return result
+
+        # 2. 缓存 miss：尝试抢占计算权（使用 add 设置一个临时占位符）
+        placeholder = f"__COMPUTING___"
+        lock_key = cache_key + "_lock"
+        timeout = 300
+        if DISKCACHE_CACHE.add(lock_key, placeholder, expire=timeout):  # 300秒超时防止死锁
+            try:
+                # 只有抢到锁的进程执行实际查询
+                logger.info(f"Cache miss, computing: {cache_key}")
+                result = self._get_history_data(row_key, start_time, end_time, limit, **kwargs)
+                # 写入真实结果
+                DISKCACHE_CACHE.set(cache_key, result, expire=3600)
+                return result
+            finally:
+                DISKCACHE_CACHE.delete(lock_key)
+        else:
+            # 3. 没抢到：等待结果（简单轮询）
+            logger.debug(f"Waiting for other process to compute: {cache_key}")
+            for _ in range(timeout):  # 最多等 timeout 秒
+                time.sleep(1)
+                result = DISKCACHE_CACHE.get(cache_key)
+                if result is not None:
+                    return result
+            logger.warning(f"Timeout waiting for cache, computing directly: {cache_key}")
+            return self._get_history_data(row_key, start_time, end_time, limit, **kwargs)
+
+    def _make_cache_key(self, func_name: str, *args, **kwargs) -> str:
+        # 生成稳定、可哈希的 key
+        key_tuple = (func_name, args, tuple(sorted(kwargs.items())))
+        return pickle.dumps(key_tuple, protocol=0).hex()  # 转为 hex 字符串
+
     def _get_history_data(self, row_key: str, start_time: int | None = None,
                           end_time: int | None = None, limit: int = None, **kwargs) -> List[Any]:
         """实际查询方法，返回list用于缓存"""
+        print(f"从数据库加载数据[{os.getpid()}]: row_key={row_key}, start_time={start_time}, end_time={end_time}, limit={limit}, **kwargs={kwargs}")
         logger.info(f"Cache miss for row_key={row_key}, start={start_time}, end={end_time}, limit={limit}")
         if not self.init:
             self.data_source.on_start()
@@ -79,5 +124,5 @@ class DataCache(DataSource):
         return self.data_source.get_supported_parameters()
 
     def on_stop(self):
-        self.data_source.on_stop()
-        self.cache.close()
+        if self.init:
+            self.data_source.on_stop()

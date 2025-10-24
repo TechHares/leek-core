@@ -68,7 +68,7 @@ class EnhancedBacktester:
                 result.config = params
                 results.append(result)
             completed += 1
-            self._progress_callback(completed, len(params_list))
+            self._progress_callback(completed, len(params_list), result.times)
 
         execution_time = time.time() - start_time
         if self.config.mode == BacktestMode.SINGLE:
@@ -79,6 +79,7 @@ class EnhancedBacktester:
     # ===================== Walk-Forward with per-window optimization =====================
     def _run_walk_forward(self) -> WalkForwardResult:
         """Run walk-forward optimization: per-window parameter search on train, evaluate best on test."""
+        start_time = time.time()
         windows = self._generate_windows()
 
         symbols = self.config.symbols or []
@@ -108,9 +109,9 @@ class EnhancedBacktester:
 
             # Submit all train jobs for this window
             param_acc: Dict[int, Dict[str, float]] = {}
-            futures = {}
             # build cv folds
             cv_folds = self._generate_cv_folds(train_start, train_end, self.config.cv_splits)
+            all_cfgs = []
             for p_idx, params in enumerate(param_combos):
                 param_acc[p_idx] = {"score_sum": 0.0, "mdd_sum": 0.0, "trades_sum": 0.0, "count": 0.0}
                 for symbol in symbols:
@@ -119,7 +120,11 @@ class EnhancedBacktester:
                             cfg = self._build_run_config(symbol, timeframe, params, cv_start, cv_end)
                             cfg["pre_start"] = DateTimeUtils.to_timestamp(self.config.start_time)
                             cfg["pre_end"] = DateTimeUtils.to_timestamp(self.config.end_time)
-                            futures[self.executor.submit(run_backtest, cfg)] = p_idx
+                            all_cfgs.append((cfg, p_idx))
+            all_cfgs.sort(key=lambda x: (x[0]["symbol"], x[0]["timeframe"]))
+            futures = {}
+            for cfg, p_idx in all_cfgs:
+                futures[self.executor.submit(run_backtest, cfg)] = p_idx
             # collect
             for future in concurrent.futures.as_completed(futures):
                 p_idx = futures[future]
@@ -132,7 +137,7 @@ class EnhancedBacktester:
                     acc["trades_sum"] += float(getattr(br.metrics, 'total_trades', 0) or 0)
                     acc["count"] += 1.0
                 done_jobs += 1
-                self._progress_callback(done_jobs, total_jobs)
+                self._progress_callback(done_jobs, total_jobs, br.times)
 
             # choose best params using tuple ordering with tie-breakers
             for p_idx, params in enumerate(param_combos):
@@ -183,7 +188,7 @@ class EnhancedBacktester:
                         best_params=best_params,
                     ))
                 done_jobs += 1
-                self._progress_callback(done_jobs, total_jobs)
+                self._progress_callback(done_jobs, total_jobs, test_br.times)
 
         # finalize aggregated metrics (mean)
         if agg_count > 0:
@@ -209,7 +214,7 @@ class EnhancedBacktester:
             equity_curve=[],
             equity_times=[],
             drawdown_curve=[],
-            execution_time=0.0,
+            execution_time=time.time() - start_time,
         )
 
     def _generate_windows(self) -> List[Tuple[int, int, int, int]]:
@@ -303,6 +308,7 @@ class EnhancedBacktester:
             "initial_balance": self.config.initial_balance,
             "mount_dirs": self.config.mount_dirs,
             "use_cache": self.config.use_cache,
+            "log_file": self.config.log_file,
         }
 
     def _expand_param_space(self, space: Dict[str, List[Any]]) -> List[Dict[str, Any]]:

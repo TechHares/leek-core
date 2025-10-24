@@ -12,18 +12,17 @@ import socket
 import sys
 import threading
 import time
-from logging.handlers import RotatingFileHandler
+from logging import FileHandler
 from typing import List
 
 from .config import LogConfig, LogFormat
 from .formatters import create_formatter
 
 
-class SafeRotatingFileHandler(RotatingFileHandler):
+class SafeFileHandler(FileHandler):
     """安全的文件滚动处理器，处理文件锁和权限问题"""
     
-    def __init__(self, filename, mode='a', maxBytes=0, backupCount=0, 
-                 encoding=None, delay=False, errors=None):
+    def __init__(self, filename, encoding=None):
         """初始化安全文件处理器"""
         # 确保目录存在
         directory = os.path.dirname(filename)
@@ -34,17 +33,7 @@ class SafeRotatingFileHandler(RotatingFileHandler):
                 print(f"警告: 无法创建日志目录 {directory}: {e}", file=sys.stderr)
         
         # 调用父类初始化
-        super().__init__(
-            filename, mode, maxBytes, backupCount, 
-            encoding, delay, errors
-        )
-    
-    def doRollover(self):
-        """安全地执行日志文件滚动"""
-        try:
-            super().doRollover()
-        except Exception as e:
-            print(f"警告: 日志滚动失败 {self.baseFilename}: {e}", file=sys.stderr)
+        super().__init__(filename, encoding=encoding)
 
 
 class HttpHandler(logging.Handler):
@@ -261,10 +250,8 @@ def create_handlers(config=None) -> List[logging.Handler]:
         file_path = config_dict.get('file_path')
         if file_path:
             # 使用安全的滚动文件处理器
-            file_handler = SafeRotatingFileHandler(
+            file_handler = SafeFileHandler(
                 filename=file_path,
-                maxBytes=config_dict.get('max_bytes', 10 * 1024 * 1024),
-                backupCount=config_dict.get('backup_count', 5),
                 encoding='utf-8'
             )
             file_handler.setFormatter(formatter)

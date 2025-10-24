@@ -69,6 +69,8 @@ class RunConfig:
 
     # 性能优化选项
     use_cache: bool = False
+    # 日志选项
+    log_file: bool = False
 
     def __post_init__(self):
         if isinstance(self.timeframe, str):
@@ -150,6 +152,8 @@ class BacktestConfig:
 
     # 性能优化配置
     use_cache: bool = True  # 是否使用缓存
+    # 日志选项
+    log_file: bool = False
 
 @dataclass
 class PerformanceMetrics:
@@ -210,6 +214,7 @@ class PerformanceMetrics:
 @dataclass
 class BacktestResult:
     """回测结果"""
+    times: List[int]
     config: Dict[str, Any]
     metrics: PerformanceMetrics
     equity_curve: List[float]
@@ -224,6 +229,7 @@ class BacktestResult:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "times": self.times,
             "config": self.config,
             "metrics": self.metrics.to_dict(),
             "equity_curve": self.equity_curve,

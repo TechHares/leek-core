@@ -43,9 +43,24 @@ class IdGenerator:
         self._lock = threading.Lock()
         self._last_timestamp = -1
         self._sequence = 0
+        # 以单调时钟构造逻辑时间，避免系统时钟回拨导致倒退
+        self._base_wall_ms = int(time.time() * 1000)
+        try:
+            self._base_mono_ms = time.monotonic_ns() // 1_000_000
+            self._get_mono_ms = lambda: time.monotonic_ns() // 1_000_000
+        except Exception:
+            # 兼容环境：退回到 monotonic()
+            self._base_mono_ms = int(time.monotonic() * 1000)
+            self._get_mono_ms = lambda: int(time.monotonic() * 1000)
 
     def _current_millis(self):
-        return int(time.time() * 1000)
+        # 使用单调时钟推导逻辑毫秒时间，避免回拨
+        mono_ms = self._get_mono_ms()
+        logical_ms = self._base_wall_ms + (mono_ms - self._base_mono_ms)
+        # 夹逼以确保非递减
+        if self._last_timestamp >= 0 and logical_ms < self._last_timestamp:
+            return self._last_timestamp
+        return int(logical_ms)
 
     def next_id(self) -> int:
         """
@@ -54,8 +69,6 @@ class IdGenerator:
         """
         with self._lock:
             timestamp = self._current_millis()
-            if timestamp < self._last_timestamp:
-                raise Exception("系统时钟回拨，ID生成异常")
             if timestamp == self._last_timestamp:
                 self._sequence = (self._sequence + 1) & self._max_sequence
                 if self._sequence == 0:
@@ -63,6 +76,8 @@ class IdGenerator:
                         timestamp = self._current_millis()
                         if timestamp > self._last_timestamp:
                             break
+                        # 避免忙等占满CPU
+                        time.sleep(0.0001)
             else:
                 self._sequence = 0
             self._last_timestamp = timestamp
