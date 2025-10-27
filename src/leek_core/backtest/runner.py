@@ -24,6 +24,7 @@ from .types import RunConfig, PerformanceMetrics, BacktestResult
 from .data_cache import DataCache
 import logging
 import os
+from multiprocessing import Lock
 
 logger = get_logger(__name__)
 def run_backtest(config: Dict[str, Any]):
@@ -157,18 +158,17 @@ class BacktestRunner:
         time_init = DateTimeUtils.now_timestamp()
         time_data = None
         time_run = None
-        for kline in self.data_source.get_history_data(
-                start_time=min(self.config.start_time, self.config.pre_start) if  self.config.pre_start else self.config.start_time,
-                end_time=max(self.config.end_time, self.config.pre_end) if self.config.pre_end else self.config.end_time,
-               row_key=row_key, market=self.config.market):
+        for kline in self.data_source.get_history_data(start_time=self.config.start_time, end_time=self.config.end_time,
+                            pre_load_start_time=self.config.pre_start, pre_load_end_time=self.config.pre_end,
+                            row_key=row_key, market=self.config.market):
             if time_data is None:
                 time_data = DateTimeUtils.now_timestamp()
-            if kline.start_time < self.config.start_time:
-                continue
+            # if kline.start_time < self.config.start_time:
+                # continue
             if time_run is None:
                 time_run = DateTimeUtils.now_timestamp()
-            if kline.end_time > self.config.end_time:
-                break
+            # if kline.end_time > self.config.end_time:
+                # break
             # 更新仓位管理
             kline.target_instance_id = set(["0"])
             self.engine.on_data(kline)

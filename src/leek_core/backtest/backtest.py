@@ -20,7 +20,6 @@ class EnhancedBacktester:
         self.executor = ProcessPoolExecutor(max_workers=config.max_workers)
 
         self.data_source = None
-        self._lock = None
         self._active_executor = None
         self.strategy = None
         self.strategy_class = None
@@ -60,21 +59,71 @@ class EnhancedBacktester:
             future = self.executor.submit(run_backtest, params)
             futures[future] = params
 
-        results = []
+        # 聚合指标累加
+        agg_metrics = PerformanceMetrics()
+        agg_count = 0.0
+        window_idx = 0
         for future in concurrent.futures.as_completed(futures):
             params = futures[future]
             result = future.result()
+            window_data = None
             if result is not None:
                 result.config = params
-                results.append(result)
+                window_idx += 1
+                # 流式回写
+                window_data = {
+                    "window_idx": window_idx,
+                    "symbol": params.get("symbol"),
+                    "timeframe": params.get("timeframe"),
+                    "params": params.get("strategy_params") or {},
+                    "metrics": result.metrics.to_dict(),
+                    "equity_times": result.equity_times,
+                    "equity_values": result.equity_curve,
+                    "drawdown_curve": result.drawdown_curve,
+                    "benchmark_curve": result.benchmark_curve,
+                    "trades": result.trades,
+                    "execution_time": getattr(result, "execution_time", 0.0),
+                }
+                # 聚合指标
+                for f in fields(PerformanceMetrics):
+                    cur = getattr(agg_metrics, f.name, 0.0) or 0.0
+                    add = getattr(result.metrics, f.name, 0.0) or 0.0
+                    setattr(agg_metrics, f.name, float(cur) + float(add))
+                agg_count += 1.0
+                result.equity_curve = []
+                result.equity_times = []
+                result.drawdown_curve = []
+                result.benchmark_curve = []
+                result.trades = []
+                result.positions = []
+                result.signals = []
             completed += 1
-            self._progress_callback(completed, len(params_list), result.times)
+            self._progress_callback(completed, len(params_list), result.times, window_data)
 
         execution_time = time.time() - start_time
-        if self.config.mode == BacktestMode.SINGLE:
-            results[0].execution_time = execution_time
-            return results[0]
-        return NormalBacktestResult.from_backtest_results(results, execution_time)
+        # finalize aggregated metrics (mean for非计数字段)
+        if agg_count > 0:
+            count_fields = {
+                "total_trades", "win_trades", "loss_trades",
+                "positive_months", "negative_months",
+            }
+            for f in fields(PerformanceMetrics):
+                cur = getattr(agg_metrics, f.name, 0.0) or 0.0
+                if f.name in count_fields:
+                    try:
+                        setattr(agg_metrics, f.name, int(round(cur)))
+                    except Exception:
+                        setattr(agg_metrics, f.name, int(cur))
+                else:
+                    setattr(agg_metrics, f.name, float(cur) / agg_count)
+        # 返回轻量结果（组合曲线由 manager 侧在线聚合）
+        return NormalBacktestResult(
+            results=[],
+            aggregated_metrics=agg_metrics,
+            combined_equity_times=[],
+            combined_equity_values=[],
+            execution_time=execution_time,
+        )
 
     # ===================== Walk-Forward with per-window optimization =====================
     def _run_walk_forward(self) -> WalkForwardResult:
@@ -169,6 +218,7 @@ class EnhancedBacktester:
             for future in concurrent.futures.as_completed(futures):
                 symbol, timeframe = futures[future]
                 test_br: BacktestResult = future.result()
+                window_data = None
                 if test_br is not None:
                     # accumulate aggregated metrics
                     agg_count += 1.0
@@ -177,18 +227,32 @@ class EnhancedBacktester:
                         cur = getattr(agg_metrics, f.name, 0.0) or 0.0
                         setattr(agg_metrics, f.name, cur + float(val))
 
-                    window_results.append(WindowResult(
-                        window_idx=w_idx + 1,
-                        symbol=symbol,
-                        timeframe=timeframe.value,
-                        train_period=(windows[w_idx][0], windows[w_idx][1]),
-                        test_period=(windows[w_idx][2], windows[w_idx][3]),
-                        train_result=None,
-                        test_result=test_br,
-                        best_params=best_params,
-                    ))
+                    # 流式回写并释放数组
+                    window_data = {
+                            "window_idx": w_idx + 1,
+                            "symbol": symbol,
+                            "timeframe": timeframe.value,
+                            "train_period": (windows[w_idx][0], windows[w_idx][1]),
+                            "test_period": (windows[w_idx][2], windows[w_idx][3]),
+                            "best_params": best_params,
+                            "test_metrics": test_br.metrics.to_dict(),
+                            "equity_times": test_br.equity_times,
+                            "equity_values": test_br.equity_curve,
+                            "drawdown_curve": test_br.drawdown_curve,
+                            "benchmark_curve": test_br.benchmark_curve,
+                            "trades": test_br.trades,
+                            "execution_time": getattr(test_br, "execution_time", 0.0),
+                        }
+                    # 先纯进度，再附带窗口数据的进度
+                    test_br.equity_curve = []
+                    test_br.equity_times = []
+                    test_br.drawdown_curve = []
+                    test_br.benchmark_curve = []
+                    test_br.trades = []
+                    test_br.positions = []
+                    test_br.signals = []
                 done_jobs += 1
-                self._progress_callback(done_jobs, total_jobs, test_br.times)
+                self._progress_callback(done_jobs, total_jobs, test_br.times, window_data)
 
         # finalize aggregated metrics (mean)
         if agg_count > 0:
@@ -209,7 +273,7 @@ class EnhancedBacktester:
 
         return WalkForwardResult(
             config=self.config,
-            window_results=window_results,
+            window_results=[],
             aggregated_metrics=agg_metrics,
             equity_curve=[],
             equity_times=[],

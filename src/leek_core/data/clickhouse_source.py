@@ -29,8 +29,6 @@ class ClickHouseKlineDataSource(DataSource):
         Field(name="password", label="密码", type=FieldType.STRING, default="default"),
         Field(name="database", label="数据库名", type=FieldType.STRING, default="default"),
     ]
-    # 声明显示名称
-    verbose_name = "ClickHouse K线"
     """
     ClickHouse K线数据源实现类。
     

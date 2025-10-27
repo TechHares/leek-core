@@ -27,17 +27,11 @@ class SerializableEventBus(EventBus):
         串行化
         """
         callbacks = []
-        
         # 收集具体类型订阅者
         if event.event_type in self._subscribers:
-            callbacks.extend(list(self._subscribers[event.event_type]))
+            for subscriber in self._subscribers[event.event_type]:
+                subscriber(event)
         
-        # 收集全局订阅者
-        callbacks.extend(list(self._all_event_subscribers))
-        
-        if not callbacks:
-            return
-
-        # 在线程池中执行所有回调
-        for cb in callbacks:
-            cb(event)
+        # 全局订阅者
+        for subscriber in self._all_event_subscribers:
+            subscriber(event)

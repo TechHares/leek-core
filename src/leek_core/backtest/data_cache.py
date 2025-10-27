@@ -16,19 +16,12 @@ from datetime import datetime
 from typing import Any, List, Iterator
 
 from diskcache import Cache
-from cachetools import LRUCache, cached
 from leek_core.models import Field
 from leek_core.data import DataSource
 from leek_core.utils import get_logger, DateTimeUtils
 
-_GLOBAL_CACHE = LRUCache(maxsize=3)
 logger = get_logger(__name__)
 DISKCACHE_CACHE = Cache(".cache")
-
-def _get_history_data_key(_, row_key: str, start_time: int | None = None,
-                          end_time: int | None = None, limit: int = None, **kwargs):
-    return (row_key, start_time, end_time, limit, tuple(sorted(kwargs.items())))
-
 
 class DataCache(DataSource):
     """共享内存缓存管理器"""
@@ -47,22 +40,32 @@ class DataCache(DataSource):
     def unsubscribe(self, row_key: str):
         raise NotImplementedError("数据源不支持订阅")
 
-    def get_history_data(self, row_key: str, start_time: datetime | int = None, end_time: datetime | int = None, limit: int = None, **kwargs) -> Iterator[Any]:
+    def get_history_data(self, row_key: str, start_time: datetime | int = None, end_time: datetime | int = None, limit: int = None,
+            pre_load_start_time: datetime | int = None, pre_load_end_time: datetime | int = None, **kwargs) -> Iterator[Any]:
         # 转换datetime参数为int，确保可哈希
         assert start_time is not None and end_time is not None and row_key is not None
         normalized_start = DateTimeUtils.datetime_to_timestamp(start_time) if isinstance(start_time, datetime) else start_time
         normalized_end = DateTimeUtils.datetime_to_timestamp(end_time) if isinstance(end_time, datetime) else end_time
+        normalized_pre_load_start = normalized_start
+        if pre_load_start_time is not None:
+            normalized_pre_load_start = DateTimeUtils.datetime_to_timestamp(pre_load_start_time) if isinstance(pre_load_start_time, datetime) else pre_load_start_time
+        normalized_pre_load_end = normalized_end
+        if pre_load_end_time is not None:
+            normalized_pre_load_end = DateTimeUtils.datetime_to_timestamp(pre_load_end_time) if isinstance(pre_load_end_time, datetime) else pre_load_end_time
+        
         logger.info(f"get_history_data: row_key={row_key}, start_time={start_time}, end_time={end_time}, limit={limit}, **kwargs={kwargs}")
         # 调用带缓存的方法
-        result_list = self._get_history_data_from_memeory(row_key, normalized_start, normalized_end, limit, **kwargs)
+        result_list = self._get_history_data_from_memeory(row_key, normalized_pre_load_start, normalized_pre_load_end, limit, **kwargs)
         logger.info(f"get_history_data: row_key={row_key}, result_list=len(result_list)={len(result_list)}")
-        # 返回新的iterator
-        return iter(result_list)
+        for kline in result_list:
+            if kline.start_time < normalized_start:
+                continue
+            if kline.end_time > normalized_end:
+                break
+            yield kline
 
-    @cached(cache=_GLOBAL_CACHE, key=_get_history_data_key)
     def _get_history_data_from_memeory(self, row_key: str, start_time: int | None = None,
                           end_time: int | None = None, limit: int = None, **kwargs) -> List[Any]:
-        print(f"从本地缓存加载数据[{os.getpid()}]: row_key={row_key}, start_time={start_time}, end_time={end_time}, limit={limit}, **kwargs={kwargs}")
         # 生成缓存 key
         cache_key = self._make_cache_key("get_history_data", row_key, start_time, end_time, limit, **kwargs)
 
@@ -82,7 +85,7 @@ class DataCache(DataSource):
                 logger.info(f"Cache miss, computing: {cache_key}")
                 result = self._get_history_data(row_key, start_time, end_time, limit, **kwargs)
                 # 写入真实结果
-                DISKCACHE_CACHE.set(cache_key, result, expire=3600)
+                DISKCACHE_CACHE.set(cache_key, result, expire=3600 * 12)
                 return result
             finally:
                 DISKCACHE_CACHE.delete(lock_key)

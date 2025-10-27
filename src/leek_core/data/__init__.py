@@ -9,11 +9,12 @@ from .clickhouse_source import ClickHouseKlineDataSource
 from .context import DataSourceContext
 from .okx_source import OkxDataSource
 from .websocket import WebSocketDataSource
-
+from .redis_clickhouse_source import RedisClickHouseDataSource
 __all__ = [
     'DataSourceContext',
     'DataSource',
     'WebSocketDataSource',
     'ClickHouseKlineDataSource',
     'OkxDataSource',
+    'RedisClickHouseDataSource',
 ]
