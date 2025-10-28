@@ -7,12 +7,14 @@ from datetime import datetime, timedelta
 from joblib.externals.loky import ProcessPoolExecutor
 # from concurrent.futures import ProcessPoolExecutor
 from typing import Optional, Callable, Union, Dict, List, Tuple, Any
+import optuna
+from optuna.pruners import MedianPruner
 
 from leek_core.utils import get_logger, DateTimeUtils
 
 from .types import BacktestConfig, BacktestResult, WalkForwardResult, BacktestMode, NormalBacktestResult, PerformanceMetrics, WindowResult, OptimizationObjective
 from .runner import run_backtest
-
+optuna.logging.set_verbosity(optuna.logging.WARNING)
 logger = get_logger(__name__)
 class EnhancedBacktester:
     def __init__(self, config: BacktestConfig, _progress_callback):
@@ -137,11 +139,12 @@ class EnhancedBacktester:
 
         # Build param combinations
         param_space: Dict[str, List[Any]] = self.config.param_space or {}
-        param_combos: List[Dict[str, Any]] = self._expand_param_space(param_space) if param_space else [self.config.strategy_params or {}]
+        use_optuna = bool(getattr(self.config, 'optuna_enabled', False) and param_space)
+        param_combos: List[Dict[str, Any]] = self._expand_param_space(param_space) if (param_space and not use_optuna) else [self.config.strategy_params or {}]
 
         # Progress estimation (include CV folds)
         cv_factor = max(1, int(getattr(self.config, 'cv_splits', 0) or 0))
-        total_train_jobs = len(windows) * cv_factor * max(1, len(param_combos)) * max(1, len(symbols) * len(timeframes))
+        total_train_jobs = len(windows) * cv_factor * max(1, (len(param_combos) if not use_optuna else int(getattr(self.config, 'optuna_n_trials', 0) or 0))) * max(1, len(symbols) * len(timeframes))
         total_test_jobs = len(windows) * max(1, len(symbols) * len(timeframes))
         total_jobs = max(1, total_train_jobs + total_test_jobs)
         done_jobs = 0
@@ -153,56 +156,93 @@ class EnhancedBacktester:
         agg_count = 0.0
 
         for w_idx, (train_start, train_end, test_start, test_end) in enumerate(windows):
-            # Train: evaluate ALL param sets across all symbol×timeframe and CV folds in parallel, aggregate objective
+            # Train: parameter search (Optuna or grid) on train folds
             best_params: Dict[str, Any] = None
-            best_tuple = (float('-inf'), float('inf'), float('-inf'))  # (avg_score, avg_abs_mdd, avg_trades_negated)
-
-            # Submit all train jobs for this window
-            param_acc: Dict[int, Dict[str, float]] = {}
-            # build cv folds
             cv_folds = self._generate_cv_folds(train_start, train_end, self.config.cv_splits)
-            all_cfgs = []
-            for p_idx, params in enumerate(param_combos):
-                param_acc[p_idx] = {"score_sum": 0.0, "mdd_sum": 0.0, "trades_sum": 0.0, "count": 0.0}
-                for symbol in symbols:
-                    for timeframe in timeframes:
-                        for (cv_start, cv_end) in cv_folds:
-                            cfg = self._build_run_config(symbol, timeframe, params, cv_start, cv_end)
-                            cfg["pre_start"] = DateTimeUtils.to_timestamp(self.config.start_time)
-                            cfg["pre_end"] = DateTimeUtils.to_timestamp(self.config.end_time)
-                            all_cfgs.append((cfg, p_idx))
-            all_cfgs.sort(key=lambda x: (x[0]["symbol"], x[0]["timeframe"]))
-            futures = {}
-            for cfg, p_idx in all_cfgs:
-                futures[self.executor.submit(run_backtest, cfg)] = p_idx
-            # collect
-            for future in concurrent.futures.as_completed(futures):
-                p_idx = futures[future]
-                br: BacktestResult = future.result()
-                if br is not None:
-                    score = self._score_objective(objective, br.metrics)
-                    acc = param_acc[p_idx]
-                    acc["score_sum"] += float(score)
-                    acc["mdd_sum"] += abs(float(getattr(br.metrics, 'max_drawdown', 0.0) or 0.0))
-                    acc["trades_sum"] += float(getattr(br.metrics, 'total_trades', 0) or 0)
-                    acc["count"] += 1.0
-                done_jobs += 1
-                self._progress_callback(done_jobs, total_jobs, br.times)
+            if use_optuna and optuna is not None:
+                direction = "maximize"
+                pruner = MedianPruner()
+                study = optuna.create_study(direction=direction, pruner=pruner)
 
-            # choose best params using tuple ordering with tie-breakers
-            for p_idx, params in enumerate(param_combos):
-                acc = param_acc.get(p_idx) or {"count": 0.0}
-                c = acc.get("count", 0.0) or 0.0
-                if c <= 0:
-                    continue
-                avg_score = acc["score_sum"] / c
-                avg_abs_mdd = acc["mdd_sum"] / c
-                avg_trades = acc["trades_sum"] / c
-                # Higher objective better, lower max drawdown better, higher trades better
-                candidate = (avg_score, -avg_abs_mdd, avg_trades)
-                if candidate > best_tuple:
-                    best_tuple = candidate
-                    best_params = params
+                def objective_fn(trial):
+                    trial_params = {}
+                    for k, values in (param_space or {}).items():
+                        trial_params[k] = trial.suggest_categorical(k, list(values))
+                    score_sum = 0.0
+                    count = 0.0
+                    # submit jobs for all folds × symbols × timeframes
+                    futures_local = {}
+                    for symbol in symbols:
+                        for timeframe in timeframes:
+                            for (cv_start, cv_end) in cv_folds:
+                                cfg = self._build_run_config(symbol, timeframe, trial_params, cv_start, cv_end)
+                                cfg["pre_start"] = DateTimeUtils.to_timestamp(self.config.start_time)
+                                cfg["pre_end"] = DateTimeUtils.to_timestamp(self.config.end_time)
+                                futures_local[self.executor.submit(run_backtest, cfg)] = None
+                    fold_idx = 0
+                    for future in concurrent.futures.as_completed(futures_local):
+                        br: BacktestResult = future.result()
+                        score_current = 0.0
+                        if br is not None:
+                            score_current = float(self._score_objective(objective, br.metrics))
+                            score_sum += score_current
+                            count += 1.0
+                        # progress and pruning hook at fold level
+                        nonlocal done_jobs
+                        done_jobs += 1
+                        self._progress_callback(done_jobs, total_jobs, br.times if br is not None else None)
+                        trial.report(score_current, step=fold_idx)
+                        fold_idx += 1
+                        if trial.should_prune():
+                            raise optuna.TrialPruned()
+                    return score_sum / max(1.0, count)
+
+                n_trials = self.config.optuna_n_trials
+                study.optimize(objective_fn, n_trials=n_trials, n_jobs=1)
+                best_params = dict(study.best_trial.params or {})
+            else:
+                # Fallback grid enumeration (existing behavior)
+                best_tuple = (float('-inf'), float('inf'), float('-inf'))
+                param_combos_local = param_combos
+                param_acc: Dict[int, Dict[str, float]] = {}
+                all_cfgs = []
+                for p_idx, params in enumerate(param_combos_local):
+                    param_acc[p_idx] = {"score_sum": 0.0, "mdd_sum": 0.0, "trades_sum": 0.0, "count": 0.0}
+                    for symbol in symbols:
+                        for timeframe in timeframes:
+                            for (cv_start, cv_end) in cv_folds:
+                                cfg = self._build_run_config(symbol, timeframe, params, cv_start, cv_end)
+                                cfg["pre_start"] = DateTimeUtils.to_timestamp(self.config.start_time)
+                                cfg["pre_end"] = DateTimeUtils.to_timestamp(self.config.end_time)
+                                all_cfgs.append((cfg, p_idx))
+                all_cfgs.sort(key=lambda x: (x[0]["symbol"], x[0]["timeframe"]))
+                futures = {}
+                for cfg, p_idx in all_cfgs:
+                    futures[self.executor.submit(run_backtest, cfg)] = p_idx
+                for future in concurrent.futures.as_completed(futures):
+                    p_idx = futures[future]
+                    br: BacktestResult = future.result()
+                    if br is not None:
+                        score = self._score_objective(objective, br.metrics)
+                        acc = param_acc[p_idx]
+                        acc["score_sum"] += float(score)
+                        acc["mdd_sum"] += abs(float(getattr(br.metrics, 'max_drawdown', 0.0) or 0.0))
+                        acc["trades_sum"] += float(getattr(br.metrics, 'total_trades', 0) or 0)
+                        acc["count"] += 1.0
+                    done_jobs += 1
+                    self._progress_callback(done_jobs, total_jobs, br.times if br is not None else None)
+                for p_idx, params in enumerate(param_combos_local):
+                    acc = param_acc.get(p_idx) or {"count": 0.0}
+                    c = acc.get("count", 0.0) or 0.0
+                    if c <= 0:
+                        continue
+                    avg_score = acc["score_sum"] / c
+                    avg_abs_mdd = acc["mdd_sum"] / c
+                    avg_trades = acc["trades_sum"] / c
+                    candidate = (avg_score, -avg_abs_mdd, avg_trades)
+                    if candidate > best_tuple:
+                        best_tuple = candidate
+                        best_params = params
 
             if best_params is None:
                 best_params = self.config.strategy_params or {}

@@ -155,6 +155,10 @@ class BacktestConfig:
     # 日志选项
     log_file: bool = False
 
+    # Optuna 配置（仅 WFA 使用，可选）
+    optuna_enabled: bool = False
+    optuna_n_trials: int = 80
+
 @dataclass
 class PerformanceMetrics:
     """性能指标"""

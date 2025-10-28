@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "leek-core"
-version = "1.7.5"
+version = "1.7.6"
 description = "Leek Core 量化交易引擎/组件化事件驱动框架"
 authors = ["shenglin.li <764935704@qq.com>"]
 readme = "README.md"
@@ -59,6 +59,7 @@ redis = "~=7.0.0"
 msgpack = "~=1.1.1"
 python-redis-lock = "~=4.0.0"
 joblib = "~=1.5.2"
+optuna = "~=4.5.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "~=24.4.2"
