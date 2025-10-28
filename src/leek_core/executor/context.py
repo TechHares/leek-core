@@ -68,7 +68,7 @@ class ExecutorContext(LeekContext):
                     if order.order_status == OrderStatus.CREATED:
                         order.order_status = OrderStatus.SUBMITTED
                         # 发布事件时深拷贝，避免后续修改影响已派发事件
-                        self.event_bus.publish_event(Event(EventType.ORDER_UPDATED, copy.deepcopy(order)))
+                        self.event_bus.publish_event(Event(EventType.ORDER_UPDATED, order))
                 return
             except Exception as e:
                 if retry_count <= 1:
@@ -76,7 +76,7 @@ class ExecutorContext(LeekContext):
                     for order in orders:
                         order.order_status = OrderStatus.ERROR
                         # 发布事件时深拷贝，避免后续修改影响已派发事件
-                        self.event_bus.publish_event(Event(EventType.ORDER_UPDATED, copy.deepcopy(order)))
+                        self.event_bus.publish_event(Event(EventType.ORDER_UPDATED, order))
                     return
                 else:
                     logger.warning(f"{self.instance_id}/{self.name}执行订单失败, 重试次数: {retry_count}: {e}", exc_info=True)
@@ -122,7 +122,7 @@ class ExecutorContext(LeekContext):
             # 发布事件时深拷贝，避免后续修改影响已派发事件
             self.event_bus.publish_event(Event(
                 event_type=EventType.ORDER_UPDATED,
-                data=copy.deepcopy(order),
+                data=order if order.order_status.is_finished else copy.deepcopy(order),
             ))
         finally:
             if order.order_status.is_finished:
