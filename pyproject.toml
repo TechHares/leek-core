@@ -58,6 +58,7 @@ diskcache = "~=5.6.3"
 redis = "~=7.0.0"
 msgpack = "~=1.1.1"
 python-redis-lock = "~=4.0.0"
+joblib = "~=1.5.2"
 
 [tool.poetry.group.dev.dependencies]
 black = "~=24.4.2"

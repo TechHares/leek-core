@@ -4,7 +4,8 @@ import concurrent
 import time
 from dataclasses import fields
 from datetime import datetime, timedelta
-from concurrent.futures import ProcessPoolExecutor
+from joblib.externals.loky import ProcessPoolExecutor
+# from concurrent.futures import ProcessPoolExecutor
 from typing import Optional, Callable, Union, Dict, List, Tuple, Any
 
 from leek_core.utils import get_logger, DateTimeUtils
@@ -41,7 +42,7 @@ class EnhancedBacktester:
             logger.error(f"Backtest execution failed: {e}")
             raise
         finally:
-            self.executor.shutdown(wait=True, cancel_futures=True)
+            self.executor.shutdown(wait=True, kill_workers=True)
 
     def _run_normal_backtest(self) -> NormalBacktestResult|BacktestResult:
         start_time = time.time()
