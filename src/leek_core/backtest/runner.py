@@ -11,7 +11,7 @@ import numpy as np
 from leek_core.utils import get_logger, DateTimeUtils, setup_logging, set_worker_id
 from leek_core.base import load_class_from_str, create_component
 from leek_core.data import DataSource
-from leek_core.models import PositionConfig, LeekComponentConfig, Position, Signal, StrategyConfig, KLine
+from leek_core.models import Order, PositionConfig, LeekComponentConfig, Position, Signal, StrategyConfig, KLine
 from leek_core.manager import ExecutorManager, StrategyManager
 from leek_core.event import SerializableEventBus, Event, EventType
 from leek_core.executor import ExecutorContext
@@ -141,6 +141,7 @@ class BacktestRunner:
         self._init_strategy()
 
         # 订阅事件
+        self.event_bus.subscribe_event(EventType.ORDER_UPDATED, self._on_order_updated)
         self.event_bus.subscribe_event(EventType.POSITION_UPDATE, self._on_position_update)
         self.event_bus.subscribe_event(EventType.STRATEGY_SIGNAL, self._on_signal_generated)
 
@@ -153,7 +154,7 @@ class BacktestRunner:
         turnover_acc = Decimal("0")
         row_key = KLine.pack_row_key(self.config.symbol, self.config.quote_currency, self.config.ins_type, self.config.timeframe)
         logger.info(f"Generated row_key: {row_key}")
-        strategy_ctx = self.engine.strategy_manager.get("strategy")
+        strategy_ctx = self.engine.strategy_manager.get("0")
         wrapper = None
         time_init = DateTimeUtils.now_timestamp()
         time_data = None
@@ -163,18 +164,15 @@ class BacktestRunner:
                             row_key=row_key, market=self.config.market):
             if time_data is None:
                 time_data = DateTimeUtils.now_timestamp()
-            # if kline.start_time < self.config.start_time:
-                # continue
-            if time_run is None:
-                time_run = DateTimeUtils.now_timestamp()
-            # if kline.end_time > self.config.end_time:
-                # break
+                time_run = time_data
             # 更新仓位管理
             kline.target_instance_id = set(["0"])
-            self.engine.on_data(kline)
+            signal = strategy_ctx._process_data(kline)
+            if signal:
+                self.engine._on_signal(signal)
             # 处理策略数据
             if wrapper is None:
-                wrapper = list(list(self.engine.strategy_manager.components.values())[0].strategies.values())[0]
+                wrapper = list(strategy_ctx.strategies.values())[0]
 
             # 获取当前仓位率
             current_rate = wrapper.position_rate if wrapper else last_position_rate
@@ -226,13 +224,37 @@ class BacktestRunner:
         benchmark_curve = (prices - first_price) / first_price * init_balance + init_balance
         return benchmark_curve.tolist()
 
+    def _on_order_updated(self, event: Event):
+        if not isinstance(event.data, Order):
+            return
+        order = event.data
+        if order.is_open or not order.order_status.is_finished:
+            return
+        pnl_val = float(order.pnl or 0)
+        self.trades_counter["total"] += 1
+
+        trade_data = {
+            "timestamp": int(order.order_time.timestamp() * 1000),
+            "symbol": order.symbol,
+            "side": str(order.side.switch()),
+            "size": float(order.sz),
+            "entry_amount": float(order.order_amount),
+            "pnl": pnl_val,
+        }
+        self.trades_data.append(trade_data)
+
+        if pnl_val > 0:
+            self.trades_counter["win"] += 1
+            self.trade_profit_sum += pnl_val
+        elif pnl_val < 0:
+            self.trades_counter["loss"] += 1
+            self.trade_loss_sum += abs(pnl_val)
+
     def _on_position_update(self, event: Event):
         """处理仓位更新事件"""
         if isinstance(event.data, Position):
             pos = event.data
             cur_sz = float(pos.sz or 0)
-            total_sz = float(pos.total_sz or 0)
-
             self.positions_data.append({
                 "timestamp": DateTimeUtils.now_timestamp(),
                 "symbol": pos.symbol,
@@ -243,29 +265,6 @@ class BacktestRunner:
                 "unrealized_pnl": float(getattr(pos, 'unrealized_pnl', 0) or 0)
             })
 
-            # 统计交易（平仓时记录）
-            if total_sz > 0 and cur_sz == 0:  # 平仓
-                pnl_val = float(pos.pnl or 0)
-                self.trades_counter["total"] += 1
-
-                trade_data = {
-                    "timestamp": DateTimeUtils.now_timestamp(),
-                    "symbol": pos.symbol,
-                    "side": str(pos.side),
-                    "size": total_sz,
-                    "entry_price": float(pos.cost_price or 0),
-                    "exit_price": float(pos.current_price or pos.cost_price or 0),
-                    "pnl": pnl_val,
-                    "duration": 0
-                }
-                self.trades_data.append(trade_data)
-
-                if pnl_val > 0:
-                    self.trades_counter["win"] += 1
-                    self.trade_profit_sum += pnl_val
-                elif pnl_val < 0:
-                    self.trades_counter["loss"] += 1
-                    self.trade_loss_sum += abs(pnl_val)
 
     def _on_signal_generated(self, event: Event):
         """处理信号生成事件"""
@@ -403,6 +402,25 @@ class BacktestRunner:
         else:
             omega_ratio = 0.0
 
+        # 单笔平均收益（绝对值）
+        avg_pnl = float(np.mean([t.get("pnl", 0.0) for t in self.trades_data])) if total_trades > 0 else 0.0
+        avg_pnl_long = float(np.mean([t.get("pnl", 0.0) for t in long_trades])) if len(long_trades) > 0 else 0.0
+        avg_pnl_short = float(np.mean([t.get("pnl", 0.0) for t in short_trades])) if len(short_trades) > 0 else 0.0
+
+        # 单笔平均收益率（基于名义本金：入场价 * 数量）
+        def trade_return_rate(trade: Dict[str, Any]) -> float:
+            denom = trade["entry_amount"]
+            pnl_val = float(trade["pnl"])
+            return pnl_val / denom if denom > 0 else 0.0
+
+        returns_all = [trade_return_rate(t) for t in self.trades_data]
+        returns_long = [trade_return_rate(t) for t in long_trades]
+        returns_short = [trade_return_rate(t) for t in short_trades]
+
+        avg_return_per_trade = float(np.mean(returns_all)) if total_trades > 0 else 0.0
+        avg_return_long = float(np.mean(returns_long)) if len(long_trades) > 0 else 0.0
+        avg_return_short = float(np.mean(returns_short)) if len(short_trades) > 0 else 0.0
+
         return PerformanceMetrics(
             total_return=float(total_return),
             annual_return=float(annual_return),
@@ -418,6 +436,10 @@ class BacktestRunner:
             win_trades=win_trades,
             loss_trades=loss_trades,
             win_rate=float(win_rate),
+            long_trades=len(long_trades),
+            short_trades=len(short_trades),
+            long_win_trades=long_win_trades,
+            short_win_trades=short_win_trades,
             long_win_rate=float(long_win_rate),
             short_win_rate=float(short_win_rate),
             profit_factor=float(profit_factor),
@@ -431,6 +453,12 @@ class BacktestRunner:
             kurtosis=float(kurtosis),
             var_95=float(var_95),
             cvar_95=float(cvar_95),
+            avg_pnl=float(avg_pnl),
+            avg_pnl_long=float(avg_pnl_long),
+            avg_pnl_short=float(avg_pnl_short),
+            avg_return_per_trade=float(avg_return_per_trade),
+            avg_return_long=float(avg_return_long),
+            avg_return_short=float(avg_return_short),
         )
 
     def on_stop(self):

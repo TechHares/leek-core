@@ -186,6 +186,11 @@ class PerformanceMetrics:
     win_trades: int = 0
     loss_trades: int = 0
     win_rate: float = 0.0
+    # 多空拆分笔数与胜率
+    long_trades: int = 0
+    short_trades: int = 0
+    long_win_trades: int = 0
+    short_win_trades: int = 0
     long_win_rate: float = 0.0
     short_win_rate: float = 0.0
     profit_factor: float = 0.0
@@ -194,6 +199,14 @@ class PerformanceMetrics:
     win_loss_ratio: float = 0.0
     largest_win: float = 0.0
     largest_loss: float = 0.0
+
+    # 单笔收益（绝对值与收益率）
+    avg_pnl: float = 0.0
+    avg_pnl_long: float = 0.0
+    avg_pnl_short: float = 0.0
+    avg_return_per_trade: float = 0.0  # 单笔平均收益率（小数）
+    avg_return_long: float = 0.0
+    avg_return_short: float = 0.0
 
     # 其他指标
     turnover: float = 0.0

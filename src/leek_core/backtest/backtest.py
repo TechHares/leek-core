@@ -180,6 +180,7 @@ class EnhancedBacktester:
                                 cfg["pre_end"] = DateTimeUtils.to_timestamp(self.config.end_time)
                                 futures_local[self.executor.submit(run_backtest, cfg)] = None
                     fold_idx = 0
+                    total_jobs_this_trial = len(futures_local)
                     for future in concurrent.futures.as_completed(futures_local):
                         br: BacktestResult = future.result()
                         score_current = 0.0
@@ -194,6 +195,11 @@ class EnhancedBacktester:
                         trial.report(score_current, step=fold_idx)
                         fold_idx += 1
                         if trial.should_prune():
+                            # 补齐被剪枝后未处理的训练作业进度
+                            remaining = max(0, total_jobs_this_trial - fold_idx)
+                            if remaining > 0:
+                                done_jobs += remaining
+                                self._progress_callback(done_jobs, total_jobs, None)
                             raise optuna.TrialPruned()
                     return score_sum / max(1.0, count)
 

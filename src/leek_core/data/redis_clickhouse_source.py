@@ -171,7 +171,6 @@ class RedisClickHouseDataSource(DataSource):
             if not self.redis_client.exists(key):
                 result_list = self._get_history_data(row_key, normalized_pre_load_start, normalized_pre_load_end, limit, **kwargs)
                 ct = self.save_klines_batch(key, result_list)
-                print(f"从数据库加载数据[{os.getpid()}]: row_key={row_key}, count={ct}")
                 logger.info(f"get_history_data: row_key={row_key}, count={ct}")
         return self.get_klines_by_time_range(key, normalized_start, normalized_end)
 
@@ -189,7 +188,6 @@ class RedisClickHouseDataSource(DataSource):
 
     def _get_history_data(self, row_key: str, start_time: int | None = None,
                           end_time: int | None = None, limit: int = None, **kwargs) -> Iterator[Any]:
-        print(f"从数据库加载数据[{os.getpid()}]: row_key={row_key}, start_time={start_time}, end_time={end_time}, limit={limit}, **kwargs={kwargs}")
         logger.info(f"Cache miss for row_key={row_key}, start={start_time}, end={end_time}, limit={limit}")
         if not self.init:
             self.data_source.on_start()

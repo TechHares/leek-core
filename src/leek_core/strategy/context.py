@@ -65,8 +65,6 @@ class StrategyContext(LeekContext):
             s = None
             for d in ds:
                 s = self._process_data(d)
-            if s:
-                self.signals[s.signal_id] = s
             return s
         except Exception as e:
             logger.error(f"info_fabricator {self.instance_id} process error: {e}", exc_info=True)
@@ -116,7 +114,9 @@ class StrategyContext(LeekContext):
             if self.strategies[key].state == StrategyState.STOPPED:
                 del self.strategies[key]
         if r:
-            return self.build_signal(assets=r, data=data, key=key)
+            s =self.build_signal(assets=r, data=data, key=key)
+            self.signals[s.signal_id] = s
+            return s
 
     def build_signal(self, assets: List[Asset], data: Data, key) -> Signal:
         """

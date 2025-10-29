@@ -16,12 +16,19 @@ from datetime import datetime
 from typing import Any, List, Iterator
 
 from diskcache import Cache
+from cachetools import LRUCache, cached
 from leek_core.models import Field
 from leek_core.data import DataSource
 from leek_core.utils import get_logger, DateTimeUtils
 
+_GLOBAL_CACHE = LRUCache(maxsize=1)
 logger = get_logger(__name__)
 DISKCACHE_CACHE = Cache(".cache")
+
+def _get_history_data_key(_, row_key: str, start_time: int | None = None,
+                          end_time: int | None = None, limit: int = None, **kwargs):
+    return (row_key, start_time, end_time, limit, tuple(sorted(kwargs.items())))
+
 
 class DataCache(DataSource):
     """共享内存缓存管理器"""
@@ -64,8 +71,10 @@ class DataCache(DataSource):
                 break
             yield kline
 
+    @cached(cache=_GLOBAL_CACHE, key=_get_history_data_key)
     def _get_history_data_from_memeory(self, row_key: str, start_time: int | None = None,
                           end_time: int | None = None, limit: int = None, **kwargs) -> List[Any]:
+        print(f"从缓存加载数据[{os.getpid()}]: row_key={row_key}, start_time={start_time}, end_time={end_time}, limit={limit}, **kwargs={kwargs}")
         # 生成缓存 key
         cache_key = self._make_cache_key("get_history_data", row_key, start_time, end_time, limit, **kwargs)
 
