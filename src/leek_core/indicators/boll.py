@@ -21,7 +21,7 @@ class BollBand(T):
         self.ma = MA(window)
 
     def update(self, data):
-        boll_band = None
+        boll_band = (None, None, None)
         try:
             middle = self.ma.update(data)
             if not middle:
@@ -29,7 +29,7 @@ class BollBand(T):
 
             ls = list(self.q)
             ls.append(data.close)
-            std = np.std(ls)
+            std = np.std(ls, ddof=1)
             upper_band = middle + (std * self.num_std_dev)
             lower_band = middle - (std * self.num_std_dev)
             boll_band = (lower_band, middle, upper_band)

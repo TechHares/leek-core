@@ -247,17 +247,28 @@ class SuperSmoother(T):
     """
     Super Smoother（超级平滑器）算法实现
     """
+    PI = Decimal('3.141592653589793238462643383279')
+    SQRT2 = Decimal('1.4142135623730950488016887242097')
+
+    @staticmethod
+    def _exp_decimal(x: Decimal) -> Decimal:
+        # 简单泰勒展开或直接用 float（若精度要求不高）
+        return Decimal(str(math.exp(float(x))))
+
+    @staticmethod
+    def _cos_decimal(x: Decimal) -> Decimal:
+        return Decimal(str(math.cos(float(x))))
 
     def __init__(self, window=10, max_cache=100):
         T.__init__(self, max_cache)
         self.window = window
 
         # 系数
-        a1 = np.exp(-1.414 * np.pi / self.window)
-        b1 = 2 * a1 * np.cos(1.414 * np.pi / self.window)
-        self.c2 = Decimal(b1)
-        self.c3 = Decimal(-a1 * a1)
-        self.c1 = 1 - self.c2 - self.c3
+        a1 = SuperSmoother._exp_decimal(-SuperSmoother.SQRT2 * SuperSmoother.PI / Decimal(self.window))
+        b1 = 2 * a1 * SuperSmoother._cos_decimal(SuperSmoother.SQRT2 * SuperSmoother.PI / Decimal(self.window))
+        self.c2 = b1
+        self.c3 = -a1 * a1
+        self.c1 = Decimal(1) - self.c2 - self.c3
 
         self.pre_close = None
 

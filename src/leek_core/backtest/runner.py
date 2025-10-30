@@ -19,6 +19,7 @@ from leek_core.strategy import StrategyContext
 from leek_core.sub_strategy import SubStrategy
 from leek_core.engine import SimpleEngine
 
+from .statistical_tests import calculate_statistical_tests
 from .performance import vectorized_operations
 from .types import RunConfig, PerformanceMetrics, BacktestResult
 from .data_cache import DataCache
@@ -421,6 +422,16 @@ class BacktestRunner:
         avg_return_long = float(np.mean(returns_long)) if len(long_trades) > 0 else 0.0
         avg_return_short = float(np.mean(returns_short)) if len(short_trades) > 0 else 0.0
 
+        # 统计检验（训练阶段可跳过以提升性能）
+        statistical_results = {}
+        if self.config.skip_statistical_tests is False:
+            statistical_results = calculate_statistical_tests(
+                equity_curve=self.equity_values,
+                benchmark_curve=self.benchmark_prices if self.benchmark_prices else None,
+                trades=self.trades_data,
+                n_bootstrap=1000
+            )
+
         return PerformanceMetrics(
             total_return=float(total_return),
             annual_return=float(annual_return),
@@ -459,6 +470,17 @@ class BacktestRunner:
             avg_return_per_trade=float(avg_return_per_trade),
             avg_return_long=float(avg_return_long),
             avg_return_short=float(avg_return_short),
+            # 统计检验结果
+            t_statistic=statistical_results.get('t_statistic', 0.0),
+            t_pvalue=statistical_results.get('t_pvalue', 1.0),
+            paired_t_statistic=statistical_results.get('paired_t_statistic', 0.0),
+            paired_t_pvalue=statistical_results.get('paired_t_pvalue', 1.0),
+            bootstrap_sharpe_ci_lower=statistical_results.get('bootstrap_sharpe_ci_lower', 0.0),
+            bootstrap_sharpe_ci_upper=statistical_results.get('bootstrap_sharpe_ci_upper', 0.0),
+            bootstrap_annual_return_ci_lower=statistical_results.get('bootstrap_annual_return_ci_lower', 0.0),
+            bootstrap_annual_return_ci_upper=statistical_results.get('bootstrap_annual_return_ci_upper', 0.0),
+            win_rate_pvalue=statistical_results.get('win_rate_pvalue', 1.0),
+            alpha_pvalue=statistical_results.get('alpha_pvalue', 1.0),
         )
 
     def on_stop(self):

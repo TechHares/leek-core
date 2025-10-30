@@ -69,6 +69,7 @@ class RunConfig:
 
     # 性能优化选项
     use_cache: bool = False
+    skip_statistical_tests: bool = False  # 是否跳过统计检验（用于训练阶段加速）
     # 日志选项
     log_file: bool = False
 
@@ -223,6 +224,18 @@ class PerformanceMetrics:
     worst_month: float = 0.0
     positive_months: int = 0
     negative_months: int = 0
+
+    # 统计检验结果
+    t_statistic: float = 0.0  # t统计量
+    t_pvalue: float = 1.0  # t检验p值
+    paired_t_statistic: float = 0.0  # 配对t检验统计量
+    paired_t_pvalue: float = 1.0  # 配对t检验p值
+    bootstrap_sharpe_ci_lower: float = 0.0  # Bootstrap Sharpe 95%置信区间下界
+    bootstrap_sharpe_ci_upper: float = 0.0  # Bootstrap Sharpe 95%置信区间上界
+    bootstrap_annual_return_ci_lower: float = 0.0  # Bootstrap年化收益率95%置信区间下界
+    bootstrap_annual_return_ci_upper: float = 0.0  # Bootstrap年化收益率95%置信区间上界
+    win_rate_pvalue: float = 1.0  # 胜率二项检验p值
+    alpha_pvalue: float = 1.0  # alpha显著性检验p值
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

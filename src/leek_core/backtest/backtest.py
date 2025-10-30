@@ -175,7 +175,8 @@ class EnhancedBacktester:
                     for symbol in symbols:
                         for timeframe in timeframes:
                             for (cv_start, cv_end) in cv_folds:
-                                cfg = self._build_run_config(symbol, timeframe, trial_params, cv_start, cv_end)
+                                # 训练阶段跳过统计检验以提升性能
+                                cfg = self._build_run_config(symbol, timeframe, trial_params, cv_start, cv_end, skip_statistical_tests=True)
                                 cfg["pre_start"] = DateTimeUtils.to_timestamp(self.config.start_time)
                                 cfg["pre_end"] = DateTimeUtils.to_timestamp(self.config.end_time)
                                 futures_local[self.executor.submit(run_backtest, cfg)] = None
@@ -217,7 +218,8 @@ class EnhancedBacktester:
                     for symbol in symbols:
                         for timeframe in timeframes:
                             for (cv_start, cv_end) in cv_folds:
-                                cfg = self._build_run_config(symbol, timeframe, params, cv_start, cv_end)
+                                # 训练阶段跳过统计检验以提升性能
+                                cfg = self._build_run_config(symbol, timeframe, params, cv_start, cv_end, skip_statistical_tests=True)
                                 cfg["pre_start"] = DateTimeUtils.to_timestamp(self.config.start_time)
                                 cfg["pre_end"] = DateTimeUtils.to_timestamp(self.config.end_time)
                                 all_cfgs.append((cfg, p_idx))
@@ -398,7 +400,7 @@ class EnhancedBacktester:
         folds.append((cur_start, end_dt))
         return folds
 
-    def _build_run_config(self, symbol: str, timeframe, params: Dict[str, Any], start_time, end_time) -> Dict[str, Any]:
+    def _build_run_config(self, symbol: str, timeframe, params: Dict[str, Any], start_time, end_time, skip_statistical_tests: bool = False) -> Dict[str, Any]:
         """Build RunConfig dict for runner with overridden params and time bounds."""
         return {
             "id": self.config.id,
@@ -419,6 +421,7 @@ class EnhancedBacktester:
             "initial_balance": self.config.initial_balance,
             "mount_dirs": self.config.mount_dirs,
             "use_cache": self.config.use_cache,
+            "skip_statistical_tests": skip_statistical_tests,
             "log_file": self.config.log_file,
         }
 
