@@ -303,17 +303,13 @@ class BacktestRunner:
         # 基础指标
         total_return = (self.equity_values[-1] - self.equity_values[0]) / self.equity_values[0] if self.equity_values[0] != 0 else 0.0
 
-        # 计算年化收益率
-        if len(self.equity_times) > 1:
-            days = (self.equity_times[-1] - self.equity_times[0]) / (24 * 3600 * 1000)
-            annual_return = (1 + total_return) ** (365 / max(days, 1)) - 1
-        else:
-            annual_return = total_return
+        # 年化收益率不再计算，设为0
+        annual_return = 0.0
 
         # 波动率
         volatility = vectorized_results.get('full_volatility', 0)
-        # 夏普比率
-        sharpe_ratio = annual_return / volatility if volatility > 0 else 0.0
+        # 夏普比率（使用总收益率替代年化收益率）
+        sharpe_ratio = total_return / volatility if volatility > 0 else 0.0
 
         # 回撤相关指标
         peak = np.maximum.accumulate(equity_array)
@@ -338,13 +334,13 @@ class BacktestRunner:
             drawdown_periods = 0
             max_dd_duration = 0
 
-        # Calmar比率
-        calmar_ratio = annual_return / abs(max_drawdown) if max_drawdown != 0 else 0.0
+        # Calmar比率（需要年化收益率，暂设为0）
+        calmar_ratio = 0.0
 
-        # Sortino比率
+        # Sortino比率（需要年化收益率，暂设为0）
         negative_returns = returns[returns < 0] if len(returns) > 0 else np.array([])
         downside_deviation = np.std(negative_returns) * np.sqrt(252) if len(negative_returns) > 1 else 0.0
-        sortino_ratio = annual_return / downside_deviation if downside_deviation > 0 else 0.0
+        sortino_ratio = 0.0
 
         # 交易统计
         total_trades = len(self.trades_data)
@@ -373,6 +369,17 @@ class BacktestRunner:
         avg_loss = np.mean(losses) if losses else 0.0
         profit_factor = sum(profits) / sum(losses) if losses else float('inf') if profits else 0.0
         win_loss_ratio = avg_win / avg_loss if avg_loss > 0 else float('inf') if avg_win > 0 else 0.0
+
+        # 做多/做空的平均利润和平均亏损
+        long_profits = [t["pnl"] for t in long_trades if t.get("pnl", 0) > 0]
+        long_losses = [abs(t["pnl"]) for t in long_trades if t.get("pnl", 0) < 0]
+        short_profits = [t["pnl"] for t in short_trades if t.get("pnl", 0) > 0]
+        short_losses = [abs(t["pnl"]) for t in short_trades if t.get("pnl", 0) < 0]
+
+        avg_win_long = float(np.mean(long_profits)) if long_profits else 0.0
+        avg_loss_long = float(np.mean(long_losses)) if long_losses else 0.0
+        avg_win_short = float(np.mean(short_profits)) if short_profits else 0.0
+        avg_loss_short = float(np.mean(short_losses)) if short_losses else 0.0
 
         # VaR和CVaR
         if len(returns) > 0:
@@ -456,6 +463,10 @@ class BacktestRunner:
             profit_factor=float(profit_factor),
             avg_win=float(avg_win),
             avg_loss=float(avg_loss),
+            avg_win_long=float(avg_win_long),
+            avg_loss_long=float(avg_loss_long),
+            avg_win_short=float(avg_win_short),
+            avg_loss_short=float(avg_loss_short),
             win_loss_ratio=float(win_loss_ratio),
             largest_win=float(max(profits)) if profits else 0.0,
             largest_loss=float(min([-abs(l) for l in losses])) if losses else 0.0,

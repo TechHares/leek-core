@@ -197,6 +197,10 @@ class PerformanceMetrics:
     profit_factor: float = 0.0
     avg_win: float = 0.0
     avg_loss: float = 0.0
+    avg_win_long: float = 0.0  # 做多平均利润（只算赚钱的单子）
+    avg_loss_long: float = 0.0  # 做多平均亏损（只算亏钱的单子，取绝对值）
+    avg_win_short: float = 0.0  # 做空平均利润（只算赚钱的单子）
+    avg_loss_short: float = 0.0  # 做空平均亏损（只算亏钱的单子，取绝对值）
     win_loss_ratio: float = 0.0
     largest_win: float = 0.0
     largest_loss: float = 0.0

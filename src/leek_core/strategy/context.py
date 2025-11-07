@@ -163,8 +163,8 @@ class StrategyContext(LeekContext):
     def create_component(self, key: str=None) -> "StrategyWrapper":
         wrapper = StrategyWrapper(
             self.event_bus,
-            create_component(self.config.cls, **self.config.config.strategy_config),
-            [create_component(c.cls, **c.config) for c in self.config.config.risk_policies or []]
+            create_component(self.config.cls, **(self.config.config.strategy_config or {})),
+            [create_component(c.cls, **(c.config or {})) for c in self.config.config.risk_policies or []]
         )
         wrapper.positon_getter = lambda:leek_context.position_tracker.find_position(strategy_id=self.instance_id, strategy_instance_id=key)
         wrapper.on_start()

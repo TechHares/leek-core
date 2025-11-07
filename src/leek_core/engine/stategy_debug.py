@@ -5,15 +5,16 @@ from decimal import Decimal
 from typing import List, Dict, Any
 
 from leek_core.models.data import KLine
-from leek_core.strategy import StrategyWrapper, Strategy
- 
+from leek_core.strategy import StrategyWrapper, Strategy, StrategyContext
+
 from leek_core.sub_strategy import SubStrategy
 from leek_core.base import LeekComponent
 
 from leek_core.event import SerializableEventBus, EventType, Event, EventSource
 from leek_core.indicators import T, MERGE
 from leek_core.data import DataSource, ClickHouseKlineDataSource
-from leek_core.models import TimeFrame, TradeInsType, LeekComponentConfig, PositionConfig, Signal, Order, Position
+from leek_core.models import TimeFrame, TradeInsType, LeekComponentConfig, PositionConfig, Signal, Order, Position, \
+    StrategyConfig
 from leek_core.executor import ExecutorContext
 from leek_core.manager import ExecutorManager
 from leek_core.position import Portfolio
@@ -86,6 +87,14 @@ class StrategyDebugView(LeekComponent):
         self.data_source.on_start()
         self.engine.executor_manager.components["1"]=self.executor
 
+        ctx = StrategyContext(self.event_bus, config=LeekComponentConfig(
+            instance_id="p1",
+            name="debug",
+            cls=Strategy,
+            config=StrategyConfig(data_source_configs=[])
+        ))
+        ctx.strategies["debug"] = self.strategy
+        self.engine.strategy_manager.components["p1"] = ctx
         count = 0
         data = {
             "open": [],
@@ -144,6 +153,7 @@ class StrategyDebugView(LeekComponent):
                     signal_time=datetime.now(),
                     assets=assets
                 )
+                ctx.signals[signal.signal_id] = signal
                 if assets[0].side.is_long:
                     if assets[0].is_open:
                         data["open_long"][-1] = kline.low * Decimal("0.98")
@@ -191,12 +201,14 @@ class StrategyDebugView(LeekComponent):
         fig.add_trace(go.Scatter(x=df['time'],y=df['open_short'],mode='markers+text',text="空",textposition='top center', textfont=dict(family='Courier New', color='red', size=14), marker=dict(color='#bcbd22', size=4)), row=1, col=1)
         fig.add_trace(go.Scatter(x=df['time'],y=df['close_short'],mode='markers+text',text="空",textposition='bottom center', textfont=dict(family='Courier New', color='green', size=14), marker=dict(color='#17becf', size=4)), row=1, col=1)
 
-        fig.add_trace(go.Scatter(x=df['time'], y=df["bechmark"], mode='lines', name="bechmark",
-                                 line=dict(color=self.get_color(), width=1)), row=2, col=1)
-        fig.add_trace(go.Scatter(x=df['time'], y=df["profit"], mode='lines', name="return",
-                                 line=dict(color=self.get_color(), width=2)), row=2, col=1)
-        fig.add_trace(go.Scatter(x=df['time'], y=df["position"], mode='lines', name="position",
-                                 line=dict(color=self.get_color(), width=1)), row=2, col=1, secondary_y=True)
+        if kwargs.get("draw_bechmark", True):
+            fig.add_trace(go.Scatter(x=df['time'], y=df["bechmark"], mode='lines', name="bechmark",
+                                    line=dict(color=self.get_color(), width=1)), row=2, col=1)
+            fig.add_trace(go.Scatter(x=df['time'], y=df["profit"], mode='lines', name="return",
+                                    line=dict(color=self.get_color(), width=2)), row=2, col=1)
+            if kwargs.get("draw_position", True):
+                fig.add_trace(go.Scatter(x=df['time'], y=df["position"], mode='lines', name="position",
+                                        line=dict(color=self.get_color(), width=1)), row=2, col=1, secondary_y=True)
         # 设置 x 轴标签格式为百分比
         import numpy as np
         fig.update_xaxes(

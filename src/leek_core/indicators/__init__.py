@@ -8,7 +8,8 @@ __all__ = ["T", "TR", "ATR", "RSRS", "SAR", "KDJ", "MA", "EMA", "BollBand", "DK"
            "ChanSegmentManager", "BiFXValidMethod", "ChanFX", "ChanDirection", "ChanZSManager", "ChanZS", "Chan",
            "ChanBSPoint", "ChanFXManager",
            "MACD", "MERGE", "SuperSmoother", "UltimateOscillator", "Reflex", "TrendFlex", "BiasRatio",
-           "DeMarker", "TDSequence", "TDTrendLine", "DMI", "WMA", "HMA", "IchimokuCloud", "WR", "CCI", "CCIV2", "Divergence"]
+           "DeMarker", "TDSequence", "TDTrendLine", "DMI", "ADX", "WMA", "HMA", "IchimokuCloud", "WR", "CCI", "CCIV2", "Divergence",
+           "HurstExponent", "Extreme", "ChaikinVolatility"]
 
 from.t import T
 from .boll import BollBand
@@ -24,7 +25,7 @@ from .chan.fx import ChanFXManager
 from .chan.zs import ChanZSManager, ChanZS
 from .de_mark import DeMarker, TDSequence, TDTrendLine
 from .dk import DK
-from .dm import DMI
+from .dm import DMI, ADX
 from .dsp import Reflex, TrendFlex
 from .ichimoku_cloud import IchimokuCloud
 from .kdj import KDJ
@@ -34,9 +35,12 @@ from .rsi import StochRSI, RSI
 from .rsrs import RSRS
 from .sar import SAR
 from .t import MERGE
+from .hurst import HurstExponent
+from .extreme import Extreme
 from .wr import WR
 from .bias import BiasRatio
 from .bbi import BBI
+from .chaikin_volatility import ChaikinVolatility
 
 MA_TYPE = {
     "MA": MA,

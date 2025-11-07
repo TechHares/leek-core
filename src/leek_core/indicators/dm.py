@@ -54,5 +54,50 @@ class DMI(T):
                     self.cache.append(d)
 
 
+class ADX(T):
+    """
+    平均趋向指标(ADX - Average Directional Index)
+    ADX用于衡量趋势的强度，不指示趋势方向。
+    ADX值越高，趋势越强；ADX值越低，趋势越弱。
+    通常认为：
+    - ADX > 25：趋势强劲
+    - ADX < 20：趋势弱或不存在
+    - 20 < ADX < 25：趋势中等
+    """
+
+    def __init__(self, adx_smoothing=6, di_length=14, max_cache=100):
+        T.__init__(self, max_cache)
+        self.adx_smoothing = adx_smoothing
+        self.di_length = di_length
+
+        self.tr_cal = TR(di_length)
+        self.up_di_smooth = MA(di_length, vfunc=lambda x: x)
+        self.down_di_smooth = MA(di_length, vfunc=lambda x: x)
+        self.dx_smooth = EMA(adx_smoothing, vfunc=lambda x: x)
+        self.pre = None
+
+    def update(self, kline):
+        adx = None
+        try:
+            if self.pre is None:
+                return None
+            tr = self.tr_cal.update(kline)
+            up_dm = max(kline.high - self.pre.high, 0)
+            up_di = self.up_di_smooth.update((100 * up_dm / tr) if tr != 0 else 100, kline.is_finished)
+            down_dm = max(self.pre.low - kline.low, 0)
+            down_di = self.down_di_smooth.update((100 * down_dm / tr) if tr != 0 else 100, kline.is_finished)
+            if up_di is None or down_di is None:
+                return None
+
+            dx = (abs(up_di - down_di) / (up_di + down_di) * 100) if up_di + down_di > 0 else 100
+            adx = self.dx_smooth.update(dx, kline.is_finished)
+            return adx
+        finally:
+            if kline.is_finished:
+                self.pre = kline
+                if adx is not None:
+                    self.cache.append(adx)
+
+
 if __name__ == '__main__':
     pass

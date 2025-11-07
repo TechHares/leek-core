@@ -73,14 +73,20 @@ class PerformanceMetrics:
             
             # 限制指数范围，防止溢出
             exponent = periods_per_year / n_periods
-            if exponent > 1000:  # 如果指数太大，可能导致溢出
-                return total_return
             
-            annualized_return = (1 + total_return) ** exponent - 1
+            # 如果期数太少（少于30期），使用简单年化避免复利放大问题
+            # 如果指数太大（>100），也使用简单年化
+            if n_periods < 30 or exponent > 100:
+                # 简单年化：总收益率 * (periods_per_year / n_periods)
+                annualized_return = total_return * exponent
+            else:
+                # 复利年化：(1 + 总收益率) ^ exponent - 1
+                annualized_return = (1 + total_return) ** exponent - 1
             
             # 检查结果是否有效
-            if np.isnan(annualized_return) or np.isinf(annualized_return):
-                return total_return
+            if not np.isfinite(annualized_return):
+                # 如果结果无效，回退到简单年化
+                annualized_return = total_return * exponent
             
             return float(annualized_return)
             

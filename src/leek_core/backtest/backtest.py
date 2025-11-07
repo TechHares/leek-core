@@ -167,6 +167,8 @@ class EnhancedBacktester:
                 def objective_fn(trial):
                     trial_params = {}
                     for k, values in (param_space or {}).items():
+                        if not values:  # Skip empty parameter lists
+                            continue
                         trial_params[k] = trial.suggest_categorical(k, list(values))
                     score_sum = 0.0
                     count = 0.0
@@ -429,8 +431,12 @@ class EnhancedBacktester:
         """Cartesian product expansion of param_space into list of param dicts."""
         if not space:
             return [{}]
-        keys = list(space.keys())
-        arrays = [list(space[k]) for k in keys]
+        # Filter out empty parameter lists
+        filtered_space = {k: v for k, v in space.items() if v}
+        if not filtered_space:
+            return [{}]
+        keys = list(filtered_space.keys())
+        arrays = [list(filtered_space[k]) for k in keys]
         combos: List[Dict[str, Any]] = []
 
         def backtrack(i: int, cur: Dict[str, Any]):
