@@ -66,6 +66,11 @@ class StrategyDebugView(LeekComponent):
         self.color_index = 0
         self.initial_balance = 10000
         self.bechmark = None
+        
+        # 交易数据收集
+        self.trades_data = []
+        # 仓位数据收集
+        self.positions_data = {}
 
         limit_amt = self.initial_balance * 1000
         cfg = PositionConfig(init_amount=self.initial_balance, max_amount=limit_amt,
@@ -80,12 +85,131 @@ class StrategyDebugView(LeekComponent):
         color = colors[self.color_index % len(colors)]
         self.color_index += 1
         return color
+    
+    def _on_order_updated(self, event: Event):
+        """处理订单更新事件，收集交易数据"""
+        if not isinstance(event.data, Order):
+            return
+        order = event.data
+        if order.is_open or not order.order_status.is_finished:
+            return
+        pnl_val = float(order.pnl or 0)
+        
+        trade_data = {
+            "timestamp": int(order.order_time.timestamp() * 1000),
+            "symbol": order.symbol,
+            "side": str(order.side.switch()),
+            "size": float(order.sz),
+            "entry_amount": float(order.order_amount),
+            "pnl": pnl_val,
+        }
+        self.trades_data.append(trade_data)
+    
+    def _on_position_update(self, event: Event):
+        """处理仓位更新事件，收集平仓完成的仓位数据（sz归0）"""
+        if not isinstance(event.data, Position):
+            return
+        pos = event.data
+        position_data = {
+                "timestamp": DateTimeUtils.now_timestamp(),
+                "symbol": pos.symbol,
+                "side": str(pos.side),
+                "pnl": float(pos.pnl or 0),
+            }
+        self.positions_data[str(pos.position_id)]=position_data
+    
+    def _print_backtest_metrics(self, equity_values: List[float]):
+        """计算并输出回测指标：胜率、盈亏比、区间收益"""
+        import numpy as np
+        
+        # 计算区间收益
+        if equity_values and len(equity_values) > 0 and equity_values[0] != 0:
+            total_return = (equity_values[-1] - equity_values[0]) / equity_values[0] * 100
+        else:
+            total_return = 0.0
+        
+        # 计算胜率和盈亏比
+        total_trades = len(self.trades_data)
+        if total_trades == 0:
+            win_rate = 0.0
+            win_loss_ratio = 0.0
+            avg_win = 0.0
+            avg_loss = 0.0
+        else:
+            # 计算胜率
+            win_trades = [t for t in self.trades_data if t.get("pnl", 0) > 0]
+            loss_trades = [t for t in self.trades_data if t.get("pnl", 0) < 0]
+            win_rate = len(win_trades) / total_trades * 100
+            
+            # 计算盈亏比
+            profits = [t["pnl"] for t in win_trades]
+            losses = [abs(t["pnl"]) for t in loss_trades]
+            
+            avg_win = float(np.mean(profits)) if profits else 0.0
+            avg_loss = float(np.mean(losses)) if losses else 0.0
+            win_loss_ratio = avg_win / avg_loss if avg_loss > 0 else float('inf') if avg_win > 0 else 0.0
+        
+        # 计算仓位胜率和盈亏比
+        total_positions = len(self.positions_data)
+        if total_positions == 0:
+            position_win_rate = 0.0
+            position_win_loss_ratio = 0.0
+            position_avg_win = 0.0
+            position_avg_loss = 0.0
+        else:
+            # 计算仓位胜率
+            win_positions = [p for p in self.positions_data.values() if p.get("pnl", 0) > 0]
+            loss_positions = [p for p in self.positions_data.values() if p.get("pnl", 0) < 0]
+            position_win_rate = len(win_positions) / total_positions * 100
+            
+            # 计算仓位盈亏比
+            position_profits = [p["pnl"] for p in win_positions]
+            position_losses = [abs(p["pnl"]) for p in loss_positions]
+            
+            position_avg_win = float(np.mean(position_profits)) if position_profits else 0.0
+            position_avg_loss = float(np.mean(position_losses)) if position_losses else 0.0
+            position_win_loss_ratio = position_avg_win / position_avg_loss if position_avg_loss > 0 else float('inf') if position_avg_win > 0 else 0.0
+        
+        # 输出结果
+        print("\n" + "=" * 50)
+        print("回测统计结果")
+        print("=" * 50)
+        print("【订单统计】")
+        print(f"总交易次数: {total_trades}")
+        print(f"胜率: {win_rate:.2f}%")
+        if win_loss_ratio == float('inf'):
+            print(f"盈亏比: ∞ (无亏损交易)")
+        else:
+            print(f"盈亏比: {win_loss_ratio:.4f}")
+        print(f"平均盈利: {avg_win:.2f}")
+        print(f"平均亏损: {avg_loss:.2f}")
+        print("\n【仓位统计】")
+        print(f"总仓位次数: {total_positions}")
+        print(f"仓位胜率: {position_win_rate:.2f}%")
+        if position_win_loss_ratio == float('inf'):
+            print(f"仓位盈亏比: ∞ (无亏损仓位)")
+        else:
+            print(f"仓位盈亏比: {position_win_loss_ratio:.4f}")
+        print(f"平均盈利仓位: {position_avg_win:.2f}")
+        print(f"平均亏损仓位: {position_avg_loss:.2f}")
+        print("\n【收益统计】")
+        print(f"区间收益: {total_return:.2f}%")
+        print("=" * 50 + "\n")
 
     def start(self, row=None, custom_draw=None, **kwargs):
         self.engine.on_start()
         self.executor.on_start()
         self.data_source.on_start()
         self.engine.executor_manager.components["1"]=self.executor
+        
+        # 订阅订单更新事件
+        self.event_bus.subscribe_event(EventType.ORDER_UPDATED, self._on_order_updated)
+        # 订阅仓位更新事件
+        self.event_bus.subscribe_event(EventType.POSITION_UPDATE, self._on_position_update)
+        
+        # 重置交易数据
+        self.trades_data = []
+        self.positions_data = {}
 
         ctx = StrategyContext(self.event_bus, config=LeekComponentConfig(
             instance_id="p1",
@@ -111,6 +235,9 @@ class StrategyDebugView(LeekComponent):
             "position": [],
             "time": []
         }
+        
+        # 收集净值数据用于计算区间收益
+        equity_values = []
 
         custom_key = []
         for kline in self.data_source.get_history_data(start_time=self.start_time, end_time=self.end_time,
@@ -165,11 +292,19 @@ class StrategyDebugView(LeekComponent):
                     else:
                         data["close_long"][-1] = kline.low * Decimal("1.02")
                 self.engine._on_signal(signal)
-            data["profit"].append((self.engine.portfolio.total_value - self.initial_balance) / self.initial_balance * 100)
+            total_value = self.engine.portfolio.total_value
+            equity_values.append(float(total_value))
+            data["profit"].append((total_value - self.initial_balance) / self.initial_balance * 100)
+        
         logger.info(f"数据执行完成，共{count}条")
+        
+        # 计算并输出回测指标
+        self._print_backtest_metrics(equity_values)
+        
         self.data_source.on_stop()
         self.engine.on_stop()
-        self.draw(data, row, custom_draw, **kwargs)
+        if kwargs.get("draw", True):
+            self.draw(data, row, custom_draw, **kwargs)
 
     def draw(self, data, row=None, custom_draw=None, **kwargs) -> None:
         import plotly.graph_objs as go
@@ -201,10 +336,12 @@ class StrategyDebugView(LeekComponent):
         fig.add_trace(go.Scatter(x=df['time'],y=df['open_short'],mode='markers+text',text="空",textposition='top center', textfont=dict(family='Courier New', color='red', size=14), marker=dict(color='#bcbd22', size=4)), row=1, col=1)
         fig.add_trace(go.Scatter(x=df['time'],y=df['close_short'],mode='markers+text',text="空",textposition='bottom center', textfont=dict(family='Courier New', color='green', size=14), marker=dict(color='#17becf', size=4)), row=1, col=1)
 
-        if kwargs.get("draw_bechmark", True):
-            fig.add_trace(go.Scatter(x=df['time'], y=df["bechmark"], mode='lines', name="bechmark",
+        if kwargs.get("draw_2", True):
+            if kwargs.get("draw_bechmark", True):
+                fig.add_trace(go.Scatter(x=df['time'], y=df["bechmark"], mode='lines', name="bechmark",
                                     line=dict(color=self.get_color(), width=1)), row=2, col=1)
-            fig.add_trace(go.Scatter(x=df['time'], y=df["profit"], mode='lines', name="return",
+            if kwargs.get("draw_profit", True):
+                fig.add_trace(go.Scatter(x=df['time'], y=df["profit"], mode='lines', name="return",
                                     line=dict(color=self.get_color(), width=2)), row=2, col=1)
             if kwargs.get("draw_position", True):
                 fig.add_trace(go.Scatter(x=df['time'], y=df["position"], mode='lines', name="position",

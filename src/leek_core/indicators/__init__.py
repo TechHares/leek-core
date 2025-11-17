@@ -9,11 +9,12 @@ __all__ = ["T", "TR", "ATR", "RSRS", "SAR", "KDJ", "MA", "EMA", "BollBand", "DK"
            "ChanBSPoint", "ChanFXManager",
            "MACD", "MERGE", "SuperSmoother", "UltimateOscillator", "Reflex", "TrendFlex", "BiasRatio",
            "DeMarker", "TDSequence", "TDTrendLine", "DMI", "ADX", "WMA", "HMA", "IchimokuCloud", "WR", "CCI", "CCIV2", "Divergence",
-           "HurstExponent", "Extreme", "ChaikinVolatility"]
+           "HurstExponent", "Extreme", "ChaikinVolatility", "SuperTrend", "ZScore"]
 
 from.t import T
 from .boll import BollBand
 from .atr import ATR, TR
+from .supertrend import SuperTrend
 from .cci import CCI, CCIV2
 from .chan.k import ChanKManager, ChanK, ChanUnion
 from .chan.seg import ChanFeature, ChanSegment, ChanSegmentManager
@@ -41,6 +42,7 @@ from .wr import WR
 from .bias import BiasRatio
 from .bbi import BBI
 from .chaikin_volatility import ChaikinVolatility
+from .zscore import ZScore
 
 MA_TYPE = {
     "MA": MA,
