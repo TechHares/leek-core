@@ -2,17 +2,18 @@
 # -*- coding: utf-8 -*-
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Dict, Any, List, Tuple, TypeVar, Generic, TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Dict, Generic, List, Optional, Tuple, TypeVar
 
 from leek_core.base import LeekComponent
+
 from .constants import OrderType, TradeInsType, TradeMode
+
 if TYPE_CHECKING:
-    from leek_core.sub_strategy import SubStrategy
-    from leek_core.strategy import Strategy
-    from leek_core.data import DataSource
-    from leek_core.info_fabricator import Fabricator
+    from leek_core.data import DataSource, DataSourceContext
     from leek_core.executor import Executor
-    from leek_core.data import DataSourceContext
+    from leek_core.info_fabricator import Fabricator
+    from leek_core.strategy import Strategy
+    from leek_core.sub_strategy import SubStrategy
 
 
 @dataclass

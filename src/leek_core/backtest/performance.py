@@ -11,20 +11,11 @@ Performance Optimizer for Backtest Engine
 4. 结果缓存
 """
 
-import gc
-import hashlib
-import pickle
-import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from functools import lru_cache
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List
+
 import numpy as np
-import pandas as pd
-from threading import Lock
 
 from leek_core.utils import get_logger
-from leek_core.models.data import KLine
-from leek_core.data import DataSource
 
 logger = get_logger(__name__)
 

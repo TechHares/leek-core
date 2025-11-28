@@ -1,16 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from dataclasses import dataclass, asdict, field, fields
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Callable, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from leek_core.data import DataSource
-from leek_core.models import (
-    TimeFrame,
-    TradeInsType,
-)
+from leek_core.models import TimeFrame, TradeInsType
 from leek_core.utils import DateTimeUtils
 
 
@@ -395,3 +392,41 @@ class NormalBacktestResult:
             combined_equity_values=combined_values if results else [],
             execution_time=execution_time,
         )
+
+@dataclass
+class FactorEvaluationConfig:
+    """回测配置"""
+    # 基础配置
+    id: int
+    name: str
+
+    # 数据配置
+    symbols: List[str] = None
+    timeframes: List[TimeFrame] = None
+    start_time: Union[int] = None
+    end_time: Union[int] = None
+    market: str = "okx"
+    quote_currency: str = "USDT"
+    ins_type: TradeInsType = TradeInsType.SWAP
+
+    # 因子配置
+    factor_classes: Dict[int, str] = None  # {factor_id: factor_class_name}
+    factor_params: Dict[int, Dict[str, Any]] = None  # {factor_id: factor_params}
+    data_source_class: str = None
+    data_source_config: Dict[str, Any] = None
+    future_periods: int = 1
+    quantile_count: int = 5
+    ic_window: Optional[int] = None  # IC计算窗口大小（None表示累计，int表示固定窗口大小）
+
+    # 并行配置
+    max_workers: int = 1
+
+    def __post_init__(self):
+        if isinstance(self.start_time, str):
+            self.start_time = DateTimeUtils.to_timestamp(self.start_time)
+        if isinstance(self.start_time, datetime):
+            self.start_time = DateTimeUtils.datetime_to_timestamp(self.start_time)
+        if isinstance(self.end_time, str):
+            self.end_time = DateTimeUtils.to_timestamp(self.end_time)
+        if isinstance(self.end_time, datetime):
+            self.end_time = DateTimeUtils.datetime_to_timestamp(self.end_time)

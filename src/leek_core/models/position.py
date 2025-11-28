@@ -5,10 +5,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
+from typing import Dict, List, Optional, Tuple, Union
 import time
-from typing import List, Dict, Optional, Tuple, Union
 
-from .constants import TradeInsType, AssetType
+from .constants import AssetType, TradeInsType
     
 class PositionSide(Enum):
     """

@@ -1,10 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from typing import List
+from typing import TYPE_CHECKING, List
 
 from leek_core.event import EventBus
+
 from .component import LeekComponent
 from .util import create_component
+
+if TYPE_CHECKING:
+    from leek_core.models import Field, LeekComponentConfig
 
 
 class LeekContext(LeekComponent):

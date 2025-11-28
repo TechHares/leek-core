@@ -5,6 +5,8 @@
 日志处理器模块，支持多种日志输出目标，包括控制台、文件和外部系统。
 """
 
+from logging import FileHandler
+from typing import List
 import atexit
 import logging
 import os
@@ -12,8 +14,6 @@ import socket
 import sys
 import threading
 import time
-from logging import FileHandler
-from typing import List
 
 from .config import LogConfig, LogFormat
 from .formatters import create_formatter

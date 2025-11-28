@@ -7,8 +7,9 @@
 提供统计显著性检验功能，帮助判断策略是否真的有效而非随机运气。
 """
 
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
-from typing import List, Tuple, Optional, Dict, Any
 from scipy import stats
 
 

@@ -6,7 +6,15 @@
 """
 from .backtest import EnhancedBacktester
 from .runner import run_backtest
-from .types import BacktestMode, BacktestResult, BacktestConfig, WalkForwardResult, WindowResult, OptimizationObjective, NormalBacktestResult
+from .types import (
+    BacktestConfig,
+    BacktestMode,
+    NormalBacktestResult,
+    OptimizationObjective,
+    BacktestResult,
+    WalkForwardResult,
+    WindowResult,
+)
 __all__ = [
     "run_backtest",
     "BacktestConfig",

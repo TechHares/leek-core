@@ -6,11 +6,11 @@
 包括参数记录、异常捕获、性能跟踪等。
 """
 
+from typing import Any, Callable, Optional, TypeVar, Union, cast
 import functools
 import inspect
 import logging
 import time
-from typing import Any, Callable, Optional, TypeVar, cast, Union
 
 # 泛型类型变量，表示被装饰函数的类型
 F = TypeVar('F', bound=Callable[..., Any])

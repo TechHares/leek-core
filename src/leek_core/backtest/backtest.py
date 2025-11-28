@@ -1,19 +1,28 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import concurrent
-import time
+from concurrent.futures import as_completed
 from dataclasses import fields
 from datetime import datetime, timedelta
-from joblib.externals.loky import ProcessPoolExecutor
-# from concurrent.futures import ProcessPoolExecutor
-from typing import Optional, Callable, Union, Dict, List, Tuple, Any
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+import time
+
 import optuna
+from joblib.externals.loky import ProcessPoolExecutor
 from optuna.pruners import MedianPruner
 
-from leek_core.utils import get_logger, DateTimeUtils
+from leek_core.utils import DateTimeUtils, get_logger
 
-from .types import BacktestConfig, BacktestResult, WalkForwardResult, BacktestMode, NormalBacktestResult, PerformanceMetrics, WindowResult, OptimizationObjective
 from .runner import run_backtest
+from .types import (
+    BacktestConfig,
+    BacktestMode,
+    NormalBacktestResult,
+    OptimizationObjective,
+    PerformanceMetrics,
+    BacktestResult,
+    WalkForwardResult,
+    WindowResult,
+)
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 logger = get_logger(__name__)
 class EnhancedBacktester:
@@ -66,7 +75,7 @@ class EnhancedBacktester:
         agg_metrics = PerformanceMetrics()
         agg_count = 0.0
         window_idx = 0
-        for future in concurrent.futures.as_completed(futures):
+        for future in as_completed(futures):
             params = futures[future]
             result = future.result()
             window_data = None
@@ -184,7 +193,7 @@ class EnhancedBacktester:
                                 futures_local[self.executor.submit(run_backtest, cfg)] = None
                     fold_idx = 0
                     total_jobs_this_trial = len(futures_local)
-                    for future in concurrent.futures.as_completed(futures_local):
+                    for future in as_completed(futures_local):
                         br: BacktestResult = future.result()
                         score_current = 0.0
                         if br is not None:
@@ -229,7 +238,7 @@ class EnhancedBacktester:
                 futures = {}
                 for cfg, p_idx in all_cfgs:
                     futures[self.executor.submit(run_backtest, cfg)] = p_idx
-                for future in concurrent.futures.as_completed(futures):
+                for future in as_completed(futures):
                     p_idx = futures[future]
                     br: BacktestResult = future.result()
                     if br is not None:
@@ -266,7 +275,7 @@ class EnhancedBacktester:
                     cfg["pre_end"] = DateTimeUtils.to_timestamp(self.config.end_time)
                     futures[self.executor.submit(run_backtest, cfg)] = (symbol, timeframe)
 
-            for future in concurrent.futures.as_completed(futures):
+            for future in as_completed(futures):
                 symbol, timeframe = futures[future]
                 test_br: BacktestResult = future.result()
                 window_data = None

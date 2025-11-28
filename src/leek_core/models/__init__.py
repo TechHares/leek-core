@@ -4,16 +4,39 @@
 """
 数据模型模块，包含各模块间交互的DTO和通用数据结构。
 """
-from .config import PositionConfig, StrategyConfig, LeekComponentConfig, BacktestEngineConfig, StrategyPositionConfig
-from .constants import TimeFrame, DataType, AssetType, MarketStatus, TradeMode, TradeInsType, OrderType, \
-    PosMode, StrategyInstanceState, StrategyState, OrderStatus
-from .data import KLine, Data, InitDataPackage
-from .order import Order, ExecutionAsset, ExecutionContext, OrderUpdateMessage
-from .parameter import Field, FieldType, ChoiceType
-from .position import PositionSide, Position, PositionInfo, OrderExecutionState, VirtualPosition
-from .signal import Signal, Asset
-from .transaction import Transaction, TransactionType
+from .config import (
+    BacktestEngineConfig,
+    LeekComponentConfig,
+    PositionConfig,
+    StrategyConfig,
+    StrategyPositionConfig,
+)
+from .constants import (
+    AssetType,
+    DataType,
+    MarketStatus,
+    OrderStatus,
+    OrderType,
+    PosMode,
+    StrategyInstanceState,
+    StrategyState,
+    TimeFrame,
+    TradeInsType,
+    TradeMode,
+)
+from .data import Data, InitDataPackage, KLine
+from .order import ExecutionAsset, ExecutionContext, Order, OrderUpdateMessage
+from .parameter import ChoiceType, Field, FieldType
+from .position import (
+    OrderExecutionState,
+    Position,
+    PositionInfo,
+    PositionSide,
+    VirtualPosition,
+)
 from .risk_event import RiskEvent, RiskEventType
+from .signal import Asset, Signal
+from .transaction import Transaction, TransactionType
 __all__ = [
     "OrderExecutionState",
     "OrderUpdateMessage",

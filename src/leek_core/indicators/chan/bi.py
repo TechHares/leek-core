@@ -149,11 +149,11 @@ class ChanBI(ChanUnion):
             return False
 
         # 额外加的条件更符合直觉， 保证力度， 极点成笔
-        high = max([x.high for x in self.chan_k_list])
-        low = min([x.low for x in self.chan_k_list])
+        high = max([x.high for x in self.chan_k_list[1:]])
+        low = min([x.low for x in self.chan_k_list[1:]])
         if self.is_up:
-            return high == end.high and max(start_left.high, start.high, start_right.high) < max(end_left.high, end.high, end_right.high)
-        return low == end.low and max(start_left.high, start.high, start_right.high) > max(end_left.high, end.high, end_right.high)
+            return high == end.high and max(start.high, start_right.high) < max(end_left.high, end.high)
+        return low == end.low and max(start.high, start_right.high) > max(end_left.high, end.high)
 
     def __end_fx(self):
         return self.chan_k_list[-3], self.chan_k_list[-2], self.chan_k_list[-1]
@@ -213,7 +213,7 @@ class ChanBIManager:
         fx = self.__fx_manager.fx
         if fx is None:
             return
-
+        
         if len(self) == 0:  # 笔尚未开始
             self.create_bi(fx)
 

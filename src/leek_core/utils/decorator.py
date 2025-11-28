@@ -1,13 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import threading
-import functools
-import time
-from .logging import get_logger
-import uuid
-from typing import Any, Callable, Optional, TypeVar, cast, Dict, Union, Type, Tuple, List
 from collections import defaultdict, deque
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar, Union, cast
+import functools
+import threading
+import time
+import uuid
+
+from .logging import get_logger
 logger = get_logger(__name__)
 
 T = TypeVar('T')

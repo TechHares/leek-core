@@ -2,30 +2,37 @@
 # -*- coding: utf-8 -*-
 from dataclasses import asdict
 from decimal import Decimal
-from re import L
-from typing import Optional, Callable, Dict, Any, Type, List
+from multiprocessing import Lock
+from typing import Any, Callable, Dict, List, Optional, Type
+import logging
+import os
 import sys
 
 import numpy as np
 
-from leek_core.utils import get_logger, DateTimeUtils, setup_logging, set_worker_id
-from leek_core.base import load_class_from_str, create_component
+from leek_core.base import create_component, load_class_from_str
 from leek_core.data import DataSource
-from leek_core.models import Order, PositionConfig, LeekComponentConfig, Position, Signal, StrategyConfig, KLine
-from leek_core.manager import ExecutorManager, StrategyManager
-from leek_core.event import SerializableEventBus, Event, EventType
+from leek_core.engine import SimpleEngine
+from leek_core.event import Event, EventType, SerializableEventBus
 from leek_core.executor import ExecutorContext
+from leek_core.manager import ExecutorManager, StrategyManager
+from leek_core.models import (
+    KLine,
+    LeekComponentConfig,
+    Order,
+    Position,
+    PositionConfig,
+    Signal,
+    StrategyConfig,
+)
 from leek_core.strategy import StrategyContext
 from leek_core.sub_strategy import SubStrategy
-from leek_core.engine import SimpleEngine
+from leek_core.utils import DateTimeUtils, get_logger, set_worker_id, setup_logging
 
-from .statistical_tests import calculate_statistical_tests
-from .performance import vectorized_operations
-from .types import RunConfig, PerformanceMetrics, BacktestResult
 from .data_cache import DataCache
-import logging
-import os
-from multiprocessing import Lock
+from .performance import vectorized_operations
+from .statistical_tests import calculate_statistical_tests
+from .types import BacktestResult, PerformanceMetrics, RunConfig
 
 logger = get_logger(__name__)
 def run_backtest(config: Dict[str, Any]):

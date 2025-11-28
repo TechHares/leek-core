@@ -4,15 +4,15 @@
 """
 K线数据模型模块，定义K线数据传输对象。
 """
-from abc import abstractmethod, ABCMeta
-from builtins import set
+from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal, getcontext
-from typing import Optional, Union, Dict, Any, Set, List, ClassVar
+from typing import Any, ClassVar, Dict, List, Optional, Set, Union
 
 from leek_core.utils import DecimalEncoder
-from .constants import TimeFrame, TradeInsType, DataType, AssetType
+
+from .constants import AssetType, DataType, TimeFrame, TradeInsType
 
 # 设置Decimal精度
 getcontext().prec = 28  # 设置足够高的精度以处理金融数据

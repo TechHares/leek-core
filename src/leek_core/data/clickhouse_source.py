@@ -9,8 +9,18 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Iterator, List
 
-from leek_core.models import TimeFrame, DataType, TradeInsType, KLine, Field, FieldType, ChoiceType, AssetType
+from leek_core.models import (
+    AssetType,
+    ChoiceType,
+    DataType,
+    Field,
+    FieldType,
+    KLine,
+    TimeFrame,
+    TradeInsType,
+)
 from leek_core.utils import get_logger
+
 from .base import DataSource
 
 logger = get_logger(__name__)
