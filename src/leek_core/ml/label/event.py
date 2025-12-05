@@ -10,6 +10,8 @@
 import numpy as np
 import pandas as pd
 
+from leek_core.models import Field, FieldType
+
 from .base import LabelGenerator
 
 class EventLabel(LabelGenerator):
@@ -44,15 +46,23 @@ class EventLabel(LabelGenerator):
         ... })
         >>> df = label_gen.generate(df_raw)
     """
+    display_name = "事件驱动标签"
+    init_params = [
+        Field(name="hold_periods", label="持仓周期", type=FieldType.INT, default=3, description="持仓周期（天数）"),
+        Field(name="min_return", label="最小收益率阈值", type=FieldType.FLOAT, default=0.05, description="最小收益率阈值（小数形式，如0.05表示5%）"),
+        Field(name="max_drawdown", label="最大回撤阈值", type=FieldType.FLOAT, default=0.03, description="最大回撤阈值（小数形式，如0.03表示3%）"),
+        Field(name="use_high_low", label="使用高低价计算回撤", type=FieldType.BOOLEAN, default=True, description="是否使用 high/low 计算回撤（更精确）"),
+    ]
     
-    def __init__(self, params: dict):
-        super().__init__(params)
-        self.hold_periods = int(params.get("hold_periods", 3))
-        self.min_return = float(params.get("min_return", 0.05))
-        self.max_drawdown = float(params.get("max_drawdown", 0.03))
-        self.use_high_low = params.get("use_high_low", True)
+    def __init__(self, hold_periods: int = 3, min_return: float = 0.05, max_drawdown: float = 0.03, 
+                 use_high_low: bool = True):
+        super().__init__()
+        self.hold_periods = hold_periods
+        self.min_return = min_return
+        self.max_drawdown = max_drawdown
+        self.use_high_low = use_high_low
     
-    def generate(self, df: pd.DataFrame) -> pd.DataFrame:
+    def generate(self, df: pd.DataFrame) -> pd.Series:
         """
         生成事件标签
         
@@ -61,7 +71,7 @@ class EventLabel(LabelGenerator):
         2. 最大回撤 < max_drawdown
         
         :param df: 包含 close 列（可选 high/low 列）的 DataFrame
-        :return: 增加了 label 列的 DataFrame
+        :return: 标签 Series
         """
         close = df['close']
         
@@ -87,7 +97,5 @@ class EventLabel(LabelGenerator):
             (max_dd > -self.max_drawdown)
         ] = 1
         
-        df[self.label_name] = labels.astype(int)
-        
-        return df
+        return pd.Series(labels.astype(int), name=self.label_name)
 

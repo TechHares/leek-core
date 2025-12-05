@@ -28,15 +28,7 @@ class XGBoostStrategy(MLStrategy):
     display_name = "XGBoost策略"
 
     # 继承父类参数并添加XGBoost特定参数
-    # 注意：需要显式列出父类参数（因为类属性不能直接继承）
     init_params = MLStrategy.init_params + [
-        Field(
-            name="feature_config",
-            label="特征配置",
-            type=FieldType.ARRAY,
-            description="特征配置列表（JSON格式），必须与训练时一致",
-            required=True,
-        ),
         Field(
             name="mode",
             label="模型模式",
@@ -56,25 +48,22 @@ class XGBoostStrategy(MLStrategy):
         )
     ]
 
-    def __init__(self, model_path: Optional[str] = None, model_data: Optional[str] = None, feature_config: Optional[list] = None,
+    def __init__(self, model_config: Dict[str, Any],
         confidence_threshold: float = 0.6, warmup_periods: int = 0, mode: Optional[str] = None, return_threshold: float = 0.02):
         """
         初始化XGBoost策略
         
-        :param model_path: 模型文件路径（与model_data/model_id三选一）
-        :param model_data: base64编码的模型数据（与model_path/model_id三选一）
-        :param model_id: 平台模型ID（与model_path/model_data三选一）
-        :param feature_config: 特征配置列表（必填）
+        :param model_config: 模型配置字典，必须包含：
+            - model_path: 模型文件路径（必填）
+            - feature_config: 特征配置列表（必填）
+            - model_id: 模型ID（可选）
         :param confidence_threshold: 置信度阈值（默认0.6）
         :param warmup_periods: 预热期（默认0）
         :param mode: 模型模式，"classification"或"regression"（默认自动检测）
         :param return_threshold: 收益率阈值（默认0.02，即2%）
-        :param position_ratio: 仓位比例（默认1.0，即满仓）
         """
         super().__init__(
-            model_path=model_path,
-            model_data=model_data,
-            feature_config=feature_config,
+            model_config=model_config,
             confidence_threshold=confidence_threshold,
             warmup_periods=warmup_periods,
         )
@@ -134,14 +123,12 @@ class XGBoostStrategy(MLStrategy):
                     return {
                         'side': PositionSide.LONG,
                         'confidence': prob_up,
-                        'ratio': self.position_ratio
                     }
                 # 下跌概率高，做空
                 elif prob_down > self.confidence_threshold:
                     return {
                         'side': PositionSide.SHORT,
                         'confidence': prob_down,
-                        'ratio': self.position_ratio
                     }
             elif len(prediction) == 3:
                 # 三分类：[prob_down, prob_neutral, prob_up]
@@ -197,7 +184,6 @@ class XGBoostStrategy(MLStrategy):
             return {
                 'side': PositionSide.LONG,
                 'confidence': confidence,
-                'ratio': self.position_ratio
             }
         # 如果预测负收益率超过阈值，做空
         elif predicted_return < -self.return_threshold:
@@ -206,7 +192,6 @@ class XGBoostStrategy(MLStrategy):
             return {
                 'side': PositionSide.SHORT,
                 'confidence': confidence,
-                'ratio': self.position_ratio
             }
 
         return None

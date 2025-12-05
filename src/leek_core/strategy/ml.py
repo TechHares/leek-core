@@ -8,21 +8,17 @@
 from abc import abstractmethod
 import joblib
 import numpy as np
-import base64
-import io
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union, Callable
+from typing import Any, Dict, List, Optional, Union
 from decimal import Decimal
 
 from leek_core.models import KLine, PositionSide, Position, Field, FieldType
 from leek_core.strategy.cta import CTAStrategy, StrategyCommand
 from leek_core.ml.feature_engine import FeatureEngine
+from leek_core.base import create_component, load_class_from_str
 from leek_core.utils import get_logger
 
 logger = get_logger(__name__)
-
-# 全局模型加载器注册表（用于从平台存储加载模型）
-_model_loaders: Dict[str, Callable[[str], Any]] = {}
 
 
 class MLStrategy(CTAStrategy):
@@ -44,31 +40,10 @@ class MLStrategy(CTAStrategy):
     
     init_params = [
         Field(
-            name="model_path",
-            label="模型文件路径",
-            type=FieldType.STRING,
-            description="模型文件路径（.joblib格式），与model_data/model_id三选一",
-            required=False,
-        ),
-        Field(
-            name="model_data",
-            label="模型数据(base64)",
-            type=FieldType.STRING,
-            description="base64编码的模型数据（适合gRPC传递），与model_path/model_id三选一",
-            required=False,
-        ),
-        Field(
-            name="model_id",
-            label="模型ID",
-            type=FieldType.STRING,
-            description="平台模型ID（需注册加载器），与model_path/model_data三选一",
-            required=False,
-        ),
-        Field(
-            name="feature_config",
-            label="特征配置",
-            type=FieldType.ARRAY,
-            description="特征配置列表（JSON格式），必须与训练时一致",
+            name="model_config",
+            label="模型",
+            type=FieldType.MODEL,
+            description="选择已训练好的模型",
             required=True,
         ),
         Field(
@@ -89,14 +64,15 @@ class MLStrategy(CTAStrategy):
         ),
     ]
     
-    def __init__(self, model_path: Optional[str] = None, model_data: Optional[str] = None,
-     feature_config: Optional[List[Dict]] = None, confidence_threshold: float = 0.5, warmup_periods: int = 0):
+    def __init__(self, model_config: Dict[str, Any],
+                 confidence_threshold: float = 0.5, warmup_periods: int = 0):
         """
         初始化ML策略
         
-        :param model_path: 模型文件路径（与model_data二选一）
-        :param model_data: base64编码的模型数据（与model_path二选一）
-        :param feature_config: 特征配置列表（必填）
+        :param model_config: 模型配置字典，必须包含：
+            - model_path: 模型文件路径（必填）
+            - feature_config: 特征配置列表（必填），格式：[{id, name, class_name, params}, ...]
+            - model_id: 模型ID（可选，用于展示和关联）
         :param confidence_threshold: 置信度阈值（默认0.5）
         :param warmup_periods: 预热期（默认0）
 
@@ -105,9 +81,14 @@ class MLStrategy(CTAStrategy):
         super().__init__()
         self.model: Optional[Any] = None
         self.feature_engine: Optional[FeatureEngine] = None
-        self.model_path = model_path
-        self.model_data = model_data
-        self.feature_config = feature_config
+        self.model_config = model_config
+        self.model_path = model_config.get('model_path')
+        feature_config_raw = model_config.get('feature_config', {})
+        
+        # 处理新格式：feature_config 是字典，包含 'factors' 和 'encoder_classes'
+        self.feature_config = feature_config_raw.get('factors', [])
+        self.encoder_classes = feature_config_raw.get('encoder_classes', {})
+        
         self.confidence_threshold = confidence_threshold
         self.warmup_periods = warmup_periods
         
@@ -120,51 +101,61 @@ class MLStrategy(CTAStrategy):
     
     def _validate_and_init(self):
         """验证参数并初始化模型和特征引擎"""
-        # 验证模型源（至少提供一个）
-        model_sources = sum([
-            bool(self.model_path),
-            bool(self.model_data),
-        ])
-        if model_sources == 0:
-            raise ValueError("At least one of model_path or model_data is required")
-        if model_sources > 1:
-            logger.warning("Multiple model sources specified. Priority: model_data > model_path")
+        # 验证模型配置
+        if not isinstance(self.model_config, dict):
+            raise ValueError("model_config must be a dictionary")
+        
+        # 验证模型路径
+        if not self.model_path:
+            raise ValueError("model_config must contain 'model_path'")
         
         # 验证特征配置
-        if not self.feature_config:
-            raise ValueError("feature_config is required")
+        if not self.feature_config or not isinstance(self.feature_config, list):
+            raise ValueError("model_config must contain 'feature_config' with 'factors' as a list")
         
-        # 初始化模型和特征引擎
+        # 初始化模型
         self._load_model()
-        self.feature_engine = FeatureEngine(self.feature_config)
         
-        model_source = "base64_data" if self.model_data else f"file:{self.model_path}"
-        logger.info(f"MLStrategy initialized: model_source={model_source}, features={len(self.feature_config)}")
+        # 从特征配置创建因子实例
+        factor_instances = []
+        factor_ids = []
+        for factor_config in self.feature_config:
+            if not isinstance(factor_config, dict):
+                raise ValueError(f"Invalid feature_config item: {factor_config}, must be a dictionary")
+            
+            class_name = factor_config.get('class_name')
+            if not class_name:
+                raise ValueError(f"feature_config item must contain 'class_name': {factor_config}")
+            
+            try:
+                factor_cls = load_class_from_str(class_name)
+                factor_instance = create_component(factor_cls, **(factor_config.get('params', {})))
+                factor_instances.append(factor_instance)
+                factor_ids.append(str(factor_config.get('id', len(factor_instances) - 1)))
+            except Exception as e:
+                raise RuntimeError(f"Failed to create factor from config {factor_config}: {e}") from e
+        
+        self.feature_engine = FeatureEngine.create_from_encoder_classes(
+            factors=factor_instances,
+            factor_ids=factor_ids,
+            symbol_classes=self.encoder_classes.get('symbol_classes', None) ,
+            timeframe_classes=self.encoder_classes.get('timeframe_classes', None),
+            enable_symbol_timeframe_encoding=self.encoder_classes.get('enable_symbol_timeframe_encoding', True)
+        )
+        logger.info(f"MLStrategy initialized: model_path={self.model_path}, features={len(self.feature_config)}")
     
     def _load_model(self):
         """
         加载模型
         
-        支持两种方式（按优先级）：
-        1. model_data: base64编码的模型数据（直接传递，适合gRPC）
-        2. model_path: 文件路径（传统方式）
-        
-        默认支持 joblib 格式，子类可以重写以支持其他格式（如 onnx）
+        从文件路径加载模型，默认支持 joblib 格式。
+        子类可以重写以支持其他格式（如 onnx）
         """
         try:
-            # 方式1: 从 base64 数据加载（最优先，适合gRPC传递）
-            if self.model_data:
-                model_bytes = base64.b64decode(self.model_data)
-                self.model = joblib.load(io.BytesIO(model_bytes))
-                logger.info("Model loaded successfully from base64 data")
-            # 方式2: 从文件路径加载（传统方式）
-            elif self.model_path:
-                if not Path(self.model_path).exists():
-                    raise FileNotFoundError(f"Model file not found: {self.model_path}")
-                self.model = joblib.load(self.model_path)
-                logger.info(f"Model loaded successfully from file: {self.model_path}")
-            else:
-                raise ValueError("No model source specified. Provide model_path or model_data")
+            if not Path(self.model_path).exists():
+                raise FileNotFoundError(f"Model file not found: {self.model_path}")
+            self.model = joblib.load(self.model_path)
+            logger.info(f"Model loaded successfully from file: {self.model_path}")
             
         except ModuleNotFoundError as e:
             # 捕获模块缺失错误，提供更友好的错误提示
@@ -196,7 +187,7 @@ class MLStrategy(CTAStrategy):
         
         # 检查特征是否有效（是否有 NaN）
         if np.isnan(features).any():
-            logger.debug("Features contain NaN, skipping prediction")
+            logger.info("Features contain NaN, skipping prediction")
             return
         
         # 存储当前信号（供 should_open/should_close 使用）

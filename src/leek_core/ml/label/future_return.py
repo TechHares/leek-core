@@ -10,6 +10,8 @@
 import numpy as np
 import pandas as pd
 
+from leek_core.models import Field, FieldType
+
 from .base import LabelGenerator
 
 class FutureReturnLabel(LabelGenerator):
@@ -31,13 +33,18 @@ class FutureReturnLabel(LabelGenerator):
         ... })
         >>> df = label_gen.generate(df_raw)
     """
+    display_name = "未来收益率标签"
+    init_params = [
+        Field(name="periods", label="未来期数", type=FieldType.INT, default=1, description="未来几期"),
+        Field(name="use_log", label="使用对数收益率", type=FieldType.BOOLEAN, default=False, description="是否使用对数收益率"),
+    ]
     
-    def __init__(self, params: dict):
-        super().__init__(params)
-        self.periods = int(params.get("periods", 1))
-        self.use_log = params.get("use_log", False)
+    def __init__(self, periods: int = 1, use_log: bool = False):
+        super().__init__()
+        self.periods = periods
+        self.use_log = use_log
     
-    def generate(self, df: pd.DataFrame) -> pd.DataFrame:
+    def generate(self, df: pd.DataFrame) -> pd.Series:
         """
         生成未来收益率标签
         
@@ -46,16 +53,16 @@ class FutureReturnLabel(LabelGenerator):
         - 对数收益率: log(close[t+n] / close[t])
         
         :param df: 包含 close 列的 DataFrame
-        :return: 增加了 label 列的 DataFrame
+        :return: 标签 Series
         """
         close = df['close']
         
         if self.use_log:
             future_close = close.shift(-self.periods)
-            df[self.label_name] = np.log(future_close / close)
+            label = np.log(future_close / close)
         else:
             future_close = close.shift(-self.periods)
-            df[self.label_name] = (future_close - close) / close
+            label = (future_close - close) / close
         
-        return df
+        return pd.Series(label, name=self.label_name)
 

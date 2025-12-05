@@ -1,5 +1,10 @@
 from .feature_engine import FeatureEngine
-from .training_builder import TrainingDataBuilder
+from .training_engine import TrainingEngine
+from .trainer import (
+    BaseTrainer,
+    XGBoostTrainer,
+)
+from .evaluator import ModelEvaluator
 from .label import (
     LabelGenerator,
     FutureReturnLabel,
@@ -34,7 +39,10 @@ __all__ = [
     "Alpha191Factor",
     "Alpha360Factor",
     "FeatureEngine",
-    "TrainingDataBuilder",
+    "TrainingEngine",
+    "BaseTrainer",
+    "XGBoostTrainer",
+    "ModelEvaluator",
     "LabelGenerator",
     "FutureReturnLabel",
     "DirectionLabel",

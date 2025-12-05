@@ -1,29 +1,33 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, List, TYPE_CHECKING
 
 import pandas as pd
 
 from leek_core.base import LeekComponent
+
+if TYPE_CHECKING:
+    from leek_core.models import Field
 
 class LabelGenerator(LeekComponent, ABC):
     """
     Label 生成器基类
     负责从原始数据生成训练标签
     """
+    display_name: str = None
+    init_params: List["Field"] = []
     
-    def __init__(self, params: dict):
-        self.params = params
-        self.label_name = params.get("label_name", "label")
+    def __init__(self):
+        self.label_name = "label"
     
     @abstractmethod
-    def generate(self, df: pd.DataFrame) -> pd.DataFrame:
+    def generate(self, df: pd.DataFrame) -> pd.Series:
         """
-        生成标签列并添加到 DataFrame
+        生成标签列
         
         :param df: 包含 open, high, low, close, volume 等原始数据的 DataFrame
-        :return: 增加了 label 列的 DataFrame
+        :return: 标签 Series，名称为 self.label_name
         """
         pass
     

@@ -20,6 +20,7 @@ class FieldType(Enum):
     RADIO = "radio"
     SELECT = "select"
     ARRAY = "array"
+    MODEL = "model"
 
 class ChoiceType(Enum):
     """可选值类型"""
@@ -93,6 +94,10 @@ class Field:
             if isinstance(value, str):
                 return DateTimeUtils.to_datetime(DateTimeUtils.to_timestamp(value))
             raise ValueError(f"Invalid datetime value: {value}")
+        
+        if tp == FieldType.MODEL:
+            # MODEL 类型直接返回原值（通常是字典）
+            return value
 
 
 if __name__ == '__main__':

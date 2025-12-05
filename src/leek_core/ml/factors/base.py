@@ -10,6 +10,9 @@ import pandas as pd
 
 from leek_core.base import LeekComponent
 from leek_core.models import KLine
+from leek_core.utils import get_logger
+
+logger = get_logger(__name__)
 
 class DualModeFactor(LeekComponent, ABC):
 
@@ -58,20 +61,28 @@ class DualModeFactor(LeekComponent, ABC):
             'volume': float(kline.volume) if kline.volume is not None else np.nan,
             'amount': float(kline.amount) if kline.amount is not None else np.nan,
         }
-        self._buffer.append(kline_dict)
+        if kline.is_finished:
+            self._buffer.append(kline_dict)
+            lst = list(self._buffer)
+        else:
+            lst = list(self._buffer) + [kline_dict]
         
         # 如果缓冲区数据不足，返回 None
         if len(self._buffer) < 2:
             return None
         
         # 将缓冲区转换为 DataFrame
-        df = pd.DataFrame(list(self._buffer))
+        df = pd.DataFrame(list(lst))
+        
+        # 将 symbol 列转换为 category 类型（如果存在）
+        if 'symbol' in df.columns:
+            df['symbol'] = df['symbol'].astype('category')
         
         # 调用 compute 方法计算因子
         try:
             result_df = self.compute(df.copy())
         except Exception as e:
-            # 如果计算失败，返回 None
+            logger.error(f"Factor {self.name} compute failed: {e}", exc_info=True)
             return None
         
         # 获取输出列名（缓存以提高性能）
@@ -95,7 +106,7 @@ class DualModeFactor(LeekComponent, ABC):
                 factor_values.append(np.nan)
         
         if len(factor_values) == 1:
-            return factor_values[0] if factor_values else None
+            return factor_values[0]
         else:
             return factor_values
 

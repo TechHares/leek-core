@@ -13,6 +13,8 @@ from typing import List
 import numpy as np
 import pandas as pd
 
+from leek_core.models import Field, FieldType
+
 from .base import LabelGenerator
 
 class MultiLabelFusion(LabelGenerator):
@@ -49,30 +51,51 @@ class MultiLabelFusion(LabelGenerator):
         >>> df = fusion.generate(df_raw)
         >>> # 结果会有三列：label_return, label_direction, label_rank
     """
+    display_name = "多标签融合"
+    init_params = [
+        Field(name="label_generators", label="标签生成器列表", type=FieldType.ARRAY, default=[], description="标签生成器列表，每个元素是一个 (LabelGenerator实例, 列名后缀) 的元组"),
+        Field(name="fusion_method", label="融合方法", type=FieldType.RADIO, default="concat",
+              choices=[("concat", "拼接多个标签列"), ("weighted", "加权融合")],
+              description="融合方法"),
+        Field(name="weights", label="权重列表", type=FieldType.ARRAY, default=None, description="权重列表（仅当fusion_method='weighted'时使用），默认None（等权重）"),
+    ]
     
-    def __init__(self, params: dict):
-        super().__init__(params)
-        self.label_generators: List[tuple] = params.get("label_generators", [])
-        self.fusion_method = params.get("fusion_method", "concat")
-        self.weights = params.get("weights", None)
+    def __init__(self, label_generators: List[tuple] = None,
+                 fusion_method: str = "concat", weights: List[float] = None):
+        super().__init__()
+        self.label_generators: List[tuple] = label_generators if label_generators is not None else []
+        self.fusion_method = fusion_method
+        self.weights = weights
         
         if not self.label_generators:
             raise ValueError("label_generators cannot be empty")
     
-    def generate(self, df: pd.DataFrame) -> pd.DataFrame:
+    def generate(self, df: pd.DataFrame) -> pd.Series:
         """
         生成融合标签
         
         :param df: 原始 DataFrame
-        :return: 增加了多个 label 列的 DataFrame
+        :return: 融合后的标签 Series
         """
         if self.fusion_method == "concat":
-            # 拼接模式：每个生成器生成一列
-            for label_gen, suffix in self.label_generators:
-                original_name = label_gen.label_name
-                label_gen.label_name = f"{self.label_name}_{suffix}"
-                df = label_gen.generate(df)
-                label_gen.label_name = original_name  # 恢复原名
+            # 拼接模式：多个标签加权平均（因为训练引擎只支持单标签）
+            # 注意：如果需要多标签，需要修改训练引擎支持
+            if self.weights is None:
+                weights = [1.0 / len(self.label_generators)] * len(self.label_generators)
+            else:
+                weights = self.weights
+            
+            label_values = []
+            for label_gen, _ in self.label_generators:
+                label_series = label_gen.generate(df)
+                label_values.append(label_series.values)
+            
+            # 加权平均
+            fused_label = np.zeros(len(df))
+            for i in range(len(self.label_generators)):
+                fused_label += weights[i] * label_values[i]
+            
+            return pd.Series(fused_label, name=self.label_name)
         elif self.fusion_method == "weighted":
             # 加权融合模式：多个标签加权平均
             if self.weights is None:
@@ -82,20 +105,17 @@ class MultiLabelFusion(LabelGenerator):
             
             label_values = []
             for label_gen, _ in self.label_generators:
-                temp_df = df.copy()
-                temp_df = label_gen.generate(temp_df)
-                label_values.append(temp_df[label_gen.label_name].values)
+                label_series = label_gen.generate(df)
+                label_values.append(label_series.values)
             
             # 加权平均
             fused_label = np.zeros(len(df))
-            for i, (label_gen, _) in enumerate(self.label_generators):
+            for i in range(len(self.label_generators)):
                 fused_label += weights[i] * label_values[i]
             
-            df[self.label_name] = fused_label
+            return pd.Series(fused_label, name=self.label_name)
         else:
             raise ValueError(f"Unknown fusion_method: {self.fusion_method}")
-        
-        return df
     
     def get_output_names(self) -> List[str]:
         """获取所有输出列名"""

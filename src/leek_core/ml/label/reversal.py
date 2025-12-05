@@ -10,6 +10,8 @@
 import numpy as np
 import pandas as pd
 
+from leek_core.models import Field, FieldType
+
 from .base import LabelGenerator
 
 class ReversalStrengthLabel(LabelGenerator):
@@ -42,15 +44,25 @@ class ReversalStrengthLabel(LabelGenerator):
         ... })
         >>> df = label_gen.generate(df_raw)
     """
+    display_name = "反转强度标签"
+    init_params = [
+        Field(name="periods", label="未来期数", type=FieldType.INT, default=3, description="未来几期"),
+        Field(name="lookback_window", label="回看窗口", type=FieldType.INT, default=20, description="回看窗口（用于计算偏离度）"),
+        Field(name="method", label="标签类型", type=FieldType.RADIO, default="classification",
+              choices=[("classification", "分类"), ("regression", "回归")],
+              description="标签类型"),
+        Field(name="threshold", label="反转强度阈值", type=FieldType.FLOAT, default=0.02, description="反转强度阈值（用于分类），默认0.02（2%）"),
+    ]
     
-    def __init__(self, params: dict):
-        super().__init__(params)
-        self.periods = int(params.get("periods", 3))
-        self.lookback_window = int(params.get("lookback_window", 20))
-        self.method = params.get("method", "classification")
-        self.threshold = float(params.get("threshold", 0.02))
+    def __init__(self, periods: int = 3, lookback_window: int = 20, method: str = "classification",
+                 threshold: float = 0.02):
+        super().__init__()
+        self.periods = periods
+        self.lookback_window = lookback_window
+        self.method = method
+        self.threshold = threshold
     
-    def generate(self, df: pd.DataFrame) -> pd.DataFrame:
+    def generate(self, df: pd.DataFrame) -> pd.Series:
         """
         生成反转强度标签
         
@@ -59,7 +71,7 @@ class ReversalStrengthLabel(LabelGenerator):
         2. 如果偏离度大（超买/超卖），且未来价格反转，则标记为强反转
         
         :param df: 包含 close 列的 DataFrame
-        :return: 增加了 label 列的 DataFrame
+        :return: 标签 Series
         """
         close = df['close']
         
@@ -81,11 +93,10 @@ class ReversalStrengthLabel(LabelGenerator):
             # 分类：是否有强反转
             labels = np.zeros(len(df))
             labels[oversold_reversal | overbought_reversal] = 1
-            df[self.label_name] = labels.astype(int)
+            label = labels.astype(int)
         else:
             # 回归：反转强度（未来收益率 * 偏离度的绝对值）
-            reversal_strength = future_return * abs(deviation)
-            df[self.label_name] = reversal_strength
+            label = future_return * abs(deviation)
         
-        return df
+        return pd.Series(label, name=self.label_name)
 
