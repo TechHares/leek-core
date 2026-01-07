@@ -179,6 +179,9 @@ class ChanSegment(ChanUnion):
             self.bi_list.append(bi)
         elif self.bi_list[-1].idx == bi.idx:
             self.bi_list[-1] = bi
+        else:
+            self.bi_list.pop()
+            return self.add_bi(bi)
 
         self.update_peak_value()
         if len(bi.chan_k_list) < 6: # 确保笔不会被前一笔延伸

@@ -310,13 +310,19 @@ class BacktestRunner:
         # 基础指标
         total_return = (self.equity_values[-1] - self.equity_values[0]) / self.equity_values[0] if self.equity_values[0] != 0 else 0.0
 
-        # 年化收益率不再计算，设为0
-        annual_return = 0.0
+        # 计算年化收益率
+        n_periods = len(self.equity_values) - 1  # 实际交易期数
+        if n_periods > 0 and total_return > -1:
+            # 年化收益率 = (1 + 总收益率)^(年期数/实际期数) - 1
+            annual_return = (1 + total_return) ** (periods_per_year / n_periods) - 1
+        else:
+            annual_return = 0.0
 
-        # 波动率
+        # 波动率（已年化）
         volatility = vectorized_results.get('full_volatility', 0)
-        # 夏普比率（使用总收益率替代年化收益率）
-        sharpe_ratio = total_return / volatility if volatility > 0 else 0.0
+        # 夏普比率 = (年化收益率 - 无风险利率) / 年化波动率
+        # 无风险利率暂设为0
+        sharpe_ratio = annual_return / volatility if volatility > 0 else 0.0
 
         # 回撤相关指标
         peak = np.maximum.accumulate(equity_array)
@@ -341,13 +347,13 @@ class BacktestRunner:
             drawdown_periods = 0
             max_dd_duration = 0
 
-        # Calmar比率（需要年化收益率，暂设为0）
-        calmar_ratio = 0.0
+        # Calmar比率 = 年化收益率 / |最大回撤|
+        calmar_ratio = annual_return / abs(max_drawdown) if max_drawdown < 0 else 0.0
 
-        # Sortino比率（需要年化收益率，暂设为0）
+        # Sortino比率 = 年化收益率 / 年化下行标准差
         negative_returns = returns[returns < 0] if len(returns) > 0 else np.array([])
-        downside_deviation = np.std(negative_returns) * np.sqrt(252) if len(negative_returns) > 1 else 0.0
-        sortino_ratio = 0.0
+        downside_deviation = np.std(negative_returns, ddof=1) * np.sqrt(periods_per_year) if len(negative_returns) > 1 else 0.0
+        sortino_ratio = annual_return / downside_deviation if downside_deviation > 0 else 0.0
 
         # 交易统计
         total_trades = len(self.trades_data)

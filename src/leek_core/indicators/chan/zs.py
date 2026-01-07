@@ -108,7 +108,8 @@ class ChanZS(ChanUnion):
         elif self.element_list[-1].idx == ele.idx:
             self.element_list[-1] = ele
         else:
-            raise RuntimeError("元素断层")
+            del self.element_list[-1]
+            return self.try_add_element(ele, allow_similar_zs)
 
         self.update_state(allow_similar_zs)
         all_finish = len(self.element_list) >= 3 and all(ele.is_finish for ele in self.element_list[:3])

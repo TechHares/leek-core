@@ -51,6 +51,8 @@ class Chan(T):
         if bi is None:
             return
         if self.bi_zs:
+            while len(self.bizs_manager.tmp_list) > 0 and self.bizs_manager.tmp_list[-1].idx > bi.idx:
+                del self.bizs_manager.tmp_list[-1]
             self.bizs_manager.update(bi)
         if not self.seg:
             return
@@ -59,9 +61,9 @@ class Chan(T):
             if not self.seg_zs:
                 return
             self.zs_manager.update(seg)
-            self._zs_manager.update(seg)
             if not self.dr:
                 return
+            self._zs_manager.update(seg)
             for zs in self._zs_manager.zs_list:
                 if self.tmp_zs is None or zs.idx >= self.tmp_zs.idx:
                     self.dr_manager.update(zs)

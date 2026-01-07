@@ -57,12 +57,12 @@ class ChanK(ChanUnion):
         return self.klines[-1].start_time
 
     def mark_on_data(self):
-        mark_data(self.klines[-1], "is_finish", self.is_finish)
-        mark_data(self.klines[-1], "chan_high", self.high)
-        mark_data(self.klines[-1], "chan_low", self.low)
-        mark_data(self.klines[-1], "chan_open", self.start_value)
-        mark_data(self.klines[-1], "chan_close", self.end_value)
-        mark_data(self.klines[-1], "ck_idx", self.idx)
+        mark_data(self.klines[0], "is_finish", self.is_finish)
+        mark_data(self.klines[0], "chan_high", self.high)
+        mark_data(self.klines[0], "chan_low", self.low)
+        mark_data(self.klines[0], "chan_open", self.start_value)
+        mark_data(self.klines[0], "chan_close", self.end_value)
+        mark_data(self.klines[0], "ck_idx", self.idx)
 
     def to_dict(self):
         assert len(self.klines) > 0

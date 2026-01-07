@@ -9,7 +9,7 @@ __all__ = ["T", "TR", "ATR", "RSRS", "SAR", "KDJ", "MA", "EMA", "BollBand", "DK"
            "ChanBSPoint", "ChanFXManager",
            "MACD", "MERGE", "SuperSmoother", "UltimateOscillator", "Reflex", "TrendFlex", "BiasRatio",
            "DeMarker", "TDSequence", "TDTrendLine", "DMI", "ADX", "WMA", "HMA", "IchimokuCloud", "WR", "CCI", "CCIV2", "Divergence",
-           "HurstExponent", "Extreme", "ChaikinVolatility", "SuperTrend", "ZScore"]
+           "HurstExponent", "Extreme", "ChaikinVolatility", "SuperTrend", "ZScore", "CZSC", "ElderImpulse", "DonchianChannel"]
 
 from.t import T
 from .boll import BollBand
@@ -43,6 +43,9 @@ from .bias import BiasRatio
 from .bbi import BBI
 from .chaikin_volatility import ChaikinVolatility
 from .zscore import ZScore
+from .czsc import CZSC
+from .elder_impulse import ElderImpulse
+from .donchian import DonchianChannel
 
 MA_TYPE = {
     "MA": MA,

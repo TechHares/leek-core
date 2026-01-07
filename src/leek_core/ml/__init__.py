@@ -26,6 +26,9 @@ from .factors import (
     Alpha191Factor,
     Alpha360Factor,
     FactorEvaluator,
+    LongShortVolumeRatioFactor,
+    VolumeAverageFactor,
+    DirectionFactor,
 )
 
 __all__ = [
@@ -52,4 +55,7 @@ __all__ = [
     "ReversalStrengthLabel",
     "MultiLabelFusion",
     "FactorEvaluator",
+    "LongShortVolumeRatioFactor",
+    "VolumeAverageFactor",
+    "DirectionFactor",
 ]

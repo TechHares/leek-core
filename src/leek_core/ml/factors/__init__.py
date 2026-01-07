@@ -6,5 +6,8 @@ from .alpha158 import Alpha158Factor
 from .alpha191 import Alpha191Factor
 from .alpha360 import Alpha360Factor
 from .evaluation import FactorEvaluator
-
-__all__ = ["DualModeFactor", "MAFactor", "RSIFactor", "ATRFactor", "TimeFactor", "Alpha101Factor", "Alpha158Factor", "Alpha191Factor", "Alpha360Factor", "FactorEvaluator"]
+from .volume import LongShortVolumeRatioFactor, VolumeAverageFactor
+from .direction import DirectionFactor
+__all__ = [
+    "DualModeFactor", "MAFactor", "RSIFactor", "ATRFactor", "TimeFactor", "Alpha101Factor", "Alpha158Factor",
+     "Alpha191Factor", "Alpha360Factor", "FactorEvaluator", "LongShortVolumeRatioFactor", "VolumeAverageFactor", "DirectionFactor"]

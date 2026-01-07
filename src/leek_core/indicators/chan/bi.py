@@ -216,17 +216,22 @@ class ChanBIManager:
         
         if len(self) == 0:  # 笔尚未开始
             self.create_bi(fx)
-
         elif self[-1].direction.is_up:  # 向上笔
             if fx.is_top and self[-1].can_finish():  # 出现顶分型
                 self.create_bi(fx)
-            if fx.is_bottom and self[-1].can_extend(self.__fx_manager.peak_value):  # 底分型
+            elif fx.is_bottom and self[-1].can_extend(self.__fx_manager.peak_value):  # 底分型
                 self.try_extend_bi()
+            elif k.low <= self[-1].low and len(self) > 1:
+                self[-2].merge(self[-1])
+                del self.__chan_bi_list[-1]
         elif self[-1].direction.is_down:  # 向下笔
             if fx.is_bottom and self[-1].can_finish():  # 底分型
                 self.create_bi(fx)
-            if fx.is_top and self[-1].can_extend(self.__fx_manager.peak_value):  # 出现顶分型
+            elif fx.is_top and self[-1].can_extend(self.__fx_manager.peak_value):  # 出现顶分型
                 self.try_extend_bi()
+            elif k.high >= self[-1].high and len(self) > 1:
+                self[-2].merge(self[-1])
+                del self.__chan_bi_list[-1]
         if not self.is_empty():
             return self[-1]
 

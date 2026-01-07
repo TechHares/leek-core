@@ -17,6 +17,8 @@ import pandas as pd
 
 from leek_core.ml.factors.alpha158 import Alpha158Factor
 from leek_core.ml.factors.alpha360 import Alpha360Factor
+from leek_core.ml.factors.volume import LongShortVolumeRatioFactor, VolumeAverageFactor
+from leek_core.ml.factors.direction import DirectionFactor
 from leek_core.ml.factors.time import TimeFactor
 from leek_core.utils.decorator import retry
 
@@ -152,6 +154,54 @@ class TestFactor(unittest.TestCase):
         df = self._load_test_data()
         result = factor.compute(df)
         print(len(factor.get_output_names()))
+        self.assertEqual(len(result.columns), len(factor.get_output_names()))
+        
+    def test_LongShortVolumeRatioFactor(self):
+        """测试成交量比率因子"""
+        factor = LongShortVolumeRatioFactor(100, 3)
+        df = self._load_test_data()
+        df = df.iloc[:100]
+        pct = df['close'].pct_change()
+        max_pct_row = df.loc[pct == pct.max()]
+        min_pct_row = df.loc[pct == pct.min()]
+
+        # 获取成交量
+        max_pct_volume = max_pct_row['volume'].values[0]
+        min_pct_volume = min_pct_row['volume'].values[0]
+
+        print(f"最大涨跌幅: {pct.max():.4f}, 对应成交量: {max_pct_volume}")
+        print(f"最小涨跌幅: {pct.min():.4f}, 对应成交量: {min_pct_volume}")
+        result = factor.compute(df)
+        print(result[factor.get_output_names()[0]].values)
+        self.assertEqual(len(result.columns), len(factor.get_output_names()))
+
+    def test_DirectionFactor(self):
+        """测试涨跌K线之比因子"""
+        factor = DirectionFactor(100, "count")
+        df = self._load_test_data()
+        df = df.iloc[:100]
+        pct = df['close'].pct_change()
+        positive_days = (pct >= 0).sum()
+        negative_days = (pct < 0).sum()
+        # 下跌幅度之和（所有负涨跌幅的绝对值之和）
+        down_sum = pct[pct < 0].abs().sum()
+        up_sum = pct[pct >= 0].sum()
+        print(f"上涨K线数量: {positive_days}, 下跌K线数量: {negative_days}")
+        print(f"上涨幅度之和: {up_sum}, 下跌幅度之和: {down_sum}")
+        result = factor.compute(df)
+        print(result[factor.get_output_names()[0]].values)
+        self.assertEqual(len(result.columns), len(factor.get_output_names()))
+
+    def test_VolumeAverageFactor(self):
+        """测试成交量平均值因子"""
+        factor = VolumeAverageFactor(100, "FLAT", "min_volume", 1)
+        df = self._load_test_data()
+        df = df.iloc[:100]
+        volume = df['volume'].values
+        sorted_volume = sorted(volume)
+        print(f"最小成交量: {sorted_volume[0]/df['volume'].values[-1]}")
+        result = factor.compute(df)
+        print(result[factor.get_output_names()[0]].values)
         self.assertEqual(len(result.columns), len(factor.get_output_names()))
 
     
