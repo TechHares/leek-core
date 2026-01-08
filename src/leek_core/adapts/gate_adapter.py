@@ -702,6 +702,75 @@ class GateAdapter:
             logger.error(f"查询合约待成交订单异常: {e}")
             return {"code": "-1", "msg": str(e)}
     
+    # ==================== Futures Market Data API ====================
+    
+    @retry(max_retries=3, retry_interval=0.1)
+    @rate_limit(max_requests=100, time_window=1.0, group="futures")
+    def get_futures_contracts(self, settle: str = "usdt") -> Dict:
+        """
+        获取所有合约列表
+        
+        Args:
+            settle: 结算货币 (usdt/btc)
+            
+        Returns:
+            Dict: 合约列表
+        """
+        try:
+            result = self._request("GET", f"/api/v4/futures/{settle}/contracts")
+            if result.get("code") == "0":
+                return {"code": "0", "data": result.get("data", [])}
+            return result
+        except Exception as e:
+            logger.error(f"获取合约列表异常: {e}")
+            return {"code": "-1", "msg": str(e)}
+    
+    @retry(max_retries=3, retry_interval=0.1)
+    @rate_limit(max_requests=100, time_window=1.0, group="futures")
+    def get_futures_candlesticks(self, settle: str, contract: str, interval: str = "1m",
+                                  from_time: int = None, to_time: int = None, 
+                                  limit: int = 100) -> Dict:
+        """
+        获取合约K线数据
+        
+        Args:
+            settle: 结算货币 (usdt/btc)
+            contract: 合约标识 (如 BTC_USDT)
+            interval: K线间隔 (10s, 30s, 1m, 5m, 15m, 30m, 1h, 4h, 8h, 1d, 7d, 30d)
+            from_time: 起始时间戳（秒）
+            to_time: 结束时间戳（秒）
+            limit: 返回数量限制（默认100，最大2000）
+            
+        Returns:
+            Dict: K线数据列表，每条数据包含 [t, v, c, h, l, o, sum]
+                  t: 时间戳（秒）
+                  v: 成交量（张数）
+                  c: 收盘价
+                  h: 最高价
+                  l: 最低价
+                  o: 开盘价
+                  sum: 成交额（计价货币）
+        """
+        try:
+            params = {
+                "contract": contract,
+                "interval": interval,
+                "limit": limit
+            }
+            if from_time is not None:
+                params["from"] = from_time
+            if to_time is not None:
+                params["to"] = to_time
+            
+            result = self._request("GET", f"/api/v4/futures/{settle}/candlesticks", params=params)
+            
+            if result.get("code") == "0":
+                return {"code": "0", "data": result.get("data", [])}
+            return result
+        except Exception as e:
+            logger.error(f"获取合约K线数据异常: {e}")
+            return {"code": "-1", "msg": str(e)}
+    
     # ==================== Helper Methods ====================
     
     @staticmethod
