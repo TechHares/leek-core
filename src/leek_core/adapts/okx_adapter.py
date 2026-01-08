@@ -281,11 +281,129 @@ class OkxAdapter:
         return self.account_api.get_account_config()
     
 
+    # ==================== Trade API ====================
+    
+    @retry(max_retries=3, retry_interval=0.1)
+    @rate_limit(max_requests=60, time_window=2.0, group="trade")  # 交易API限速：60次/2s
+    def place_order(self, inst_id: str, td_mode: str, side: str, ord_type: str,
+                   sz: str, cl_ord_id: str = None, px: str = None, ccy: str = None,
+                   pos_side: str = None, **kwargs) -> Dict:
+        """
+        下单
+        
+        Args:
+            inst_id: 产品ID
+            td_mode: 交易模式 (isolated/cross/cash)
+            side: 订单方向 (buy/sell)
+            ord_type: 订单类型 (market/limit/optimal_limit_ioc等)
+            sz: 委托数量
+            cl_ord_id: 客户端订单ID (可选)
+            px: 委托价格 (限价单必填)
+            ccy: 保证金币种 (可选)
+            pos_side: 持仓方向 (可选，long/short)
+            **kwargs: 其他可选参数
+            
+        Returns:
+            Dict: 下单结果
+        """
+        if not self.trade_api:
+            raise RuntimeError("Trade API未初始化，请提供API密钥")
+        
+        params = {
+            "instId": inst_id,
+            "tdMode": td_mode,
+            "side": side,
+            "ordType": ord_type,
+            "sz": sz
+        }
+        if cl_ord_id:
+            params["clOrdId"] = cl_ord_id
+        if px:
+            params["px"] = px
+        if ccy:
+            params["ccy"] = ccy
+        if pos_side:
+            params["posSide"] = pos_side
+        params.update(kwargs)
+        
+        return self.trade_api.place_order(**params)
+    
+    @retry(max_retries=3, retry_interval=0.1)
+    @rate_limit(max_requests=60, time_window=2.0, group="trade")  # 交易API限速：60次/2s
+    def cancel_order(self, inst_id: str, ord_id: str = None, cl_ord_id: str = None) -> Dict:
+        """
+        撤单
+        
+        Args:
+            inst_id: 产品ID
+            ord_id: 订单ID (可选，与cl_ord_id二选一)
+            cl_ord_id: 客户端订单ID (可选，与ord_id二选一)
+            
+        Returns:
+            Dict: 撤单结果
+        """
+        if not self.trade_api:
+            raise RuntimeError("Trade API未初始化，请提供API密钥")
+        
+        params = {"instId": inst_id}
+        if ord_id:
+            params["ordId"] = ord_id
+        if cl_ord_id:
+            params["clOrdId"] = cl_ord_id
+        
+        return self.trade_api.cancel_order(**params)
+    
+    @retry(max_retries=3, retry_interval=0.1)
+    @rate_limit(max_requests=20, time_window=2.0, group="trade")  # 查询订单API限速：20次/2s
+    def get_order(self, inst_id: str, ord_id: str = None, cl_ord_id: str = None) -> Dict:
+        """
+        查询单个订单详情
+        
+        Args:
+            inst_id: 产品ID
+            ord_id: 订单ID (可选，与cl_ord_id二选一)
+            cl_ord_id: 客户端订单ID (可选，与ord_id二选一)
+            
+        Returns:
+            Dict: 订单信息
+        """
+        if not self.trade_api:
+            raise RuntimeError("Trade API未初始化，请提供API密钥")
+        
+        return self.trade_api.get_order(instId=inst_id, ordId=ord_id or '', clOrdId=cl_ord_id or '')
+    
+    @retry(max_retries=3, retry_interval=0.1)
+    @rate_limit(max_requests=20, time_window=2.0, group="trade")  # 查询订单API限速：20次/2s
+    def get_orders(self, inst_type: str = None, inst_id: str = None, 
+                   state: str = None, limit: str = None) -> Dict:
+        """
+        查询订单列表（待成交订单）
+        
+        Args:
+            inst_type: 产品类型 (可选)
+            inst_id: 产品ID (可选)
+            state: 订单状态 (可选，live/filled/partially_filled/canceled等)
+            limit: 返回结果的数量限制 (可选)
+            
+        Returns:
+            Dict: 订单列表
+        """
+        if not self.trade_api:
+            raise RuntimeError("Trade API未初始化，请提供API密钥")
+        
+        params = {}
+        if inst_type:
+            params["instType"] = inst_type
+        if inst_id:
+            params["instId"] = inst_id
+        if state:
+            params["state"] = state
+        if limit:
+            params["limit"] = limit
+        
+        return self.trade_api.get_order_list(**params)
     
 
-    
-
-    
     # ==================== Helper Methods ====================
     
     @staticmethod

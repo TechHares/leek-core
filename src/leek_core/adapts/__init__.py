@@ -7,7 +7,11 @@
 """
 
 from .okx_adapter import OkxAdapter
+from .binance_adapter import BinanceAdapter
+from .gate_adapter import GateAdapter
 
 __all__ = [
     'OkxAdapter',
+    'BinanceAdapter',
+    'GateAdapter',
 ] 

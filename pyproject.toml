@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "leek-core"
-version = "1.8.1"
+version = "1.9.0"
 description = "Leek Core 量化交易引擎/组件化事件驱动框架"
 authors = ["shenglin.li <764935704@qq.com>"]
 readme = "README.md"
@@ -55,6 +55,7 @@ websockets = "15.0.1"
 zope-interface = "~=5"
 plotly = "~=6.2.0"
 diskcache = "~=5.6.3"
+python-binance = "~=1.0.34"
 redis = "~=7.0.0"
 msgpack = "~=1.1.1"
 python-redis-lock = "~=4.0.0"
