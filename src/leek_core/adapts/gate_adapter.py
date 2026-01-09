@@ -702,6 +702,42 @@ class GateAdapter:
             logger.error(f"查询合约待成交订单异常: {e}")
             return {"code": "-1", "msg": str(e)}
     
+    @retry(max_retries=3, retry_interval=0.1)
+    @rate_limit(max_requests=100, time_window=1.0, group="futures")
+    def get_futures_my_trades(self, settle: str, contract: str = None, 
+                              order_id: str = None, limit: int = 100) -> Dict:
+        """
+        查询合约个人成交记录
+        
+        Args:
+            settle: 结算货币 (usdt/btc)
+            contract: 合约标识 (可选)
+            order_id: 订单ID (可选，用于查询指定订单的成交记录)
+            limit: 返回数量限制
+            
+        Returns:
+            Dict: 成交记录列表，包含 fee（手续费）等字段
+        """
+        if not self.api_key or not self.secret_key:
+            raise RuntimeError("Trade API未初始化，请提供API密钥")
+        
+        try:
+            params = {"limit": limit}
+            if contract:
+                params["contract"] = contract
+            if order_id:
+                params["order"] = order_id
+            
+            result = self._request("GET", f"/api/v4/futures/{settle}/my_trades", params=params)
+            
+            if result.get("code") == "0":
+                data = result.get("data", [])
+                return {"code": "0", "data": data if isinstance(data, list) else [data]}
+            return result
+        except Exception as e:
+            logger.error(f"查询合约成交记录异常: {e}")
+            return {"code": "-1", "msg": str(e)}
+    
     # ==================== Futures Market Data API ====================
     
     @retry(max_retries=3, retry_interval=0.1)

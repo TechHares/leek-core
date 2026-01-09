@@ -386,6 +386,53 @@ class GateRestExecutor(Executor):
         except (ValueError, TypeError, InvalidOperation):
             return Decimal(default)
 
+    def _query_order_fee(self, order_info: Dict, order_data: Dict) -> Decimal:
+        """
+        查询订单的成交手续费
+        
+        Args:
+            order_info: 订单信息
+            order_data: API 返回的订单数据
+            
+        Returns:
+            Decimal: 手续费总额（负数）
+        """
+        try:
+            contract = order_info.get("currency_pair")
+            exchange_order_id = str(order_data.get("id", ""))
+            
+            if not contract or not exchange_order_id:
+                return Decimal(0)
+            
+            # 获取结算货币
+            settle = contract.split("_")[-1].lower() if "_" in contract else "usdt"
+            
+            # 查询该订单的成交记录
+            result = self.adapter.get_futures_my_trades(
+                settle=settle,
+                contract=contract,
+                order_id=exchange_order_id,
+                limit=100
+            )
+            
+            if not result or result.get("code") != "0":
+                logger.warning(f"查询成交记录失败: {result.get('msg') if result else '无响应'}, order_id: {exchange_order_id}")
+                return Decimal(0)
+            
+            # 汇总所有成交的手续费
+            trades = result.get("data", [])
+            total_fee = Decimal(0)
+            for trade in trades:
+                # Gate.io 成交记录中的 fee 字段是手续费（负数表示支出）
+                fee = self._safe_decimal(trade.get("fee", "0"))
+                total_fee += fee
+            
+            logger.debug(f"订单 {exchange_order_id} 手续费汇总: {total_fee}, 成交笔数: {len(trades)}")
+            return total_fee
+        except Exception as e:
+            logger.warning(f"查询订单手续费异常: {e}", exc_info=True)
+            return Decimal(0)
+
     def _polling_loop(self):
         """
         订单状态轮询循环，支持现货和合约
@@ -670,21 +717,33 @@ class GateRestExecutor(Executor):
             price = self._safe_decimal(order_data.get("price", "0"))
             avg_price = fill_price if fill_price > 0 else price
             
+            # 获取面值 (sz_value)
+            sz_value = order.sz_value if order.sz_value else Decimal(1)
+            
+            # 获取杠杆倍数
+            leverage = order.leverage if order.leverage else Decimal("1")
+            
+            # 查询成交记录获取手续费
+            fee = Decimal(0)
+            if filled_size > 0 and order_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
+                fee = self._query_order_fee(order_info, order_data)
+            
             # 构造 OrderUpdateMessage
+            # sz 应该是币的数量，不是张数：sz = 张数 * 面值
             oum = OrderUpdateMessage(
                 order_id=text_id,
                 market_order_id=str(order_data.get("id", "")),
                 execution_price=avg_price,
-                sz=Decimal(filled_size),  # 合约使用张数
-                fee=Decimal(0),  # 合约手续费需要单独查询
-                pnl=Decimal(0),
+                sz=Decimal(filled_size) * sz_value,  # 币的数量 = 张数 * 面值
+                fee=fee,
+                pnl=Decimal(0),  # pnl 由 position_tracker 根据开仓价和平仓价计算
                 unrealized_pnl=Decimal(0),
                 friction=Decimal(0),
-                sz_value=order.sz_value if order.sz_value else Decimal(1),
+                sz_value=sz_value,
             )
             
-            # 计算结算金额（合约：张数 * 面值 * 成交价格）
-            oum.settle_amount = Decimal(filled_size) * oum.sz_value * avg_price
+            # 计算结算金额（保证金）：settle_amount = 名义价值 / 杠杆 = sz * price / leverage
+            oum.settle_amount = oum.sz * avg_price / leverage
             
             # 设置订单状态
             oum.order_status = order_status
