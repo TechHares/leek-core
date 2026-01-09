@@ -325,7 +325,7 @@ class OkxAdapter:
         if pos_side:
             params["posSide"] = pos_side
         params.update(kwargs)
-        
+        logger.info(f"OKX 下单请求数据: {params}")
         return self.trade_api.place_order(**params)
     
     @retry(max_retries=3, retry_interval=0.1)

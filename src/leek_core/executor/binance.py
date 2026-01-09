@@ -64,6 +64,7 @@ class BinanceRestExecutor(Executor):
         self._orders_lock = threading.RLock()
         self._polling_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        self._pull_interval = 1.0
 
     def send_order(self, orders: Order | List[Order]):
         """
@@ -88,19 +89,47 @@ class BinanceRestExecutor(Executor):
             
             # 价格处理
             price = None
+            price_decimal = None  # 用于 notional 检查的 Decimal 类型价格
             if order_type == "LIMIT":
                 if order.order_price is not None:
+                    price_decimal = order.order_price
                     # 限价单需要价格精度校验
                     price = self._format_price(symbol, order.order_price)
                 else:
                     # 限价单如果没有价格，从订单簿获取
                     orderbook = self._get_book(symbol)
                     if order.side == PS.LONG:
-                        price = orderbook["asks"][-1][0]
+                        price_decimal = Decimal(orderbook["asks"][-1][0])
                     else:
-                        price = orderbook["bids"][-1][0]
+                        price_decimal = Decimal(orderbook["bids"][-1][0])
                     # 格式化价格
-                    price = self._format_price(symbol, Decimal(price))
+                    price = self._format_price(symbol, price_decimal)
+            else:
+                # 市价单：从订单簿获取估算价格用于 notional 检查
+                orderbook = self._get_book(symbol)
+                if order.side == PS.LONG:
+                    price_decimal = Decimal(orderbook["asks"][0][0])
+                else:
+                    price_decimal = Decimal(orderbook["bids"][0][0])
+            
+            # 检查名义价值（notional value）
+            if price_decimal and price_decimal > 0:
+                quantity, notional_error = self._check_notional(symbol, quantity, price_decimal)
+                if notional_error:
+                    # 名义价值不足，直接拒绝订单
+                    logger.warning(f"订单被拒绝: {notional_error}, 订单: {order.order_id}")
+                    oum = OrderUpdateMessage(
+                        order_id=order.order_id,
+                        order_status=OrderStatus.REJECTED,
+                        execution_price=Decimal(0),
+                        sz=Decimal(0),
+                        fee=Decimal(0),
+                        pnl=Decimal(0),
+                        settle_amount=Decimal(0),
+                        extra={"reject_reason": notional_error},
+                    )
+                    self._trade_callback(oum)
+                    continue
             
             # 调用REST API下单
             try:
@@ -185,17 +214,29 @@ class BinanceRestExecutor(Executor):
         min_qty = Decimal(lot_size_filter.get("minQty", "0"))
         max_qty = Decimal(lot_size_filter.get("maxQty", "0"))
         
+        # 获取杠杆倍数（现货默认为1，合约使用订单中的杠杆）
+        leverage = Decimal("1")
+        if order.ins_type in [TradeInsType.SWAP, TradeInsType.FUTURES]:
+            leverage = order.leverage if order.leverage and order.leverage > 0 else Decimal("1")
+        
         # 计算数量
-        if order.order_type == OT.MarketOrder:
+        if order.sz:
+            # 如果订单已经指定了数量，直接使用
+            quantity = order.sz
+        elif order.order_type == OT.MarketOrder:
             # 市价单：使用订单金额除以价格
             if not order.order_price:
-                # 如果没有价格，使用订单金额
+                # 如果没有价格，使用订单金额（需要外部传入估算数量）
                 quantity = order.order_amount
             else:
-                quantity = order.order_amount / order.order_price
+                # 合约：保证金 * 杠杆 / 价格 = 数量
+                quantity = order.order_amount * leverage / order.order_price
         else:
-            # 限价单：使用订单数量
-            quantity = order.sz if order.sz else (order.order_amount / order.order_price if order.order_price else order.order_amount)
+            # 限价单：保证金 * 杠杆 / 价格 = 数量
+            if order.order_price:
+                quantity = order.order_amount * leverage / order.order_price
+            else:
+                quantity = order.order_amount
         
         # 精度调整
         quantity = (quantity // step_size) * step_size
@@ -206,7 +247,7 @@ class BinanceRestExecutor(Executor):
         if max_qty > 0 and quantity > max_qty:
             quantity = max_qty
         
-        order.sz_value = Decimal("1")  # 币安现货 sz_value 为 1
+        order.sz_value = Decimal("1")  # 币安 sz_value 为 1
         return quantity
 
     @cached(cache=TTLCache(maxsize=20000, ttl=3600 * 24))
@@ -244,6 +285,43 @@ class BinanceRestExecutor(Executor):
             price = (price // tick_size) * tick_size
         
         return str(price)
+    
+    def _check_notional(self, symbol: str, quantity: Decimal, price: Decimal) -> tuple[Decimal, Optional[str]]:
+        """
+        检查订单的名义价值（notional value），确保满足币安的最小名义价值要求
+        
+        Args:
+            symbol: 交易对符号
+            quantity: 订单数量
+            price: 订单价格
+            
+        Returns:
+            tuple[Decimal, Optional[str]]: (数量, 错误原因)，错误原因为 None 表示检查通过
+        """
+        instrument = self._get_instrument(symbol)
+        if not instrument:
+            return quantity, None
+        
+        filters = instrument.get("filters", [])
+        
+        # 查找 NOTIONAL 或 MIN_NOTIONAL 过滤器（币安不同版本可能使用不同名称）
+        notional_filter = next((f for f in filters if f.get("filterType") in ["NOTIONAL", "MIN_NOTIONAL"]), None)
+        if not notional_filter:
+            return quantity, None
+        
+        # 获取最小名义价值
+        min_notional = self._safe_decimal(notional_filter.get("minNotional", "0"))
+        if min_notional <= 0:
+            return quantity, None
+        
+        # 计算当前名义价值
+        current_notional = quantity * price
+        
+        if current_notional >= min_notional:
+            return quantity, None
+        
+        # 名义价值不足，返回错误原因
+        return quantity, f"订单名义价值 {current_notional} 小于最小要求 {min_notional}"
 
     @staticmethod
     def _safe_decimal(value, default="0"):
@@ -322,7 +400,7 @@ class BinanceRestExecutor(Executor):
                 
                 # 在锁外检查，避免持有锁时等待
                 if not cl_ord_ids:
-                    self._stop_event.wait(2.0)
+                    self._stop_event.wait(self._pull_interval)
                     continue
                 
                 # 按 symbol 分组查询订单状态，减少 API 调用次数
@@ -394,11 +472,11 @@ class BinanceRestExecutor(Executor):
                 # 已完成的订单已在 _process_order_update 中移除，这里不需要再次移除
                 
                 # 等待2秒后继续下一轮查询
-                self._stop_event.wait(2.0)
+                self._stop_event.wait(self._pull_interval)
             
             except Exception as e:
                 logger.error(f"订单状态轮询异常: {e}", exc_info=True)
-                self._stop_event.wait(2.0)
+                self._stop_event.wait(self._pull_interval)
         
         logger.info("[Binance REST] 订单状态轮询线程已停止")
     

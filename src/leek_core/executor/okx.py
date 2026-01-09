@@ -412,7 +412,8 @@ class OkxRestExecutor(Executor):
         self._orders_lock = threading.RLock()
         self._polling_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
-
+        self._pull_interval = 2.0
+    
     def send_order(self, orders: Order | List[Order]):
         """
         组装参数并通过REST API下单
@@ -632,7 +633,7 @@ class OkxRestExecutor(Executor):
                 
                 # 在锁外检查，避免持有锁时等待
                 if not cl_ord_ids:
-                    self._stop_event.wait(1.0)
+                    self._stop_event.wait(self._pull_interval)
                     continue
                 
                 # 按 inst_id 分组查询订单状态，减少 API 调用次数
@@ -811,11 +812,11 @@ class OkxRestExecutor(Executor):
                             self._pending_orders.pop(cl_ord_id, None)
                 
                 # 等待1秒后继续下一轮查询
-                self._stop_event.wait(2.0)
+                self._stop_event.wait(self._pull_interval)
             
             except Exception as e:
                 logger.error(f"订单状态轮询异常: {e}", exc_info=True)
-                self._stop_event.wait(2.0)
+                self._stop_event.wait(self._pull_interval)
         
         logger.info("[OKX REST] 订单状态轮询线程已停止")
 

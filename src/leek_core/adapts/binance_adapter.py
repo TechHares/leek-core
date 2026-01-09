@@ -55,7 +55,7 @@ class BinanceAdapter:
             requests_params = {'proxies': {'https': proxy, 'http': proxy}}
         
         assert api_key and secret_key, "API密钥和密钥不能为空"
-        self.client = Client(api_key=api_key, api_secret=secret_key, requests_params=requests_params, testnet=testnet, verbose=True)
+        self.client = Client(api_key=api_key, api_secret=secret_key, requests_params=requests_params, testnet=testnet)
     
     # ==================== Market Data API ====================
     
@@ -164,7 +164,7 @@ class BinanceAdapter:
             
             # 添加其他参数
             params.update(kwargs)
-            
+            logger.info(f"下单参数: {params}")
             result = self.client.create_order(**params)
             return {
                 "code": "0",

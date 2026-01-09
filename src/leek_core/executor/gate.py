@@ -62,7 +62,7 @@ class GateRestExecutor(Executor):
         self._orders_lock = threading.RLock()
         self._polling_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
-    
+        self._pull_interval = 1.0
 
     def send_order(self, orders: Order | List[Order]):
         """
@@ -451,7 +451,7 @@ class GateRestExecutor(Executor):
                 
                 # 在锁外检查，避免持有锁时等待
                 if not text_ids:
-                    self._stop_event.wait(2.0)
+                    self._stop_event.wait(self._pull_interval)  
                     continue
                 
                 # 按 currency_pair 和 is_futures 分组查询订单状态
@@ -481,11 +481,11 @@ class GateRestExecutor(Executor):
                     self._poll_futures_orders(contract, group_text_ids, orders_info)
                 
                 # 等待2秒后继续下一轮查询
-                self._stop_event.wait(2.0)
+                self._stop_event.wait(self._pull_interval)
             
             except Exception as e:
                 logger.error(f"订单状态轮询异常: {e}", exc_info=True)
-                self._stop_event.wait(2.0)
+                self._stop_event.wait(self._pull_interval)
         
         logger.info("[Gate.io REST] 订单状态轮询线程已停止")
     
