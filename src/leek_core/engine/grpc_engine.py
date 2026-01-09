@@ -8,6 +8,7 @@ import os
 import sys
 from queue import Queue
 from typing import Dict, Any, List, Set, Optional, Callable
+import multiprocessing
 from multiprocessing import Process
 from decimal import Decimal
 from leek_core.utils.serialization import LeekJSONEncoder, LeekJSONDecoder
@@ -290,8 +291,10 @@ class GrpcEngineClient():
             logger.error(f"无法找到可用端口: {self.instance_id}")
             return False
         
-        # 启动子进程，传入端口号
-        self.process = Process(
+        # 使用 spawn 上下文创建子进程，避免 gRPC 在 fork 后的资源竞争问题
+        # fork 会继承父进程的 gRPC 状态（包括 epoll fd），导致 BlockingIOError
+        ctx = multiprocessing.get_context('spawn')
+        self.process = ctx.Process(
             target=self._start_engine,
             args=(
                 self.instance_id,
@@ -304,15 +307,44 @@ class GrpcEngineClient():
         )
         
         self.process.start()
-        time.sleep(2)
-        self.engine_channel = grpc.aio.insecure_channel(f'localhost:{self.engine_port}')
+        
+        # spawn 模式下子进程启动更慢（需要重新导入所有模块），增加等待时间
+        self.engine_channel = grpc.aio.insecure_channel(f'localhost:{self.engine_port}', options=options)
         self.engine_stub = EngineServiceStub(self.engine_channel)
-        # 等待子进程启动并尝试连接
-        await self.invoke("ping", instance_id=self.instance_id)
+        
+        # 等待子进程启动并尝试连接，带重试机制
+        max_retries = 30  # 最多重试 30 次
+        retry_interval = 1  # 每次重试间隔 1 秒
+        connected = False
+        
+        for attempt in range(max_retries):
+            # 检查子进程是否还活着
+            if not self.process.is_alive():
+                logger.error(f"子进程已退出: {self.instance_id}, exit code: {self.process.exitcode}")
+                raise RuntimeError(f"子进程启动失败: {self.instance_id}")
+            
+            try:
+                await self.invoke("ping", instance_id=self.instance_id)
+                connected = True
+                logger.info(f"子进程连接成功: {self.instance_id} (尝试 {attempt + 1} 次)")
+                break
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.debug(f"等待子进程启动: {self.instance_id} (尝试 {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(retry_interval)
+                else:
+                    logger.error(f"子进程启动超时: {self.instance_id}, 最后错误: {e}")
+                    raise
+        
+        if not connected:
+            raise RuntimeError(f"无法连接到子进程: {self.instance_id}")
+        
         self._running = True
         
         # 启动事件监听线程
         self._start_event_listener()
+        # 等待子进程启动
+        await asyncio.sleep(2)
         logger.info(f"子进程启动成功: {self.instance_id} (端口: {self.engine_port})")
         return True
 
@@ -529,13 +561,6 @@ class GrpcEngineClient():
             except Exception as e:
                 logger.error(f"设置日志失败: {e}")
             
-            # 设置报警器
-            alert_config = config.get('alert_config', [])
-            for alert_item in alert_config:
-                if alert_item.get('enabled'):
-                    alert_class = alert_item.get('class_name')
-                    alarm_manager.register_cls(load_class_from_str(alert_class), alert_item.get('config', {}))
-                    
             # 加载 mount_dirs
             mount_dirs = config.get('mount_dirs', [])
             for dir_path in mount_dirs:
@@ -546,6 +571,13 @@ class GrpcEngineClient():
                         sys.path.append(dir_path)
                 else:
                     logger.error(f"目录不存在或无法访问: {dir_path}")
+
+            # 设置报警器
+            alert_config = config.get('alert_config', [])
+            for alert_item in alert_config:
+                if alert_item.get('enabled'):
+                    alert_class = alert_item.get('class_name')
+                    alarm_manager.register_cls(load_class_from_str(alert_class), alert_item.get('config', {}))
             
             # 设置仓位配置
             position_setting = config.get('position_setting', {})
