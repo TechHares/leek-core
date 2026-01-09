@@ -131,8 +131,8 @@ class SimpleEngine(LeekComponent):
 
     def on_order_update(self, event: Event):  # 处理订单更新
         order = event.data
-        self.portfolio.order_update(order)
-        execution_order = self.executor_manager.order_update(order)
+        virtual_pnl = self.portfolio.order_update(order)
+        execution_order = self.executor_manager.order_update(order, virtual_pnl)
         if execution_order is None:
             return
         self.event_bus.publish_event(Event(EventType.EXEC_ORDER_UPDATED, execution_order))

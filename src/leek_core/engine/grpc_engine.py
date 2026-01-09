@@ -32,7 +32,7 @@ logger = get_logger(__name__)
 try:
     import grpc
     from .grpc.engine_pb2_grpc import *
-    from .grpc.engine_pb2 import *
+    from .grpc.engine_pb2 import EventMessage, ActionRequest, ListenRequest
     from .grpc.grpc_server import EngineServiceServicer
 except Exception as e:
     logger.error(f"导入grpc模块失败: {e}")
@@ -65,6 +65,14 @@ options = [
     # 启用 HTTP/2 ping 的频率控制（可选）
     ('grpc.http2.min_time_between_pings_ms', 10000),
 ]
+
+# 事件监听器配置
+LISTENER_CONFIG = {
+    'max_retries': 5,           # 最大重试次数
+    'base_backoff': 2.0,        # 基础退避时间(秒)
+    'max_backoff': 60.0,        # 最大退避时间(秒)
+    'stop_check_interval': 0.1, # 停止检查间隔(秒)
+}
 class GrpcEngine(SimpleEngine):
     """
     独立进程中的交易引擎实现。
@@ -233,6 +241,7 @@ class GrpcEngineClient():
         # 事件监听相关
         self._event_listener_thread = None
         self._event_loop = None
+        self._stop_event: Optional[asyncio.Event] = None  # 延迟初始化，用于优雅停止
 
     def register_handler(self, event_type: EventType, handler: Callable):
         """注册动作处理器"""
@@ -360,53 +369,79 @@ class GrpcEngineClient():
                 continue
 
     async def stop(self):
-        """停止客户端（同步包装器）"""
+        """停止客户端"""
         if not self._running:
             return
+        
+        logger.info(f"开始停止客户端: {self.instance_id}")
         self._running = False
         
-        # 停止事件监听任务
+        # 1. 先设置停止信号，让监听器有机会优雅退出
+        if self._stop_event is not None:
+            self._stop_event.set()
+            # 短暂等待，让监听循环检测到停止信号
+            await asyncio.sleep(LISTENER_CONFIG['stop_check_interval'])
+        
+        # 2. 取消事件监听任务
         if hasattr(self, '_event_listener_task') and not self._event_listener_task.done():
-            logger.info(f"停止事件监听任务: {self.instance_id}")
+            logger.debug(f"取消事件监听任务: {self.instance_id}")
             self._event_listener_task.cancel()
             try:
-                await self._event_listener_task
-            except asyncio.CancelledError:
+                await asyncio.wait_for(self._event_listener_task, timeout=2.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
         
-        # 关闭异步 gRPC 连接
-        logger.info(f"关闭异步 gRPC 连接: {self.instance_id}")
+        # 3. 通知子进程关闭
+        logger.debug(f"通知子进程关闭: {self.instance_id}")
         try:
-            await self.invoke("shutdown")
+            await asyncio.wait_for(self.invoke("shutdown"), timeout=5.0)
         except Exception as e:
-            logger.info(f"调用 shutdown 失败，可能连接已断开: {e}")
+            logger.debug(f"调用 shutdown 失败（可能连接已断开）: {e}")
         
+        # 4. 关闭 gRPC 连接
+        await self._close_grpc_channel()
+        
+        # 5. 停止子进程
+        await self._terminate_process()
+        
+        # 6. 重置状态
+        self._stop_event = None
+        logger.info(f"客户端已停止: {self.instance_id}")
+
+    async def _close_grpc_channel(self):
+        """关闭 gRPC 连接"""
+        if self.engine_channel is None:
+            return
         try:
-            if self.engine_channel:
-                await self.engine_channel.close()
-                self.engine_channel = None
-                self.engine_stub = None
-                logger.info(f"关闭 gRPC 连接: {self.instance_id}")
+            await self.engine_channel.close()
+            logger.debug(f"gRPC 连接已关闭: {self.instance_id}")
         except Exception as e:
             logger.warning(f"关闭 gRPC 连接时出错: {e}")
+        finally:
+            self.engine_channel = None
+            self.engine_stub = None
+
+    async def _terminate_process(self):
+        """终止子进程"""
+        if not self.process or not self.process.is_alive():
+            return
         
-        # 停止子进程 - 增强终止逻辑
-        if self.process and self.process.is_alive():
-            logger.info(f"停止子进程: {self.instance_id} (PID: {self.process.pid})")
-            try:
-                self.process.terminate()
-                # 减少等待时间到3秒，更快进入强制终止
-                self.process.join(timeout=3)
+        logger.debug(f"终止子进程: {self.instance_id} (PID: {self.process.pid})")
+        try:
+            self.process.terminate()
+            # 在线程池中等待，避免阻塞事件循环
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self.process.join, 3)
+            
+            if self.process.is_alive():
+                logger.warning(f"子进程未在3秒内结束，强制终止: {self.instance_id}")
+                self.process.kill()
+                await loop.run_in_executor(None, self.process.join, 2)
+                
                 if self.process.is_alive():
-                    logger.warning(f"子进程未在3秒内结束，强制杀死: {self.instance_id}")
-                    self.process.kill()
-                    self.process.join(timeout=2)  # 给kill一点时间
-                    if self.process.is_alive():
-                        logger.error(f"子进程无法终止: {self.instance_id}")
-            except Exception as e:
-                logger.error(f"停止子进程异常: {e}")
-        
-        logger.info(f"客户端已停止: {self.instance_id}")
+                    logger.error(f"子进程无法终止: {self.instance_id}")
+        except Exception as e:
+            logger.error(f"终止子进程异常: {e}")
 
     def is_alive(self):
         """检查子进程是否存活"""
@@ -456,31 +491,134 @@ class GrpcEngineClient():
         self._event_listener_task = asyncio.create_task(self._listen_events())
         logger.info(f"事件监听任务已启动: {self.instance_id}")
 
-    async def _listen_events(self):
-        """监听事件流"""
+    def _get_stop_event(self) -> asyncio.Event:
+        """获取停止事件，确保在正确的事件循环中创建"""
+        if self._stop_event is None:
+            self._stop_event = asyncio.Event()
+        return self._stop_event
+
+    @staticmethod
+    def _calculate_backoff(retry_count: int) -> float:
+        """计算指数退避时间"""
+        backoff = LISTENER_CONFIG['base_backoff'] * (2 ** retry_count)
+        return min(backoff, LISTENER_CONFIG['max_backoff'])
+
+    @staticmethod
+    def _is_retriable_error(error: Exception) -> bool:
+        """判断gRPC错误是否可重试"""
+        if not isinstance(error, grpc.aio.AioRpcError):
+            return False
+        retriable_codes = {
+            grpc.StatusCode.UNAVAILABLE,
+            grpc.StatusCode.DEADLINE_EXCEEDED,
+            grpc.StatusCode.RESOURCE_EXHAUSTED,
+        }
+        return error.code() in retriable_codes
+
+    async def _read_stream_with_stop(self, call) -> tuple:
+        """
+        读取gRPC流消息，同时监听停止信号
+        
+        Returns:
+            (should_stop, message): should_stop为True表示应该停止，message为收到的消息或None
+        """
+        stop_event = self._get_stop_event()
+        read_task = asyncio.create_task(call.read())
+        stop_task = asyncio.create_task(stop_event.wait())
+        
         try:
-            logger.info(f"开始监听引擎事件流: {self.instance_id} {self.name}")
-            # 创建监听请求
-            listen_request = ListenRequest(
-                project_id=self.instance_id
+            done, pending = await asyncio.wait(
+                [read_task, stop_task],
+                return_when=asyncio.FIRST_COMPLETED
             )
             
-            # 调用ListenEvents流
-            async for event_msg in self.engine_stub.ListenEvents(listen_request):
+            # 取消未完成的任务
+            for task in pending:
+                task.cancel()
                 try:
-                    # 处理接收到的事件
-                    await self._handle_received_event(event_msg)
-                except Exception as e:
-                    logger.error(f"处理接收到的事件失败: {e}", exc_info=True)
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            
+            # 检查是哪个任务完成
+            if stop_task in done:
+                return True, None
+            
+            # 获取消息
+            message = read_task.result()
+            return False, message
+            
+        except asyncio.CancelledError:
+            read_task.cancel()
+            stop_task.cancel()
+            raise
+
+    async def _listen_events(self):
+        """监听事件流，支持优雅停止"""
+        stop_event = self._get_stop_event()
+        retry_count = 0
+        max_retries = LISTENER_CONFIG['max_retries']
+        
+        while not stop_event.is_set() and retry_count < max_retries:
+            call = None
+            try:
+                logger.info(f"开始监听引擎事件流: {self.instance_id} {self.name}")
+                listen_request = ListenRequest(project_id=self.instance_id)
+                call = self.engine_stub.ListenEvents(listen_request)
+                
+                # 连接成功，重置重试计数
+                retry_count = 0
+                
+                while not stop_event.is_set():
+                    should_stop, event_msg = await self._read_stream_with_stop(call)
                     
-        except Exception as e:
-            # 如果连接断开，尝试重连
-            await asyncio.sleep(1)
-            if self._running:
-                logger.error(f"监听事件流异常: {e}", exc_info=True)
-                logger.info(f"尝试重新连接事件流: {self.instance_id}")
-                await asyncio.sleep(5)  # 等待5秒后重试
-                await self._listen_events()
+                    if should_stop:
+                        logger.debug(f"收到停止信号，退出事件监听: {self.instance_id}")
+                        return
+                    
+                    if event_msg is None:
+                        logger.debug(f"事件流已关闭: {self.instance_id}")
+                        break
+                    
+                    try:
+                        await self._handle_received_event(event_msg)
+                    except Exception as e:
+                        logger.error(f"处理接收到的事件失败: {e}", exc_info=True)
+                    
+            except asyncio.CancelledError:
+                logger.debug(f"事件监听任务被取消: {self.instance_id}")
+                return
+                
+            except grpc.aio.AioRpcError as e:
+                if stop_event.is_set():
+                    logger.debug(f"事件监听正常终止: {self.instance_id}, code={e.code()}")
+                    return
+                
+                if self._is_retriable_error(e):
+                    retry_count += 1
+                    backoff = self._calculate_backoff(retry_count)
+                    logger.warning(
+                        f"监听事件流连接异常 ({retry_count}/{max_retries}): "
+                        f"code={e.code()}, 将在 {backoff:.1f}s 后重试"
+                    )
+                    await asyncio.sleep(backoff)
+                else:
+                    logger.error(f"监听事件流不可恢复错误: {e.code()} - {e.details()}")
+                    return
+                    
+            except Exception as e:
+                if stop_event.is_set():
+                    logger.debug(f"事件监听终止: {self.instance_id}")
+                    return
+                logger.error(f"监听事件流未知异常: {e}", exc_info=True)
+                return
+                
+            finally:
+                if call is not None:
+                    call.cancel()
+        
+        if retry_count >= max_retries:
+            logger.error(f"事件监听重试次数耗尽，停止监听: {self.instance_id}")
 
     async def _handle_received_event(self, event_msg: EventMessage):
         """处理接收到的事件"""

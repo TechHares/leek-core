@@ -2,10 +2,14 @@
 # -*- coding: utf-8 -*-
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 from leek_core.base import LeekComponent
 from leek_core.models import ExecutionContext, PositionInfo
 from leek_core.utils import get_logger
+
+if TYPE_CHECKING:
+    from leek_core.event import EventBus
 
 logger = get_logger(__name__)
 
@@ -25,6 +29,11 @@ class StrategyPolicy(LeekComponent, ABC):
     - 所有自定义策略风控需继承本类并实现相关方法。
     - 通过实现 evaluate 等方法，对策略信号进行风控校验。
     """
+    
+    # 事件总线引用，由 Context 注入
+    event_bus: "EventBus" = None
+    # 策略实例ID，由 Context 注入
+    policy_instance_id: str = None
 
     @abstractmethod
     def evaluate(self, signal: ExecutionContext, context: PositionInfo) -> bool:

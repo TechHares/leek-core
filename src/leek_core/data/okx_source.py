@@ -322,7 +322,7 @@ class OkxDataSource(WebSocketDataSource):
 
         inst_id = self.adapter.build_inst_id(symbol, ins_type, quote_currency)
         interval = self.adapter.get_okx_timeframe(timeframe)
-        page_size = min(100, limit)
+        page_size = min(100, limit)  # OKX 最大支持100条
         res = []
         while len(res) < limit:
             candlesticks = self.adapter.get_history_candlesticks(inst_id=inst_id, bar=interval, limit=page_size, before=before, after=after)

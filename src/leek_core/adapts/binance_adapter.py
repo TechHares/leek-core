@@ -35,8 +35,8 @@ class BinanceAdapter:
         初始化币安适配器类
         
         Args:
-            api_key: API密钥
-            secret_key: 密钥
+            api_key: API密钥（可选，仅公开市场数据不需要）
+            secret_key: 密钥（可选，仅公开市场数据不需要）
             testnet: 是否使用测试网
             proxy: 代理设置
         """
@@ -54,8 +54,8 @@ class BinanceAdapter:
         if proxy:
             requests_params = {'proxies': {'https': proxy, 'http': proxy}}
         
-        assert api_key and secret_key, "API密钥和密钥不能为空"
-        self.client = Client(api_key=api_key, api_secret=secret_key, requests_params=requests_params, testnet=testnet)
+        # 允许无 API 密钥初始化（仅用于公开市场数据）
+        self.client = Client(api_key=api_key or "", api_secret=secret_key or "", requests_params=requests_params, testnet=testnet)
     
     # ==================== Market Data API ====================
     
@@ -365,6 +365,107 @@ class BinanceAdapter:
         else:
             return BINANCE_TIMEFRAME_MAP.get(timeframe)
     
+    @retry(max_retries=3, retry_interval=0.1)
+    @rate_limit(max_requests=1200, time_window=60.0, group="market_data")
+    def get_klines(self, symbol: str, interval: str, start_time: int = None, 
+                   end_time: int = None, limit: int = 500) -> Dict:
+        """
+        获取历史K线数据
+        
+        Args:
+            symbol: 交易对符号（如 BTCUSDT）
+            interval: 时间周期（如 1m, 5m, 1h, 1d）
+            start_time: 开始时间（毫秒时间戳，可选）
+            end_time: 结束时间（毫秒时间戳，可选）
+            limit: 返回数量限制，默认500，最大1000
+            
+        Returns:
+            Dict: K线数据列表，格式为:
+                {
+                    "code": "0",
+                    "data": [
+                        [open_time, open, high, low, close, volume, close_time, 
+                         quote_volume, trades, taker_buy_base, taker_buy_quote, ignore],
+                        ...
+                    ]
+                }
+        """
+        try:
+            params = {
+                "symbol": symbol,
+                "interval": interval,
+                "limit": min(limit, 1000)  # 币安最大限制1000
+            }
+            if start_time:
+                params["startTime"] = start_time
+            if end_time:
+                params["endTime"] = end_time
+            
+            klines = self.client.get_klines(**params)
+            return {
+                "code": "0",
+                "data": klines
+            }
+        except BinanceAPIException as e:
+            logger.error(f"获取K线数据失败: {e}")
+            return {"code": str(getattr(e, 'status_code', '-1')), "msg": str(e)}
+        except Exception as e:
+            logger.error(f"获取K线数据异常: {e}")
+            return {"code": "-1", "msg": str(e)}
+    
+    @retry(max_retries=3, retry_interval=0.1)
+    @rate_limit(max_requests=1200, time_window=60.0, group="market_data")
+    def get_all_symbols(self, quote_currency: str = "USDT") -> List[str]:
+        """
+        获取所有可用的交易对基础资产列表
+        
+        Args:
+            quote_currency: 计价货币筛选（如 USDT, BTC），默认为 USDT
+            
+        Returns:
+            List[str]: 基础资产符号列表（如 ["BTC", "ETH", ...]）
+        """
+        try:
+            exchange_info = self.client.get_exchange_info()
+            symbols = set()
+            for s in exchange_info.get("symbols", []):
+                # 只获取指定计价货币且状态为 TRADING 的交易对
+                if s.get("quoteAsset") == quote_currency and s.get("status") == "TRADING":
+                    symbols.add(s.get("baseAsset"))
+            return sorted(list(symbols))
+        except BinanceAPIException as e:
+            logger.error(f"获取交易对列表失败: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"获取交易对列表异常: {e}")
+            return []
+    
+    @retry(max_retries=3, retry_interval=0.1)
+    @rate_limit(max_requests=1200, time_window=60.0, group="market_data")
+    def get_ticker_price(self, symbol: str = None) -> Dict:
+        """
+        获取最新价格
+        
+        Args:
+            symbol: 交易对符号（可选，不传则返回所有交易对）
+            
+        Returns:
+            Dict: 价格数据
+        """
+        try:
+            if symbol:
+                ticker = self.client.get_symbol_ticker(symbol=symbol)
+                return {"code": "0", "data": [ticker]}
+            else:
+                tickers = self.client.get_all_tickers()
+                return {"code": "0", "data": tickers}
+        except BinanceAPIException as e:
+            logger.error(f"获取价格失败: {e}")
+            return {"code": str(getattr(e, 'status_code', '-1')), "msg": str(e)}
+        except Exception as e:
+            logger.error(f"获取价格异常: {e}")
+            return {"code": "-1", "msg": str(e)}
+
     def check_api_available(self) -> bool:
         """
         检查 API 是否可用

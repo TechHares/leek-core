@@ -5,6 +5,7 @@
 数据模块，用于处理多个数据源、数据对齐和处理。
 """
 from .base import DataSource
+from .binance_source import BinanceDataSource
 from .clickhouse_source import ClickHouseKlineDataSource
 from .context import DataSourceContext
 from .gate_source import GateDataSource
@@ -16,6 +17,7 @@ __all__ = [
     'DataSource',
     'WebSocketDataSource',
     'ClickHouseKlineDataSource',
+    'BinanceDataSource',
     'GateDataSource',
     'OkxDataSource',
     'RedisClickHouseDataSource',

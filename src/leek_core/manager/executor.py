@@ -56,7 +56,7 @@ class ExecutorManager(ComponentManager[ExecutorContext, Executor, Dict[str, Any]
             exec_ctx.send_order(orders)
 
     @thread_lock()
-    def order_update(self, order: Order) -> ExecutionContext|None:
+    def order_update(self, order: Order, virtual_pnl: Decimal=None) -> ExecutionContext|None:
         try:
             if not order.order_status.is_finished or order.exec_order_id not in self.order_map:
                 return
@@ -70,6 +70,10 @@ class ExecutorManager(ComponentManager[ExecutorContext, Executor, Dict[str, Any]
                 if asset.symbol == order.symbol and asset.quote_currency == order.quote_currency and asset.ins_type == order.ins_type and asset.asset_type == order.asset_type:
                     asset.sz = order.sz
                     asset.amount = (asset.amount or 0) + (0 if order.order_status.is_failed else order.settle_amount)
+                    if order.is_fake:
+                        asset.virtual_pnl = (asset.virtual_pnl or 0) + (virtual_pnl or 0)
+                    else:
+                        asset.actual_pnl = (asset.actual_pnl or 0) + (order.pnl or 0)
                     break
             if order.pnl:
                 execution_order.actual_pnl = (execution_order.actual_pnl or 0) + order.pnl

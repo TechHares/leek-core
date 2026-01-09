@@ -74,8 +74,9 @@ class TestGateDataSource(unittest.TestCase):
 
     def test_get_eth_history_klines(self):
         """
-        用例2: 获取ETH合约最近100根K线
+        用例2: 获取ETH合约最近100根K线，验证返回顺序
         """
+        import time as time_module
         source = GateDataSource(settle="usdt")
 
         # 构建查询的 row_key
@@ -86,6 +87,7 @@ class TestGateDataSource(unittest.TestCase):
             timeframe=TimeFrame.M1  # 1分钟K线
         )
 
+        print(f"\n当前时间: {time_module.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"获取 ETH/USDT 永续合约最近100根1分钟K线...")
 
         # 获取历史数据
@@ -95,7 +97,19 @@ class TestGateDataSource(unittest.TestCase):
         ))
 
         print(f"共获取到 {len(klines)} 根K线")
-        print("\n最近10根K线:")
+        
+        # 打印第一条和最后一条，验证顺序
+        if klines:
+            print(f"\n第1条 (klines[0]): {klines[0].start_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"最后1条 (klines[-1]): {klines[-1].start_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # 判断顺序
+            if klines[0].start_time < klines[-1].start_time:
+                print("\n✅ 返回顺序: 升序（从旧到新）")
+            else:
+                print("\n⚠️ 返回顺序: 降序（从新到旧）")
+        
+        print("\n最近10根K线 (klines[-10:]):")
         print("-" * 100)
         print(f"{'时间':<20} {'开盘':<12} {'最高':<12} {'最低':<12} {'收盘':<12} {'成交量':<15}")
         print("-" * 100)

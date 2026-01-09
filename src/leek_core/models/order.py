@@ -223,6 +223,7 @@ class ExecutionAsset:
     extra: Any = None         # 其他扩展信息（如信号置信度、触发条件、备注等，可选）
     position_id: str = None   # 仓位ID
     actual_pnl: Decimal = None # 实际盈亏
+    virtual_pnl: Decimal = None # 虚拟仓位盈亏
     executor_sz: Dict[str, Decimal] = None  # 执行器的仓位大小
 
     @property

@@ -26,6 +26,9 @@ class StrategyPolicyContext(LeekContext):
     def __init__(self, event_bus: EventBus, config: LeekComponentConfig[StrategyPolicy, Dict[str, Any]]):
         super().__init__(event_bus, config)
         self.policy: StrategyPolicy = self.create_component()
+        # 注入 event_bus 和 instance_id 到 policy
+        self.policy.event_bus = event_bus
+        self.policy.policy_instance_id = self.instance_id
         # 过滤配置
         data = config.extra or {}
         self.scope: str = data.get('scope', 'all')

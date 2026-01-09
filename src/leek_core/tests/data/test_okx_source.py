@@ -1,88 +1,78 @@
-# #!/usr/bin/env python
-# # -*- coding: utf-8 -*-
-#
-# """
-# OKX WebSocket 数据源测试用例
-# 使用 unittest.mock 模拟 WebSocket 连接和交互
-# """
-#
-# import asyncio
-# import json
-# import os
-# import unittest
-# from unittest.mock import patch, MagicMock, AsyncMock
-# import pandas as pd
-# import time
-#
-# from data.okx_source import OkxDataSource
-# from models import TimeFrame
-# # Assuming utils.get_logger exists and works without full setup for tests
-# from utils import get_logger
-#
-# logger = get_logger(__name__)
-#
-# class OkxSourceTest(unittest.TestCase):
-#
-#     def setUp(self):
-#         # Create a new event loop for each test to ensure isolation
-#         self.loop = asyncio.new_event_loop()
-#         asyncio.set_event_loop(self.loop)
-#         # Mock callback function
-#         self.mock_callback = AsyncMock() # Use AsyncMock for async callbacks
-#
-#     def tearDown(self):
-#         # Clean up the event loop
-#         self.loop.close()
-#         asyncio.set_event_loop(None) # Reset the global event loop policy if needed
-#
-#     def test_connect_disconnect_ping(self):
-#         """测试连接、断开连接和 ping 任务管理"""
-#         source = OkxDataSource(work_flag="2")
-#
-#         async def run_test():
-#             # Test connection
-#             connected = source.connect()
-#             self.assertTrue(connected)
-#             self.assertTrue(source.is_connected)
-#             self.assertIsNotNone(source._ping_task)
-#             self.assertFalse(source._ping_task.done())
-#
-#             # Give ping loop a chance to run and potentially send ping
-#             await asyncio.sleep(0.1)
-#             print("="*10+ "断开连接" +"="*10)
-#             # Test disconnection
-#             disconnected = source.disconnect()
-#             self.assertTrue(disconnected)
-#             self.assertFalse(source.is_connected)
-#             self.assertEqual(source._ping_task, None)
-#             # Resetting source._ping_task to None might happen slightly after await returns
-#             # So check cancellation/done status mainly
-#
-#         self.loop.run_until_complete(run_test())
-#
-#     def test_subscribe_unsubscribe(self):
-#         """测试订阅和取消订阅"""
-#         source = OkxDataSource(work_flag="2")
-#         def callback(t, d):
-#             print(t, d)
-#         source.set_callback(callback)
-#
-#         print(source.get_supported_parameters())
-#         async def run_test():
-#             # Connect
-#             connected = source.connect()
-#             self.assertTrue(connected)
-#             await asyncio.sleep(5)
-#
-#             source.subscribe(symbol="BTC", timeframe=TimeFrame.H4, )
-#             await asyncio.sleep(15)
-#             source.unsubscribe(symbol="BTC", timeframe=TimeFrame.H4, )
-#             await asyncio.sleep(5)
-#             source.disconnect()
-#             await asyncio.sleep(5)
-#
-#             # Test subscribe
-#         self.loop.run_until_complete(run_test())
-#
-# if __name__ == "__main__":
-#     unittest.main()
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+"""
+OKX WebSocket 数据源测试用例
+测试获取历史K线数据的顺序
+"""
+
+import time
+import unittest
+
+from leek_core.data import OkxDataSource
+from leek_core.models import TimeFrame, TradeInsType, KLine
+
+
+class TestOkxDataSource(unittest.TestCase):
+    """OKX 数据源测试"""
+
+    def test_get_btc_history_klines(self):
+        """
+        用例: 获取BTC永续合约最近100根1分钟K线，验证返回顺序
+        """
+        source = OkxDataSource()
+
+        # 构建查询的 row_key
+        row_key = KLine.pack_row_key(
+            symbol="BTC",
+            quote_currency="USDT",
+            ins_type=TradeInsType.SWAP,
+            timeframe=TimeFrame.M1  # 1分钟K线
+        )
+
+        print(f"\n当前时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"获取 BTC/USDT 永续合约最近100根1分钟K线...")
+
+        # 获取历史数据
+        klines = list(source.get_history_data(
+            row_key=row_key,
+            limit=100
+        ))
+
+        print(f"共获取到 {len(klines)} 根K线")
+        
+        # 打印第一条和最后一条，验证顺序
+        if klines:
+            print(f"\n第1条 (klines[0]): {klines[0].start_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"最后1条 (klines[-1]): {klines[-1].start_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # 判断顺序
+            if klines[0].start_time < klines[-1].start_time:
+                print("\n✅ 返回顺序: 升序（从旧到新）")
+            else:
+                print("\n⚠️ 返回顺序: 降序（从新到旧）")
+        
+        print("\n最近10根K线 (klines[-10:]):")
+        print("-" * 100)
+        print(f"{'时间':<20} {'开盘':<12} {'最高':<12} {'最低':<12} {'收盘':<12} {'成交量':<15}")
+        print("-" * 100)
+
+        for kline in klines[-10:]:
+            print(f"{kline.start_datetime.strftime('%Y-%m-%d %H:%M:%S'):<20} "
+                  f"{str(kline.open):<12} {str(kline.high):<12} "
+                  f"{str(kline.low):<12} {str(kline.close):<12} "
+                  f"{str(kline.volume):<15}")
+
+        # 断言
+        self.assertGreater(len(klines), 0, "应该获取到K线数据")
+
+        print("\n测试完成!")
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "history":
+        test = TestOkxDataSource()
+        test.test_get_btc_history_klines()
+    else:
+        unittest.main()

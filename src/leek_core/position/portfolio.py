@@ -275,6 +275,7 @@ class Portfolio:
         pnl = self.position_tracker.order_update(order, delta_amount, delta_fee, delta_friction, delta_sz)
         if order.is_fake:
             self.virtual_pnl += pnl
+            return pnl
         else:
             self.pnl += delta_pnl
             self.friction += delta_friction

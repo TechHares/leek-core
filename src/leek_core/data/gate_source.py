@@ -216,10 +216,11 @@ class GateDataSource(WebSocketDataSource):
             kline.asset_type = AssetType.CRYPTO
 
             # 防止重复推送已完成的K线
-            # 只有当K线完成时才更新 pre_time，未完成的K线允许重复推送（实时更新）
+            # 过滤掉 start_time <= 上一根已完成K线的 start_time 的数据
+            # 这样可以：1. 阻止旧K线重复推送  2. 允许当前形成中的K线实时更新
+            if kline.start_time <= self.pre_time.get(kline.row_key, 0):
+                return
             if is_finished:
-                if kline.start_time <= self.pre_time.get(kline.row_key, 0):
-                    return
                 self.pre_time[kline.row_key] = kline.start_time
             
             # 调用订阅的回调函数
@@ -400,12 +401,13 @@ class GateDataSource(WebSocketDataSource):
             else:
                 from_time = start_time // 1000  # 毫秒转秒
         
-        to_time = int(time.time())
+        # 增加60秒缓冲，确保获取最新K线（API返回 start_time < to_time 的K线）
+        to_time = int(time.time()) + 60
         if end_time is not None:
             if isinstance(end_time, datetime):
-                to_time = int(end_time.timestamp())
+                to_time = int(end_time.timestamp()) + 60
             elif isinstance(end_time, int):
-                to_time = end_time // 1000  # 毫秒转秒
+                to_time = end_time // 1000 + 60  # 毫秒转秒并增加缓冲
 
         contract = self._build_contract(symbol, quote_currency)
         interval = self._get_gate_timeframe(timeframe)
@@ -413,7 +415,7 @@ class GateDataSource(WebSocketDataSource):
             logger.error(f"不支持的时间周期: {timeframe}")
             return iter([])
         
-        page_size = min(100, limit)
+        page_size = min(2000, limit)  # Gate.io 最大支持2000条
         res = []
         
         while len(res) < limit:
@@ -434,6 +436,9 @@ class GateDataSource(WebSocketDataSource):
             if len(data) == 0:
                 break
             
+            # Gate.io API 返回升序数据（从旧到新）
+            # 收集本批次数据
+            batch = []
             for row in data:
                 # Gate.io REST API 返回格式: {"t": timestamp, "v": volume, "c": close, "h": high, "l": low, "o": open, "sum": amount}
                 # 或者是列表格式: [t, v, c, h, l, o, sum]
@@ -471,11 +476,21 @@ class GateDataSource(WebSocketDataSource):
                     ins_type=ins_type,
                     is_finished=True
                 )
-                
-                # 更新 to_time 用于下一页查询
-                to_time = int(t) - 1
-                res.append(kline)
+                batch.append(kline)
+            
+            # API返回升序，直接将本批次放到结果前面（因为是更早的数据）
+            res = batch + res
+            
+            # 更新 to_time 为本批次第一条（最早）K线的时间-1，用于获取更早的数据
+            if data:
+                first_row = data[0]
+                first_t = first_row.get("t") if isinstance(first_row, dict) else first_row[0]
+                to_time = int(first_t) - 1
+            
+            # 如果返回的数据少于请求的数量，说明已经没有更多数据了
+            if len(data) < page_size:
+                break
         
-        res = res[:limit]
-        res.reverse()
+        # 取最近的 limit 条数据（数据已是升序：从旧到新）
+        res = res[-limit:] if len(res) > limit else res
         return iter(res)
