@@ -260,6 +260,50 @@ class BinanceRestExecutor(Executor):
         except (ValueError, TypeError, InvalidOperation):
             return Decimal(default)
 
+    def _query_order_fee(self, order_info: Dict, order_data: Dict) -> Decimal:
+        """
+        查询订单的成交手续费
+        
+        Args:
+            order_info: 订单信息
+            order_data: API 返回的订单数据
+            
+        Returns:
+            Decimal: 手续费总额（负数）
+        """
+        try:
+            symbol = order_info.get("symbol")
+            exchange_order_id = order_data.get("orderId")
+            
+            if not symbol or not exchange_order_id:
+                return Decimal(0)
+            
+            # 查询该订单的成交记录
+            result = self.adapter.get_my_trades(
+                symbol=symbol,
+                order_id=exchange_order_id,
+                limit=100
+            )
+            
+            if not result or result.get("code") != "0":
+                logger.warning(f"查询成交记录失败: {result.get('msg') if result else '无响应'}, order_id: {exchange_order_id}")
+                return Decimal(0)
+            
+            # 汇总所有成交的手续费
+            trades = result.get("data", [])
+            total_fee = Decimal(0)
+            for trade in trades:
+                # 币安成交记录中的 commission 字段是手续费
+                commission = self._safe_decimal(trade.get("commission", "0"))
+                # 手续费为负数（支出）
+                total_fee -= commission
+            
+            logger.debug(f"订单 {exchange_order_id} 手续费汇总: {total_fee}, 成交笔数: {len(trades)}")
+            return total_fee
+        except Exception as e:
+            logger.warning(f"查询订单手续费异常: {e}", exc_info=True)
+            return Decimal(0)
+
     def _polling_loop(self):
         """
         订单状态轮询循环
@@ -383,22 +427,35 @@ class BinanceRestExecutor(Executor):
                 avg_price = order_data.get("price") or "0"
             executed_qty = order_data.get("executedQty") or "0"
             
+            # 查询成交记录获取手续费
+            fee = Decimal(0)
+            sz_decimal = self._safe_decimal(executed_qty, "0")
+            if sz_decimal > 0 and order_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
+                fee = self._query_order_fee(order_info, order_data)
+            
             # 构造 OrderUpdateMessage
             oum = OrderUpdateMessage(
                 order_id=cl_ord_id,
                 market_order_id=str(order_data.get("orderId", "")),
                 execution_price=self._safe_decimal(avg_price, "0"),
-                sz=self._safe_decimal(executed_qty, "0"),
-                fee=self._safe_decimal(order_data.get("commission", "0"), "0"),
-                pnl=Decimal(0),  # 币安现货没有 pnl
+                sz=sz_decimal,
+                fee=fee,
+                pnl=Decimal(0),  # pnl 由 position_tracker 根据开仓价和平仓价计算
                 unrealized_pnl=Decimal(0),
                 friction=Decimal(0),
                 sz_value=Decimal(1),
             )
             
-            # 计算结算金额（币安现货：结算金额 = 成交价格 * 成交数量）
+            # 计算结算金额
             if oum.execution_price > 0 and oum.sz > 0:
-                oum.settle_amount = oum.execution_price * oum.sz
+                # 根据交易类型判断是否需要除以杠杆
+                if order.ins_type in [TradeInsType.SWAP, TradeInsType.FUTURES]:
+                    # 合约：保证金 = 名义价值 / 杠杆
+                    leverage = order.leverage if order.leverage else Decimal("1")
+                    oum.settle_amount = oum.sz * oum.execution_price / leverage
+                else:
+                    # 现货：成交金额
+                    oum.settle_amount = oum.execution_price * oum.sz
             else:
                 # 如果没有成交，使用订单价格和数量
                 oum.settle_amount = self._safe_decimal(order_data.get("price", "0"), "0") * self._safe_decimal(order_data.get("origQty", "0"), "0")

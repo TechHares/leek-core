@@ -281,6 +281,41 @@ class BinanceAdapter:
             logger.error(f"查询待成交订单异常: {e}")
             return {"code": "-1", "msg": str(e)}
     
+    @retry(max_retries=3, retry_interval=0.1)
+    @rate_limit(max_requests=1200, time_window=60.0, group="trade")
+    def get_my_trades(self, symbol: str, order_id: str = None, limit: int = 100) -> Dict:
+        """
+        查询个人成交记录
+        
+        Args:
+            symbol: 交易对符号
+            order_id: 订单ID (可选，用于查询指定订单的成交记录)
+            limit: 返回数量限制
+            
+        Returns:
+            Dict: 成交记录列表，包含 commission（手续费）等字段
+        """
+        if not self.api_key or not self.secret_key:
+            raise RuntimeError("Trade API未初始化，请提供API密钥")
+        
+        try:
+            params = {"symbol": symbol, "limit": limit}
+            if order_id:
+                params["orderId"] = order_id
+            
+            trades = self.client.get_my_trades(**params)
+            
+            return {
+                "code": "0",
+                "data": trades if isinstance(trades, list) else [trades]
+            }
+        except BinanceAPIException as e:
+            logger.error(f"查询成交记录失败: {e}")
+            return {"code": str(e.status_code), "msg": str(e)}
+        except Exception as e:
+            logger.error(f"查询成交记录异常: {e}")
+            return {"code": "-1", "msg": str(e)}
+    
     # ==================== Helper Methods ====================
     
     @staticmethod
