@@ -276,11 +276,15 @@ class GateRestExecutor(Executor):
         if is_futures:
             # 合约：使用张数，quanto_multiplier 是每张合约对应的币数量
             quanto_multiplier = Decimal(instrument.get("quanto_multiplier", "1"))
+            order.sz_value = quanto_multiplier
             
-            # 如果指定了 sz（张数），直接使用
-            if order.sz:
-                size = int(order.sz)
+            # 平仓时：order.sz 是币的数量，需要转换为张数
+            if not order.is_open and order.sz:
+                # 币数量 / 面值 = 张数（向下取整）
+                size = int(Decimal(order.sz) / quanto_multiplier) if quanto_multiplier > 0 else int(order.sz)
+                logger.info(f"Gate.io 平仓张数计算: sz={order.sz}, quanto_multiplier={quanto_multiplier}, size={size}")
             else:
+                # 开仓：根据金额计算张数
                 # 计算开仓价值（考虑杠杆）
                 # 开仓价值 = 保证金 × 杠杆
                 leverage = Decimal(order.leverage) if order.leverage else Decimal("1")
@@ -300,13 +304,13 @@ class GateRestExecutor(Executor):
                 # 转换为张数（向下取整）
                 # 张数 = 币数量 / 每张合约对应的币数量
                 size = int(quantity / quanto_multiplier) if quanto_multiplier > 0 else int(quantity)
+                logger.info(f"Gate.io 开仓张数计算: amount={order.order_amount}, quantity={quantity}, quanto_multiplier={quanto_multiplier}, size={size}")
             
             # 检查最小张数
             order_size_min = int(instrument.get("order_size_min", 1))
             if size < order_size_min:
                 raise RuntimeError(f"{currency_pair}下单张数 {size} 小于最低限制 {order_size_min}")
             
-            order.sz_value = quanto_multiplier
             return Decimal(size)
         else:
             # 现货：使用数量
