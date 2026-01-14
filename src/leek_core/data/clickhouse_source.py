@@ -44,24 +44,26 @@ class ClickHouseKlineDataSource(DataSource):
     
     支持从 ClickHouse 数据库中读取 K 线数据，
     表结构示例：
-    CREATE TABLE klines (
+    CREATE TABLE klines_v2
+    (
         market String,
         timeframe String,
         timestamp UInt64,
         symbol String,
         quote_currency String,
-        ins_type UInt8, -- 交易品种类型（TradeInsType的枚举值）
+        ins_type UInt8,
         open Decimal(18, 8),
         high Decimal(18, 8),
         low Decimal(18, 8),
         close Decimal(18, 8),
         volume Decimal(18, 4),
         amount Decimal(18, 2)
-    ) ENGINE = ReplacingMergeTree()
-    PRIMARY KEY (market, timeframe, timestamp, symbol, quote_currency, ins_type)
-    ORDER BY (market, timeframe, timestamp, symbol, quote_currency, ins_type)
+    )
+    ENGINE = ReplacingMergeTree
     PARTITION BY (timeframe, toYYYYMM(toDateTime(timestamp / 1000)))
-    SETTINGS index_granularity=8192;
+    ORDER BY (market, timeframe, symbol, quote_currency, ins_type, timestamp)
+    PRIMARY KEY (market, timeframe, symbol, quote_currency, ins_type, timestamp)
+    SETTINGS index_granularity = 8192;
     """
 
     def __init__(self, host: str="127.0.0.1", port: int = 9000, user: str = 'default',

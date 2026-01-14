@@ -24,7 +24,9 @@ from leek_core.models import (
     PositionConfig,
     Signal,
     StrategyConfig,
+    TimeFrame,
 )
+from leek_core.indicators import MERGE
 from leek_core.strategy import StrategyContext
 from leek_core.sub_strategy import SubStrategy
 from leek_core.utils import DateTimeUtils, get_logger, set_worker_id, setup_logging
@@ -75,6 +77,22 @@ class BacktestRunner:
         self.trades_counter = {"win": 0, "loss": 0, "total": 0}
         self.trade_profit_sum = 0.0
         self.trade_loss_sum = 0.0
+
+        # K线模拟相关
+        self.merge = None
+        self.merge_window = None
+        if self.config.simulate_kline:
+            # 固定使用1分钟K线作为基础周期
+            base_timeframe = TimeFrame.M1
+            if self.config.timeframe.milliseconds is None or base_timeframe.milliseconds is None:
+                raise ValueError("K线模拟模式不支持 TICK 周期")
+            if self.config.timeframe.milliseconds % base_timeframe.milliseconds != 0:
+                raise ValueError(f"timeframe({self.config.timeframe.value})必须能被1分钟整除")
+            self.merge_window = self.config.timeframe.milliseconds // base_timeframe.milliseconds
+            if self.merge_window <= 1:
+                raise ValueError(f"timeframe必须大于1分钟，当前窗口为{self.merge_window}")
+            self.merge = MERGE(window=self.merge_window)
+            logger.info(f"K线模拟模式已启用: base=1m, target={self.config.timeframe.value}, window={self.merge_window}")
 
     def _load_mount_dirs(self):
         # 加载模块
@@ -160,19 +178,31 @@ class BacktestRunner:
         # 执行回测
         last_position_rate = Decimal("0")
         turnover_acc = Decimal("0")
-        row_key = KLine.pack_row_key(self.config.symbol, self.config.quote_currency, self.config.ins_type, self.config.timeframe)
-        logger.info(f"Generated row_key: {row_key}")
+        
+        # K线模拟模式：使用1分钟K线查询，否则使用目标周期
+        query_timeframe = TimeFrame.M1 if self.config.simulate_kline else self.config.timeframe
+        row_key = KLine.pack_row_key(self.config.symbol, self.config.quote_currency, self.config.ins_type, query_timeframe)
+        logger.info(f"Generated row_key: {row_key}, simulate_kline={self.config.simulate_kline}")
         strategy_ctx = self.engine.strategy_manager.get("0")
         wrapper = None
         time_init = DateTimeUtils.now_timestamp()
         time_data = None
         time_run = None
-        for kline in self.data_source.get_history_data(start_time=self.config.start_time, end_time=self.config.end_time,
+        for raw_kline in self.data_source.get_history_data(start_time=self.config.start_time, end_time=self.config.end_time,
                             pre_load_start_time=self.config.pre_start, pre_load_end_time=self.config.pre_end,
                             row_key=row_key, market=self.config.market):
             if time_data is None:
                 time_data = DateTimeUtils.now_timestamp()
                 time_run = time_data
+            
+            # K线模拟模式：合并K线
+            if self.config.simulate_kline:
+                kline = self.merge.update(raw_kline)
+                if kline is None:
+                    continue  # 等待合并窗口对齐
+            else:
+                kline = raw_kline
+            
             # 更新仓位管理
             kline.target_instance_id = set(["0"])
             signal = strategy_ctx._process_data(kline)
@@ -187,13 +217,15 @@ class BacktestRunner:
             turnover_acc += abs(current_rate - last_position_rate)
             last_position_rate = current_rate
 
-            # 记录净值
-            total_value = self.engine.portfolio.total_value
-            self.equity_values.append(float(total_value))
-            self.equity_times.append(int(kline.end_time))
+            # 记录净值（K线模拟模式下只记录完成的K线）
+            should_record = not self.config.simulate_kline or kline.is_finished
+            if should_record:
+                total_value = self.engine.portfolio.total_value
+                self.equity_values.append(float(total_value))
+                self.equity_times.append(int(kline.end_time))
 
-            # 记录基准价格（与净值一一对应）
-            self.benchmark_prices.append(float(kline.close))
+                # 记录基准价格（与净值一一对应）
+                self.benchmark_prices.append(float(kline.close))
         time_end = DateTimeUtils.now_timestamp()
         # 计算性能指标（使用优化的并行计算）
         metrics = self._calculate_performance_metrics_optimized(turnover=float(turnover_acc))

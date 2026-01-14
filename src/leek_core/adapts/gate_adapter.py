@@ -738,6 +738,54 @@ class GateAdapter:
             logger.error(f"查询合约成交记录异常: {e}")
             return {"code": "-1", "msg": str(e)}
     
+    @retry(max_retries=3, retry_interval=0.1)
+    @rate_limit(max_requests=100, time_window=1.0, group="futures")
+    def get_futures_position_close(self, settle: str, contract: str = None, limit: int = 100) -> Dict:
+        """
+        查询平仓历史记录
+        
+        Args:
+            settle: 结算货币 (usdt/btc)
+            contract: 合约标识 (可选)
+            limit: 返回数量限制
+            
+        Returns:
+            Dict: 平仓历史列表，包含 pnl（总盈亏）、pnl_pnl（平仓盈亏）、pnl_fee（手续费）等字段
+            示例：
+            {
+                "time": 1546487347,
+                "pnl": "0.00013",
+                "pnl_pnl": "0.00011",
+                "pnl_fund": "0.00001",
+                "pnl_fee": "0.00001",
+                "side": "long",
+                "contract": "BTC_USDT",
+                "text": "web",
+                "max_size": "100",
+                "accum_size": "100",
+                "first_open_time": 1546487347,
+                "long_price": "2026.87",
+                "short_price": "2544.4"
+            }
+        """
+        if not self.api_key or not self.secret_key:
+            raise RuntimeError("Trade API未初始化，请提供API密钥")
+        
+        try:
+            params = {"limit": limit}
+            if contract:
+                params["contract"] = contract
+            
+            result = self._request("GET", f"/api/v4/futures/{settle}/position_close", params=params)
+            
+            if result.get("code") == "0":
+                data = result.get("data", [])
+                return {"code": "0", "data": data if isinstance(data, list) else [data]}
+            return result
+        except Exception as e:
+            logger.error(f"查询平仓历史异常: {e}")
+            return {"code": "-1", "msg": str(e)}
+    
     # ==================== Futures Market Data API ====================
     
     @retry(max_retries=3, retry_interval=0.1)
@@ -791,12 +839,16 @@ class GateAdapter:
             params = {
                 "contract": contract,
                 "interval": interval,
-                "limit": limit
             }
-            if from_time is not None:
-                params["from"] = from_time
-            if to_time is not None:
-                params["to"] = to_time
+            # Gate.io API: limit 和 from/to 不能同时存在
+            # 如果指定了时间范围，则不使用 limit
+            if from_time is not None or to_time is not None:
+                if from_time is not None:
+                    params["from"] = from_time
+                if to_time is not None:
+                    params["to"] = to_time
+            else:
+                params["limit"] = limit
             
             result = self._request("GET", f"/api/v4/futures/{settle}/candlesticks", params=params)
             

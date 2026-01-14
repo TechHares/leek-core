@@ -53,9 +53,16 @@ class MERGE(T):
               amount=sum(d.amount for d in ls),
               quote_currency=data.quote_currency,
               ins_type=data.ins_type,
+              data_source_id=data.data_source_id,
+              data_type=data.data_type,
+              target_instance_id=data.target_instance_id,
               is_finished=False,
               )
         r.merge = True
+        for k in data.dynamic_attrs.keys():
+            r.dynamic_attrs[k] = data.dynamic_attrs[k]
+        for k in data.metadata.keys():
+            r.metadata[k] = data.metadata[k]
         r.end_time = r.start_time + data.timeframe.milliseconds * self.window
         if len(ls) == self.window and data.is_finished:
             r.is_finished = True

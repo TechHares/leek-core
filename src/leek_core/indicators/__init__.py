@@ -9,7 +9,9 @@ __all__ = ["T", "TR", "ATR", "RSRS", "SAR", "KDJ", "MA", "EMA", "BollBand", "DK"
            "ChanBSPoint", "ChanFXManager",
            "MACD", "MERGE", "SuperSmoother", "UltimateOscillator", "Reflex", "TrendFlex", "BiasRatio",
            "DeMarker", "TDSequence", "TDTrendLine", "DMI", "ADX", "WMA", "HMA", "IchimokuCloud", "WR", "CCI", "CCIV2", "Divergence",
-           "HurstExponent", "Extreme", "ChaikinVolatility", "SuperTrend", "ZScore", "CZSC", "ElderImpulse", "DonchianChannel"]
+           "HurstExponent", "LyapunovExponent", "CorrelationDimension",
+           "Extreme", "ChaikinVolatility", "SuperTrend", "ZScore", "CZSC", "ElderImpulse", "DonchianChannel",
+           "GannHiLo", "KeltnerChannel"]
 
 from.t import T
 from .boll import BollBand
@@ -37,6 +39,8 @@ from .rsrs import RSRS
 from .sar import SAR
 from .t import MERGE
 from .hurst import HurstExponent
+from .lyapunov import LyapunovExponent
+from .correlation_dimension import CorrelationDimension
 from .extreme import Extreme
 from .wr import WR
 from .bias import BiasRatio
@@ -46,6 +50,8 @@ from .zscore import ZScore
 from .czsc import CZSC
 from .elder_impulse import ElderImpulse
 from .donchian import DonchianChannel
+from .gann_hilo import GannHiLo
+from .keltner import KeltnerChannel
 
 MA_TYPE = {
     "MA": MA,

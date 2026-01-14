@@ -144,11 +144,31 @@ def regression_analysis(
             'r_squared': 0.0,
             'alpha_pvalue': 1.0
         }
+
+    # SciPy: 若所有 x 值相同（常见于基准曲线是常数导致基准收益率全 0），linregress 会抛 ValueError。
+    # 这种情况下 beta / R² 无法定义；alpha 可退化为策略收益率均值，并用单样本 t 检验评估 alpha>0。
+    if np.allclose(benchmark_returns, benchmark_returns[0]):
+        _, alpha_pvalue = t_test_returns(strategy_returns)
+        return {
+            'alpha': float(np.mean(strategy_returns)),
+            'beta': 0.0,
+            'r_squared': 0.0,
+            'alpha_pvalue': float(alpha_pvalue),
+        }
     
     # 线性回归
-    slope, intercept, r_value, p_value, std_err = stats.linregress(
-        benchmark_returns, strategy_returns
-    )
+    try:
+        slope, intercept, r_value, p_value, std_err = stats.linregress(
+            benchmark_returns, strategy_returns
+        )
+    except ValueError:
+        # 兜底：避免单次样本异常导致整次回测失败
+        return {
+            'alpha': 0.0,
+            'beta': 0.0,
+            'r_squared': 0.0,
+            'alpha_pvalue': 1.0,
+        }
     
     # alpha = intercept（截距）
     # beta = slope（斜率）

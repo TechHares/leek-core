@@ -38,7 +38,8 @@ class StrategyDebugView(LeekComponent):
                  timeframe: TimeFrame = TimeFrame.M5, market: str = "okx", quote_currency: str = "USDT",
                  executor: type[ExecutorContext] = BacktestExecutor,
                  executor_cfg: Dict[str, Any] = {},
-                 ins_type: TradeInsType = TradeInsType.SWAP, data_source: DataSource = ClickHouseKlineDataSource()):
+                 ins_type: TradeInsType = TradeInsType.SWAP, data_source: DataSource = ClickHouseKlineDataSource(),
+                 simulate_kline: bool = False, base_timeframe: TimeFrame = TimeFrame.M1):
         super().__init__()
 
         self.event_bus = SerializableEventBus()
@@ -56,6 +57,21 @@ class StrategyDebugView(LeekComponent):
         self.market = market
         self.quote_currency = quote_currency
         self.ins_type = ins_type
+        self.simulate_kline = simulate_kline
+        self.base_timeframe = base_timeframe
+        
+        # 模拟K线参数校验
+        self.merge_window = None
+        if self.simulate_kline:
+            if self.timeframe.milliseconds is None or self.base_timeframe.milliseconds is None:
+                raise ValueError("模拟K线模式不支持 TICK 周期")
+            if self.timeframe.milliseconds % self.base_timeframe.milliseconds != 0:
+                raise ValueError(f"timeframe({self.timeframe.value})必须能被base_timeframe({self.base_timeframe.value})整除")
+            self.merge_window = self.timeframe.milliseconds // self.base_timeframe.milliseconds
+            if self.merge_window <= 1:
+                raise ValueError(f"timeframe必须大于base_timeframe，当前窗口为{self.merge_window}")
+            logger.info(f"模拟K线模式已启用: base={self.base_timeframe.value}, target={self.timeframe.value}, window={self.merge_window}")
+        
         self.executor = ExecutorContext(self.event_bus, LeekComponentConfig(
             instance_id="1",
             name="debug",
@@ -128,6 +144,17 @@ class StrategyDebugView(LeekComponent):
         else:
             total_return = 0.0
         
+        # 计算最大回撤
+        max_drawdown = 0.0
+        if equity_values and len(equity_values) > 1:
+            peak = equity_values[0]
+            for value in equity_values:
+                if value > peak:
+                    peak = value
+                drawdown = (peak - value) / peak * 100 if peak > 0 else 0.0
+                if drawdown > max_drawdown:
+                    max_drawdown = drawdown
+        
         # 计算胜率和盈亏比
         total_trades = len(self.trades_data)
         if total_trades == 0:
@@ -194,6 +221,7 @@ class StrategyDebugView(LeekComponent):
         print(f"平均亏损仓位: {position_avg_loss:.2f}")
         print("\n【收益统计】")
         print(f"区间收益: {total_return:.2f}%")
+        print(f"最大回撤: {max_drawdown:.2f}%")
         print("=" * 50 + "\n")
 
     def start(self, row=None, custom_draw=None, **kwargs):
@@ -239,36 +267,53 @@ class StrategyDebugView(LeekComponent):
         # 收集净值数据用于计算区间收益
         equity_values = []
 
+        # 模拟K线模式：使用MERGE合并K线
+        merge = MERGE(window=self.merge_window) if self.simulate_kline else None
+        query_timeframe = self.base_timeframe if self.simulate_kline else self.timeframe
+
         custom_key = []
-        for kline in self.data_source.get_history_data(start_time=self.start_time, end_time=self.end_time,
-                                                       row_key=KLine.pack_row_key(self.symbol, self.quote_currency, self.ins_type, self.timeframe),
+        for raw_kline in self.data_source.get_history_data(start_time=self.start_time, end_time=self.end_time,
+                                                       row_key=KLine.pack_row_key(self.symbol, self.quote_currency, self.ins_type, query_timeframe),
                                                        market=self.market):
+            # 模拟K线模式：合并K线
+            if self.simulate_kline:
+                kline = merge.update(raw_kline)
+                if kline is None:
+                    continue  # 等待合并窗口对齐
+            else:
+                kline = raw_kline
             count += 1
             assets = self.strategy.on_data(kline)
-            data["position"].append(self.strategy.position_rate * 100)
             self.engine.position_tracker.on_data(kline)
-            if self.bechmark is None:
-                self.bechmark = kline.close
-                for k in kline.dynamic_attrs.keys():
-                    custom_key.append(k)
-                    if k not in data:
-                        data[k] = []
-                print("========================")
-                print(f"自定义KEY: {custom_key}")
-                print("========================")
-            data["open"].append(kline.open)
-            data["high"].append(kline.high)
-            data["low"].append(kline.low)
-            data["close"].append(kline.close)
-            data["bechmark"].append((kline.close - self.bechmark) / self.bechmark * 100)
-            data["volume"].append(kline.volume)
-            data["time"].append(DateTimeUtils.to_datetime(kline.start_time))
-            data["open_long"].append(None)
-            data["close_long"].append(None)
-            data["open_short"].append(None)
-            data["close_short"].append(None)
-            for k in custom_key:
-                data[k].append(kline.dynamic_attrs.get(k, None))
+            
+            # 模拟模式下只记录完成的K线数据，非模拟模式记录所有数据
+            should_record = not self.simulate_kline or kline.is_finished
+            
+            if should_record:
+                data["position"].append(self.strategy.position_rate * 100)
+                if self.bechmark is None:
+                    self.bechmark = kline.close
+                    for k in kline.dynamic_attrs.keys():
+                        custom_key.append(k)
+                        if k not in data:
+                            data[k] = []
+                    print("========================")
+                    print(f"自定义KEY: {custom_key}")
+                    print("========================")
+                data["open"].append(kline.open)
+                data["high"].append(kline.high)
+                data["low"].append(kline.low)
+                data["close"].append(kline.close)
+                data["bechmark"].append((kline.close - self.bechmark) / self.bechmark * 100)
+                data["volume"].append(kline.volume)
+                data["time"].append(DateTimeUtils.to_datetime(kline.start_time))
+                data["open_long"].append(None)
+                data["close_long"].append(None)
+                data["open_short"].append(None)
+                data["close_short"].append(None)
+                for k in custom_key:
+                    data[k].append(kline.dynamic_attrs.get(k, None))
+            
             if assets is not None and len(assets) > 0:
                 signal = Signal(
                     signal_id=generate_str(),
@@ -281,20 +326,23 @@ class StrategyDebugView(LeekComponent):
                     assets=assets
                 )
                 ctx.signals[signal.signal_id] = signal
-                if assets[0].side.is_long:
-                    if assets[0].is_open:
-                        data["open_long"][-1] = kline.low * Decimal("0.98")
-                    else:
-                        data["close_short"][-1] = kline.high * Decimal("0.98")
-                if assets[0].side.is_short:
-                    if assets[0].is_open:
-                        data["open_short"][-1] = kline.high * Decimal("1.02")
-                    else:
-                        data["close_long"][-1] = kline.low * Decimal("1.02")
+                if should_record:
+                    if assets[0].side.is_long:
+                        if assets[0].is_open:
+                            data["open_long"][-1] = kline.low * Decimal("0.98")
+                        else:
+                            data["close_short"][-1] = kline.high * Decimal("0.98")
+                    if assets[0].side.is_short:
+                        if assets[0].is_open:
+                            data["open_short"][-1] = kline.high * Decimal("1.02")
+                        else:
+                            data["close_long"][-1] = kline.low * Decimal("1.02")
                 self.engine._on_signal(signal)
-            total_value = self.engine.portfolio.total_value
-            equity_values.append(float(total_value))
-            data["profit"].append((total_value - self.initial_balance) / self.initial_balance * 100)
+            
+            if should_record:
+                total_value = self.engine.portfolio.total_value
+                equity_values.append(float(total_value))
+                data["profit"].append((total_value - self.initial_balance) / self.initial_balance * 100)
         
         logger.info(f"数据执行完成，共{count}条")
         

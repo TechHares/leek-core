@@ -290,21 +290,22 @@ class GateRestExecutor(Executor):
                 leverage = Decimal(order.leverage) if order.leverage else Decimal("1")
                 position_value = order.order_amount * leverage
                 
-                # 计算币数量
-                if order.order_type == OT.MarketOrder:
-                    if not order.order_price:
-                        # 市价单没有指定价格，position_value 直接作为币数量（需要外部传入正确的数量）
-                        quantity = position_value
+                if not order.order_price:
+                    # 没有指定价格，从订单簿获取最新价格
+                    orderbook = self._get_book(currency_pair, is_futures=True)
+                    if order.side.is_long:
+                        latest_price = Decimal(orderbook["asks"][0]["p"])  # 买入用卖一价
                     else:
-                        quantity = position_value / order.order_price
-                else:
-                    # 限价单
-                    quantity = position_value / order.order_price if order.order_price else position_value
+                        latest_price = Decimal(orderbook["bids"][0]["p"])  # 卖出用买一价
+                    order.order_price = latest_price
+
+                # 计算币数量
+                quantity = position_value / order.order_price
                 
                 # 转换为张数（向下取整）
                 # 张数 = 币数量 / 每张合约对应的币数量
                 size = int(quantity / quanto_multiplier) if quanto_multiplier > 0 else int(quantity)
-                logger.info(f"Gate.io 开仓张数计算: amount={order.order_amount}, quantity={quantity}, quanto_multiplier={quanto_multiplier}, size={size}")
+                logger.info(f"Gate.io 开仓张数计算: amount={order.order_amount}*{leverage}={position_value}, quantity={quantity}, quanto_multiplier={quanto_multiplier}, size={size}")
             
             # 检查最小张数
             order_size_min = int(instrument.get("order_size_min", 1))
@@ -320,9 +321,14 @@ class GateRestExecutor(Executor):
             # 计算数量
             if order.order_type == OT.MarketOrder:
                 if not order.order_price:
-                    quantity = order.order_amount
-                else:
-                    quantity = order.order_amount / order.order_price
+                    # 市价单没有指定价格，从订单簿获取最新价格
+                    orderbook = self._get_book(currency_pair, is_futures=False)
+                    if order.side.is_long:
+                        latest_price = Decimal(orderbook["asks"][0]["p"])  # 买入用卖一价
+                    else:
+                        latest_price = Decimal(orderbook["bids"][0]["p"])  # 卖出用买一价
+                    order.order_price = latest_price
+                quantity = order.order_amount / order.order_price
             else:
                 quantity = order.sz if order.sz else (order.order_amount / order.order_price if order.order_price else order.order_amount)
             
@@ -390,28 +396,60 @@ class GateRestExecutor(Executor):
         except (ValueError, TypeError, InvalidOperation):
             return Decimal(default)
 
-    def _query_order_fee(self, order_info: Dict, order_data: Dict) -> Decimal:
+    def _query_order_fee_and_pnl(self, order_info: Dict, order_data: Dict, order: Order) -> tuple:
         """
-        查询订单的成交手续费
+        查询订单的成交手续费和已实现盈亏
+        
+        对于平仓订单，优先从平仓历史记录获取准确的pnl和手续费
+        对于开仓订单，从成交记录获取手续费
         
         Args:
             order_info: 订单信息
             order_data: API 返回的订单数据
+            order: 原始订单对象
             
         Returns:
-            Decimal: 手续费总额（负数）
+            tuple: (fee, pnl) - fee为负数（支出），pnl可能为正或负
         """
         try:
             contract = order_info.get("currency_pair")
-            exchange_order_id = str(order_data.get("id", ""))
+            text_id = str(order_data.get("text", ""))
             
-            if not contract or not exchange_order_id:
-                return Decimal(0)
+            if not contract:
+                return Decimal(0), Decimal(0)
             
             # 获取结算货币
             settle = contract.split("_")[-1].lower() if "_" in contract else "usdt"
             
-            # 查询该订单的成交记录
+            # 如果是平仓订单，优先从平仓历史获取pnl
+            if not order.is_open and text_id:
+                try:
+                    result = self.adapter.get_futures_position_close(settle=settle, contract=contract, limit=100)
+                    
+                    if result and result.get("code") == "0":
+                        position_closes = result.get("data", [])
+                        # 通过text字段匹配我们的订单ID
+                        for close_record in position_closes:
+                            if close_record.get("text") == text_id:
+                                # 从平仓记录获取准确的pnl和手续费
+                                pnl = self._safe_decimal(close_record.get("pnl", "0"))
+                                pnl_pnl = self._safe_decimal(close_record.get("pnl_pnl", "0"))
+                                pnl_fee = self._safe_decimal(close_record.get("pnl_fee", "0"))
+                                
+                                # pnl_fee是手续费支出，应该是负数；如果API返回正数，转为负数
+                                if pnl_fee > 0:
+                                    pnl_fee = -pnl_fee
+                                
+                                logger.info(f"从平仓历史获取数据 - text_id: {text_id}, pnl: {pnl}, pnl_pnl: {pnl_pnl}, pnl_fee: {pnl_fee}")
+                                return pnl_fee, pnl_pnl
+                except Exception as e:
+                    logger.warning(f"从平仓历史查询失败: {e}, 尝试从成交记录查询")
+            
+            # 如果没有从平仓历史获取到，或者是开仓订单，从成交记录获取手续费
+            exchange_order_id = str(order_data.get("id", ""))
+            if not exchange_order_id:
+                return Decimal(0), Decimal(0)
+            
             result = self.adapter.get_futures_my_trades(
                 settle=settle,
                 contract=contract,
@@ -421,21 +459,24 @@ class GateRestExecutor(Executor):
             
             if not result or result.get("code") != "0":
                 logger.warning(f"查询成交记录失败: {result.get('msg') if result else '无响应'}, order_id: {exchange_order_id}")
-                return Decimal(0)
+                return Decimal(0), Decimal(0)
             
             # 汇总所有成交的手续费
             trades = result.get("data", [])
             total_fee = Decimal(0)
             for trade in trades:
-                # Gate.io 成交记录中的 fee 字段是手续费（负数表示支出）
+                # Gate.io 成交记录中的 fee 字段，确保为负数（支出）
                 fee = self._safe_decimal(trade.get("fee", "0"))
+                # 如果API返回正数，转为负数
+                if fee > 0:
+                    fee = -fee
                 total_fee += fee
             
-            logger.debug(f"订单 {exchange_order_id} 手续费汇总: {total_fee}, 成交笔数: {len(trades)}")
-            return total_fee
+            logger.debug(f"从成交记录获取手续费 - order_id: {exchange_order_id}, fee: {total_fee}, 成交笔数: {len(trades)}")
+            return total_fee, Decimal(0)
         except Exception as e:
-            logger.warning(f"查询订单手续费异常: {e}", exc_info=True)
-            return Decimal(0)
+            logger.warning(f"查询订单手续费和盈亏异常: {e}", exc_info=True)
+            return Decimal(0), Decimal(0)
 
     def _polling_loop(self):
         """
@@ -727,27 +768,40 @@ class GateRestExecutor(Executor):
             # 获取杠杆倍数
             leverage = order.leverage if order.leverage else Decimal("1")
             
-            # 查询成交记录获取手续费
+            # 查询成交记录获取手续费和盈亏
             fee = Decimal(0)
+            pnl = Decimal(0)
             if filled_size > 0 and order_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
-                fee = self._query_order_fee(order_info, order_data)
+                fee, pnl = self._query_order_fee_and_pnl(order_info, order_data, order)
             
             # 构造 OrderUpdateMessage
             # sz 应该是币的数量，不是张数：sz = 张数 * 面值
+            sz = Decimal(filled_size) * sz_value  # 币的数量 = 张数 * 面值
             oum = OrderUpdateMessage(
                 order_id=text_id,
                 market_order_id=str(order_data.get("id", "")),
                 execution_price=avg_price,
-                sz=Decimal(filled_size) * sz_value,  # 币的数量 = 张数 * 面值
-                fee=fee,
-                pnl=Decimal(0),  # pnl 由 position_tracker 根据开仓价和平仓价计算
+                sz=sz,
+                fee=fee,  # 手续费（负数）
+                pnl=pnl,  # 已实现盈亏
                 unrealized_pnl=Decimal(0),
                 friction=Decimal(0),
                 sz_value=sz_value,
             )
             
-            # 计算结算金额（保证金）：settle_amount = 名义价值 / 杠杆 = sz * price / leverage
-            oum.settle_amount = oum.sz * avg_price / leverage
+            # 计算结算金额（参考OKX的逻辑）
+            # 开仓：settle_amount = 名义价值 / 杠杆 = sz * price / leverage（保证金）
+            # 平仓：需要考虑盈亏
+            oum.settle_amount = sz * avg_price / leverage
+            
+            if not order.is_open:
+                # 平仓时需要考虑盈亏调整结算金额
+                # 平空（买入平空）：side=LONG
+                # 平多（卖出平多）：side=SHORT
+                if order.side == PS.LONG:  # 平空（买入平空）
+                    oum.settle_amount = (avg_price * sz + pnl) / leverage + pnl
+                else:  # 平多（卖出平多）
+                    oum.settle_amount = (avg_price * sz - pnl) / leverage + pnl
             
             # 设置订单状态
             oum.order_status = order_status

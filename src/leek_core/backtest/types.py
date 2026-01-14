@@ -70,6 +70,9 @@ class RunConfig:
     # 日志选项
     log_file: bool = False
 
+    # K线模拟选项
+    simulate_kline: bool = False  # 是否启用K线模拟（固定使用1分钟K线）
+
     def __post_init__(self):
         if isinstance(self.timeframe, str):
             self.timeframe = TimeFrame(self.timeframe)
@@ -156,6 +159,9 @@ class BacktestConfig:
     # Optuna 配置（仅 WFA 使用，可选）
     optuna_enabled: bool = False
     optuna_n_trials: int = 80
+
+    # K线模拟选项
+    simulate_kline: bool = False  # 是否启用K线模拟（固定使用1分钟K线）
 
 @dataclass
 class PerformanceMetrics:

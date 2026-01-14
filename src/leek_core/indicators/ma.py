@@ -122,40 +122,73 @@ class HMA(T):
 
 class KAMA(T):
     """
-    卡夫曼自适应移动均线
+    卡夫曼自适应移动均线 (Kaufman's Adaptive Moving Average)
+
+    KAMA 根据市场波动自动调整平滑系数：
+    - 趋势明显时（效率比率高）：更接近快速移动均线，快速跟随价格
+    - 震荡市场时（效率比率低）：更接近慢速移动均线，过滤噪音
+
+    计算步骤：
+    1. 效率比率 ER = |Price[t] - Price[t-n]| / Σ|Price[i] - Price[i-1]|
+       - 分子：n 周期内价格的净变化（方向性）
+       - 分母：n 周期内每日价格变化绝对值之和（波动率）
+    2. 平滑常数 SC = (ER × (fast_sc - slow_sc) + slow_sc)²
+       - fast_sc = 2 / (fast + 1)
+       - slow_sc = 2 / (slow + 1)
+    3. KAMA[t] = KAMA[t-1] + SC × (Price[t] - KAMA[t-1])
+
+    参数：
+        window: 计算效率比率的回溯周期，默认 10
+        fast_n: 快速移动均线周期，决定趋势市场的灵敏度，默认 2
+        slow_n: 慢速移动均线周期，决定震荡市场的平滑度，默认 30
+        max_cache: 缓存长度，默认 100
     """
 
-    def __init__(self, window=9, max_cache=100):
+    def __init__(self, window=10, fast_n=2, slow_n=30, max_cache=100):
         T.__init__(self, max_cache)
         self.window = window
-        self.q = deque(maxlen=window - 1)
+        self.q = deque(maxlen=window)
 
-        self.fast_n = 2
-        self.slow_n = 30
-        self.pre_ama = None
+        self.fast_n = fast_n
+        self.slow_n = slow_n
+        self.pre_kama = None
 
-        self.fast_factory = Decimal(2 / (self.fast_n + 1))
-        self.slow_factory = Decimal(2 / (self.slow_n + 1))
+        self.fast_sc = Decimal(2) / Decimal(self.fast_n + 1)
+        self.slow_sc = Decimal(2) / Decimal(self.slow_n + 1)
 
-    def update(self, data):
-        ma = None
+    def update(self, data, finish_v=None):
+        kama = None
         try:
-            if len(self.q) < self.window - 1:
-                return ma
+            if len(self.q) < self.window:
+                return kama
+
             ls = list(self.q)
 
-            price_direction = data.close - ls[0].close
-            volatility = sum([abs(d.close - ls[0].close) for d in ls]) + abs(price_direction)
-            er = price_direction / volatility if volatility != 0 else 1
-            c = er * self.fast_factory + (1 - er) * self.slow_factory
-            c_squared = c ** 2
-            ma = c_squared * data.close + (1 - c_squared) * self.pre_ama
-            return ma
+            # 1. 计算效率比率 (Efficiency Ratio)
+            # 价格方向性变化（取绝对值）
+            change = abs(data.close - ls[0].close)
+
+            # 波动率：相邻价格变化的绝对值之和
+            volatility = sum(abs(ls[i].close - ls[i - 1].close) for i in range(1, len(ls)))
+            volatility += abs(data.close - ls[-1].close)
+
+            er = change / volatility if volatility != 0 else Decimal(0)
+
+            # 2. 计算平滑常数 (Smoothing Constant)
+            sc = (er * (self.fast_sc - self.slow_sc) + self.slow_sc) ** 2
+
+            # 3. 更新 KAMA
+            kama = self.pre_kama + sc * (data.close - self.pre_kama)
+            return kama
         finally:
-            if data.is_finished:
+            if finish_v or (finish_v is None and data.is_finished):
                 self.q.append(data)
-                self.cache.append(ma)
-                self.pre_ama = data.close if ma is None else ma
+                self.cache.append(kama)
+                # 初始化时使用第一个价格作为 KAMA 的初始值
+                if self.pre_kama is None:
+                    self.pre_kama = data.close
+                elif kama is not None:
+                    self.pre_kama = kama
 
 
 class FRAMA(T):

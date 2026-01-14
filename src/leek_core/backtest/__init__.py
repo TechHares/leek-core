@@ -20,7 +20,6 @@ __all__ = [
     "BacktestConfig",
     "EnhancedBacktester",
     "BacktestResult",
-    "SimpleEngine",
     "NormalBacktestResult",
     "BacktestMode",
     "WalkForwardResult",

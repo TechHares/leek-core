@@ -434,6 +434,7 @@ class EnhancedBacktester:
             "use_cache": self.config.use_cache,
             "skip_statistical_tests": skip_statistical_tests,
             "log_file": self.config.log_file,
+            "simulate_kline": self.config.simulate_kline,
         }
 
     def _expand_param_space(self, space: Dict[str, List[Any]]) -> List[Dict[str, Any]]:

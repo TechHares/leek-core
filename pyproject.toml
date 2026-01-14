@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "leek-core"
-version = "1.9.3"
+version = "1.9.4"
 description = "Leek Core 量化交易引擎/组件化事件驱动框架"
 authors = ["shenglin.li <764935704@qq.com>"]
 readme = "README.md"

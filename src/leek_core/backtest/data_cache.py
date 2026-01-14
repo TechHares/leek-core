@@ -75,13 +75,13 @@ class DataCache(DataSource):
     @cached(cache=_GLOBAL_CACHE, key=_get_history_data_key)
     def _get_history_data_from_memeory(self, row_key: str, start_time: int | None = None,
                           end_time: int | None = None, limit: int = None, **kwargs) -> List[Any]:
-        print(f"从缓存加载数据[{os.getpid()}]: row_key={row_key}, start_time={start_time}, end_time={end_time}, limit={limit}, **kwargs={kwargs}")
         # 生成缓存 key
         cache_key = self._make_cache_key("get_history_data", row_key, start_time, end_time, limit, **kwargs)
 
         # 1. 先尝试读缓存
         result = DISKCACHE_CACHE.get(cache_key)
         if result is not None:
+            print(f"从缓存加载数据[{os.getpid()}]: row_key={row_key}, start_time={start_time}, end_time={end_time}, limit={limit}, **kwargs={kwargs}")
             logger.debug(f"Cache hit: {cache_key}")
             return result
 
