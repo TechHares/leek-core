@@ -1,61 +1,22 @@
 from .feature_engine import FeatureEngine
 from .training_engine import TrainingEngine
-from .trainer import (
-    BaseTrainer,
-    XGBoostTrainer,
-)
 from .evaluator import ModelEvaluator
-from .label import (
-    LabelGenerator,
-    FutureReturnLabel,
-    DirectionLabel,
-    RankLabel,
-    EventLabel,
-    RiskAdjustedReturnLabel,
-    ReversalStrengthLabel,
-    MultiLabelFusion,
-)
-from .factors import (
-    DualModeFactor,
-    MAFactor,
-    RSIFactor,
-    ATRFactor,
-    TimeFactor,
-    Alpha101Factor,
-    Alpha158Factor,
-    Alpha191Factor,
-    Alpha360Factor,
-    FactorEvaluator,
-    LongShortVolumeRatioFactor,
-    VolumeAverageFactor,
-    DirectionFactor,
-)
+
+# 自动导入子包中 __all__ 定义的所有内容
+from .trainer import *
+from .label import *
+from .factors import *
+
+# 导入子包的 __all__ 列表
+from .trainer import __all__ as _trainer_all
+from .label import __all__ as _label_all
+from .factors import __all__ as _factors_all
 
 __all__ = [
-    "DualModeFactor",
-    "MAFactor",
-    "RSIFactor",
-    "ATRFactor",
-    "TimeFactor",
-    "Alpha101Factor",
-    "Alpha158Factor",
-    "Alpha191Factor",
-    "Alpha360Factor",
     "FeatureEngine",
     "TrainingEngine",
-    "BaseTrainer",
-    "XGBoostTrainer",
     "ModelEvaluator",
-    "LabelGenerator",
-    "FutureReturnLabel",
-    "DirectionLabel",
-    "RankLabel",
-    "EventLabel",
-    "RiskAdjustedReturnLabel",
-    "ReversalStrengthLabel",
-    "MultiLabelFusion",
-    "FactorEvaluator",
-    "LongShortVolumeRatioFactor",
-    "VolumeAverageFactor",
-    "DirectionFactor",
+    *_trainer_all,
+    *_label_all,
+    *_factors_all,
 ]

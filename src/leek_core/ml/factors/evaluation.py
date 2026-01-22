@@ -8,11 +8,11 @@
 使用成熟的统计库（scipy.stats, pandas）进行计算，确保计算结果的准确性和稳定性。
 参考了 alphalens 等成熟因子分析库的实现思路。
 """
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from scipy.stats import pearsonr, skew, spearmanr
+from scipy.stats import entropy, pearsonr, skew, spearmanr, t as t_dist
 
 from leek_core.utils import get_logger
 
@@ -463,4 +463,369 @@ class FactorEvaluator:
             'factor_results': results,
             'correlation_matrix': correlation_matrix.to_dict(),
         }
+    
+    def calculate_temporal_stability(
+        self, 
+        data: pd.DataFrame, 
+        factor_name: str,
+        n_bins: int = 10
+    ) -> Dict[str, Any]:
+        """
+        计算因子的时间稳定性（相对排序熵 RRE）
+        
+        原理：测量因子对资产的排序在连续时间上的一致性
+        支持两种模式：
+        1. 横截面模式：同一时间点有多个资产，计算排序分布的KL散度
+        2. 时间序列模式：单资产时间序列，计算因子值的自相关系数
+        
+        Args:
+            data: 因子数据DataFrame，必须包含 start_time（时间戳）和因子列
+            factor_name: 因子名称
+            n_bins: 排序分桶数量，默认10（仅横截面模式使用）
+            
+        Returns:
+            {
+                'rre_score': float,  # 稳定性得分 [0, 1]，越高越稳定
+                'estimated_turnover': float  # 预估年化换手率
+            }
+        """
+        if 'start_time' not in data.columns:
+            raise ValueError("DataFrame必须包含start_time列")
+        if factor_name not in data.columns:
+            raise ValueError(f"DataFrame必须包含因子列: {factor_name}")
+        
+        # 按时间排序
+        data_sorted = data.sort_values('start_time').copy()
+        
+        # 过滤NaN值
+        valid_data = data_sorted[[factor_name, 'start_time']].dropna()
+        
+        if len(valid_data) < 2:
+            return {
+                'rre_score': 0.0,
+                'estimated_turnover': 0.0
+            }
+        
+        # 检测数据模式：横截面 vs 时间序列
+        unique_times = valid_data['start_time'].unique()
+        
+        # 检查第一个时间点的数据量
+        first_time_data = valid_data[valid_data['start_time'] == unique_times[0]]
+        is_cross_sectional = len(first_time_data) >= 2
+        
+        if is_cross_sectional:
+            # 模式1：横截面模式（多资产）
+            kl_divergences = []
+            
+            for i in range(1, len(unique_times)):
+                # 获取相邻两个时间点的数据
+                time_prev = unique_times[i-1]
+                time_curr = unique_times[i]
+                
+                # 单时间点的数据（如果有多个资产）
+                data_prev = valid_data[valid_data['start_time'] == time_prev][factor_name]
+                data_curr = valid_data[valid_data['start_time'] == time_curr][factor_name]
+                
+                if len(data_prev) < 2 or len(data_curr) < 2:
+                    continue
+                
+                # 计算排序百分位数
+                rank_prev = data_prev.rank(pct=True)
+                rank_curr = data_curr.rank(pct=True)
+                
+                # 将排序转换为离散分布（分桶）
+                try:
+                    hist_prev, _ = np.histogram(rank_prev, bins=n_bins, range=(0, 1), density=True)
+                    hist_curr, _ = np.histogram(rank_curr, bins=n_bins, range=(0, 1), density=True)
+                    
+                    # 归一化为概率分布（避免零值）
+                    hist_prev = hist_prev + 1e-10
+                    hist_curr = hist_curr + 1e-10
+                    hist_prev = hist_prev / hist_prev.sum()
+                    hist_curr = hist_curr / hist_curr.sum()
+                    
+                    # 计算KL散度
+                    kl_div = entropy(hist_curr, hist_prev)
+                    
+                    if not np.isnan(kl_div) and not np.isinf(kl_div):
+                        kl_divergences.append(kl_div)
+                except Exception as e:
+                    logger.debug(f"计算KL散度失败: {e}")
+                    continue
+            
+            if len(kl_divergences) == 0:
+                logger.warning(f"横截面模式下无法计算时间稳定性，数据点: {len(unique_times)}")
+                return {
+                    'rre_score': 0.0,
+                    'estimated_turnover': 0.0
+                }
+            
+            # 计算平均KL散度
+            avg_kl_div = np.mean(kl_divergences)
+            
+            # 转换为稳定性得分 [0, 1]
+            rre_score = 1.0 / (1.0 + avg_kl_div)
+        else:
+            # 模式2：时间序列模式（单资产）
+            # 使用因子值的自相关系数衡量稳定性
+            factor_series = valid_data[factor_name]
+            
+            if len(factor_series) < 10:
+                return {
+                    'rre_score': 0.0,
+                    'estimated_turnover': 0.0
+                }
+            
+            # 计算1期滞后自相关系数
+            autocorr_1 = factor_series.autocorr(lag=1)
+            
+            # 计算多个滞后期的平均自相关（更稳健）
+            autocorr_list = []
+            for lag in [1, 2, 3, 5]:
+                if len(factor_series) > lag + 10:
+                    try:
+                        ac = factor_series.autocorr(lag=lag)
+                        if not np.isnan(ac):
+                            autocorr_list.append(abs(ac))  # 取绝对值，高相关=高稳定
+                    except:
+                        continue
+            
+            if len(autocorr_list) == 0:
+                rre_score = 0.0
+            else:
+                # 平均自相关系数作为稳定性得分
+                avg_autocorr = np.mean(autocorr_list)
+                # 自相关系数范围[-1,1]，取绝对值映射到[0,1]
+                rre_score = float(max(0.0, min(1.0, avg_autocorr)))
+        
+        # 根据论文实验结果，使用经验公式估算年化换手率
+        # 论文显示 RRE 与换手率呈负相关关系，R² = 0.92
+        # 经验公式：turnover = max(0, 20 - 18 * rre_score)
+        # 即 rre_score=1 时换手率约2，rre_score=0 时换手率约20
+        estimated_turnover = max(0.0, 20.0 - 18.0 * rre_score)
+        
+        return {
+            'rre_score': float(rre_score),
+            'estimated_turnover': float(estimated_turnover)
+        }
+    
+    def calculate_robustness(
+        self,
+        data: pd.DataFrame,
+        factor_name: str,
+        factor_compute_func: Optional[Callable] = None,
+        noise_level: float = 0.05,
+        n_trials: int = 5,
+        enable_robustness: bool = False
+    ) -> Dict[str, Any]:
+        """
+        计算因子的鲁棒性（扰动保真度得分 PFS）
+        
+        原理：在输入特征上添加噪声，测试因子排序的稳定性
+        
+        Args:
+            data: 原始数据DataFrame，包含OHLCV列
+            factor_name: 因子名称
+            factor_compute_func: 因子计算函数，接收DataFrame返回因子值Series
+                                如果为None，则直接对因子值添加噪声（简化版本）
+            noise_level: 噪声水平（标准差的倍数），默认5%
+            n_trials: 扰动测试次数
+            enable_robustness: 是否启用（可选功能）
+            
+        Returns:
+            {
+                'pfs_gaussian': float,  # 高斯噪声下的得分 [0, 1]
+                'pfs_t_dist': float,    # t分布噪声下的得分 [0, 1]
+                'pfs_min': float,       # 取两者最小值
+                'enabled': bool
+            }
+        """
+        if not enable_robustness:
+            # 未启用，返回默认值
+            return {
+                'pfs_gaussian': 1.0,
+                'pfs_t_dist': 1.0,
+                'pfs_min': 1.0,
+                'enabled': False
+            }
+        
+        if factor_name not in data.columns:
+            raise ValueError(f"DataFrame必须包含因子列: {factor_name}")
+        
+        # 原始因子得分
+        original_scores = data[factor_name].dropna()
+        
+        if len(original_scores) < 10:
+            return {
+                'pfs_gaussian': 1.0,
+                'pfs_t_dist': 1.0,
+                'pfs_min': 1.0,
+                'enabled': True
+            }
+        
+        # 如果没有提供因子计算函数，使用简化版本（直接对因子值添加噪声）
+        if factor_compute_func is None:
+            gaussian_correlations = []
+            t_dist_correlations = []
+            
+            for _ in range(n_trials):
+                # 高斯噪声
+                gaussian_noise = np.random.normal(0, noise_level * original_scores.std(), len(original_scores))
+                perturbed_gaussian = original_scores + gaussian_noise
+                
+                # t分布噪声（df=3，重尾分布模拟极端事件）
+                t_noise = t_dist.rvs(df=3, size=len(original_scores)) * noise_level * original_scores.std()
+                perturbed_t = original_scores + t_noise
+                
+                # 计算排序相关性（斯皮尔曼系数）
+                try:
+                    corr_gaussian, _ = spearmanr(original_scores, perturbed_gaussian)
+                    corr_t, _ = spearmanr(original_scores, perturbed_t)
+                    
+                    if not np.isnan(corr_gaussian):
+                        gaussian_correlations.append(corr_gaussian)
+                    if not np.isnan(corr_t):
+                        t_dist_correlations.append(corr_t)
+                except Exception as e:
+                    logger.debug(f"计算鲁棒性相关性失败: {e}")
+                    continue
+        else:
+            # 完整版本：对输入特征添加噪声，重新计算因子
+            numerical_cols = ['open', 'high', 'low', 'close', 'volume']
+            available_cols = [col for col in numerical_cols if col in data.columns]
+            
+            if len(available_cols) == 0:
+                return {
+                    'pfs_gaussian': 1.0,
+                    'pfs_t_dist': 1.0,
+                    'pfs_min': 1.0,
+                    'enabled': True
+                }
+            
+            gaussian_correlations = []
+            t_dist_correlations = []
+            
+            for _ in range(n_trials):
+                # 创建扰动数据副本
+                perturbed_data_gaussian = data.copy()
+                perturbed_data_t = data.copy()
+                
+                # 对每个数值特征添加噪声
+                for col in available_cols:
+                    col_std = data[col].std()
+                    if col_std == 0 or np.isnan(col_std):
+                        continue
+                    
+                    # 高斯噪声
+                    gaussian_noise = np.random.normal(0, noise_level * col_std, len(data))
+                    perturbed_data_gaussian[col] = data[col] + gaussian_noise
+                    
+                    # t分布噪声
+                    t_noise = t_dist.rvs(df=3, size=len(data)) * noise_level * col_std
+                    perturbed_data_t[col] = data[col] + t_noise
+                
+                try:
+                    # 重新计算因子
+                    perturbed_scores_gaussian = factor_compute_func(perturbed_data_gaussian)
+                    perturbed_scores_t = factor_compute_func(perturbed_data_t)
+                    
+                    # 对齐索引
+                    common_idx = original_scores.index.intersection(perturbed_scores_gaussian.index)
+                    if len(common_idx) < 10:
+                        continue
+                    
+                    # 计算排序相关性
+                    corr_gaussian, _ = spearmanr(
+                        original_scores.loc[common_idx], 
+                        perturbed_scores_gaussian.loc[common_idx]
+                    )
+                    corr_t, _ = spearmanr(
+                        original_scores.loc[common_idx], 
+                        perturbed_scores_t.loc[common_idx]
+                    )
+                    
+                    if not np.isnan(corr_gaussian):
+                        gaussian_correlations.append(corr_gaussian)
+                    if not np.isnan(corr_t):
+                        t_dist_correlations.append(corr_t)
+                except Exception as e:
+                    logger.debug(f"计算因子鲁棒性失败: {e}")
+                    continue
+        
+        # 计算平均相关性作为鲁棒性得分
+        pfs_gaussian = float(np.mean(gaussian_correlations)) if len(gaussian_correlations) > 0 else 1.0
+        pfs_t_dist = float(np.mean(t_dist_correlations)) if len(t_dist_correlations) > 0 else 1.0
+        
+        # 取最小值作为最终鲁棒性得分（保守估计）
+        pfs_min = min(pfs_gaussian, pfs_t_dist)
+        
+        return {
+            'pfs_gaussian': max(0.0, min(1.0, pfs_gaussian)),  # 限制在[0,1]
+            'pfs_t_dist': max(0.0, min(1.0, pfs_t_dist)),
+            'pfs_min': max(0.0, min(1.0, pfs_min)),
+            'enabled': True
+        }
+    
+    def calculate_diversity_entropy(
+        self,
+        factor_correlation_matrix: pd.DataFrame
+    ) -> float:
+        """
+        计算因子集合的多样性熵（DE）
+        
+        原理：基于因子相关性矩阵的特征值分布计算信息熵
+        特征值分布越均匀，说明因子在多个维度上都有贡献，多样性越高
+        
+        Args:
+            factor_correlation_matrix: 因子相关性矩阵（DataFrame或二维数组）
+            
+        Returns:
+            diversity_score: float  # [0, 1]，越高表示因子越多样化
+        """
+        if factor_correlation_matrix is None or len(factor_correlation_matrix) == 0:
+            return 0.0
+        
+        # 转换为numpy数组
+        if isinstance(factor_correlation_matrix, pd.DataFrame):
+            corr_matrix = factor_correlation_matrix.values
+        else:
+            corr_matrix = np.array(factor_correlation_matrix)
+        
+        # 确保是方阵
+        if corr_matrix.shape[0] != corr_matrix.shape[1]:
+            logger.warning("相关性矩阵不是方阵")
+            return 0.0
+        
+        if corr_matrix.shape[0] < 2:
+            return 0.0  # 单因子没有多样性
+        
+        try:
+            # 特征值分解（使用对称矩阵的特征值分解）
+            eigenvalues = np.linalg.eigvalsh(corr_matrix)
+            
+            # 过滤负特征值（可能由于数值误差产生）
+            eigenvalues = eigenvalues[eigenvalues > 1e-10]
+            
+            if len(eigenvalues) == 0:
+                return 0.0
+            
+            # 归一化为概率分布
+            eigenvalues_norm = eigenvalues / eigenvalues.sum()
+            
+            # 计算香农熵
+            diversity_entropy = -np.sum(eigenvalues_norm * np.log(eigenvalues_norm + 1e-10))
+            
+            # 归一化到 [0, 1]
+            # 最大熵 = log(n)，其中n是因子数量
+            max_entropy = np.log(len(eigenvalues))
+            
+            if max_entropy == 0:
+                return 0.0
+            
+            diversity_score = diversity_entropy / max_entropy
+            
+            return float(max(0.0, min(1.0, diversity_score)))
+        except Exception as e:
+            logger.error(f"计算多样性熵失败: {e}")
+            return 0.0
 

@@ -11,7 +11,7 @@ __all__ = ["T", "TR", "ATR", "RSRS", "SAR", "KDJ", "MA", "EMA", "BollBand", "DK"
            "DeMarker", "TDSequence", "TDTrendLine", "DMI", "ADX", "WMA", "HMA", "IchimokuCloud", "WR", "CCI", "CCIV2", "Divergence",
            "HurstExponent", "LyapunovExponent", "CorrelationDimension",
            "Extreme", "ChaikinVolatility", "SuperTrend", "ZScore", "CZSC", "ElderImpulse", "DonchianChannel",
-           "GannHiLo", "KeltnerChannel"]
+           "GannHiLo", "KeltnerChannel", "VolumeProfile", "SpikeDetector"]
 
 from.t import T
 from .boll import BollBand
@@ -52,6 +52,8 @@ from .elder_impulse import ElderImpulse
 from .donchian import DonchianChannel
 from .gann_hilo import GannHiLo
 from .keltner import KeltnerChannel
+from .volume_profile import VolumeProfile
+from .spike_detector import SpikeDetector
 
 MA_TYPE = {
     "MA": MA,

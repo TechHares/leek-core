@@ -740,7 +740,8 @@ class GateAdapter:
     
     @retry(max_retries=3, retry_interval=0.1)
     @rate_limit(max_requests=100, time_window=1.0, group="futures")
-    def get_futures_position_close(self, settle: str, contract: str = None, limit: int = 100) -> Dict:
+    def get_futures_position_close(self, settle: str, contract: str = None, limit: int = 100, 
+                                    from_time: int = None, to_time: int = None) -> Dict:
         """
         查询平仓历史记录
         
@@ -748,6 +749,8 @@ class GateAdapter:
             settle: 结算货币 (usdt/btc)
             contract: 合约标识 (可选)
             limit: 返回数量限制
+            from_time: 起始时间戳（秒）
+            to_time: 终止时间戳（秒）
             
         Returns:
             Dict: 平仓历史列表，包含 pnl（总盈亏）、pnl_pnl（平仓盈亏）、pnl_fee（手续费）等字段
@@ -775,6 +778,10 @@ class GateAdapter:
             params = {"limit": limit}
             if contract:
                 params["contract"] = contract
+            if from_time is not None:
+                params["from"] = from_time
+            if to_time is not None:
+                params["to"] = to_time
             
             result = self._request("GET", f"/api/v4/futures/{settle}/position_close", params=params)
             

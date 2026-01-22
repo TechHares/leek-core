@@ -7,9 +7,11 @@
 """
 from .base import BaseTrainer
 from .xgboost import XGBoostTrainer
+from .gru import GRUTrainer
 
 __all__ = [
     "BaseTrainer",
     "XGBoostTrainer",
+    "GRUTrainer",
 ]
 

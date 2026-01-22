@@ -424,8 +424,12 @@ class GateRestExecutor(Executor):
             # 如果是平仓订单，优先从平仓历史获取pnl
             if not order.is_open and text_id:
                 try:
-                    result = self.adapter.get_futures_position_close(settle=settle, contract=contract, limit=100)
-                    
+                    # 使用订单时间戳减1秒作为起始时间，更精确地查询平仓记录
+                    from_time = None
+                    if order.order_time:
+                        from_time = int(order.order_time.timestamp()) - 1
+                    result = self.adapter.get_futures_position_close(settle=settle, contract=contract, limit=10, from_time=from_time)
+                    logger.info(f"从平仓历史获取数据 - {text_id}, settle={settle}, contract={contract}, from_time={from_time}, result: {result}")
                     if result and result.get("code") == "0":
                         position_closes = result.get("data", [])
                         # 通过text字段匹配我们的订单ID
@@ -441,7 +445,7 @@ class GateRestExecutor(Executor):
                                     pnl_fee = -pnl_fee
                                 
                                 logger.info(f"从平仓历史获取数据 - text_id: {text_id}, pnl: {pnl}, pnl_pnl: {pnl_pnl}, pnl_fee: {pnl_fee}")
-                                return pnl_fee, pnl_pnl
+                                return pnl_fee, pnl
                 except Exception as e:
                     logger.warning(f"从平仓历史查询失败: {e}, 尝试从成交记录查询")
             
@@ -472,7 +476,7 @@ class GateRestExecutor(Executor):
                     fee = -fee
                 total_fee += fee
             
-            logger.debug(f"从成交记录获取手续费 - order_id: {exchange_order_id}, fee: {total_fee}, 成交笔数: {len(trades)}")
+            logger.info(f"从成交记录获取手续费 - order_id: {exchange_order_id}, fee: {total_fee}, 成交笔数: {len(trades)}")
             return total_fee, Decimal(0)
         except Exception as e:
             logger.warning(f"查询订单手续费和盈亏异常: {e}", exc_info=True)
@@ -701,11 +705,7 @@ class GateRestExecutor(Executor):
             # 设置完成时间
             update_time = order_data.get("update_time")
             if update_time:
-                try:
-                    # Gate.io API 返回的时间戳（秒）
-                    oum.finish_time = DateTimeUtils.to_datetime(int(update_time))
-                except Exception:
-                    pass
+                oum.finish_time = DateTimeUtils.to_datetime(int(update_time) * 1000)
             
             logger.info(f"Gate.io REST现货订单更新: {text_id} -> {oum}")
             self._trade_callback(oum)
@@ -769,10 +769,7 @@ class GateRestExecutor(Executor):
             leverage = order.leverage if order.leverage else Decimal("1")
             
             # 查询成交记录获取手续费和盈亏
-            fee = Decimal(0)
-            pnl = Decimal(0)
-            if filled_size > 0 and order_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
-                fee, pnl = self._query_order_fee_and_pnl(order_info, order_data, order)
+            fee, pnl = self._query_order_fee_and_pnl(order_info, order_data, order)
             
             # 构造 OrderUpdateMessage
             # sz 应该是币的数量，不是张数：sz = 张数 * 面值
@@ -809,10 +806,7 @@ class GateRestExecutor(Executor):
             # 设置完成时间
             finish_time = order_data.get("finish_time")
             if finish_time:
-                try:
-                    oum.finish_time = DateTimeUtils.to_datetime(int(finish_time))
-                except Exception:
-                    pass
+                oum.finish_time = DateTimeUtils.to_datetime(int(finish_time) * 1000)
             
             logger.info(f"Gate.io REST合约订单更新: {text_id} -> {oum}")
             self._trade_callback(oum)

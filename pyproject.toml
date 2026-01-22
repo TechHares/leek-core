@@ -63,6 +63,7 @@ joblib = "~=1.5.2"
 optuna = "~=4.5.0"
 xgboost = "~=3.1.2"
 scikit-learn = "~=1.7.2"
+torch = "~=2.2.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "~=24.4.2"

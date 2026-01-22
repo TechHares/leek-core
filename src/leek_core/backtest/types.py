@@ -423,6 +423,12 @@ class FactorEvaluationConfig:
     future_periods: int = 1
     quantile_count: int = 5
     ic_window: Optional[int] = None  # IC计算窗口大小（None表示累计，int表示固定窗口大小）
+    
+    # AlphaEval 配置
+    enable_robustness: bool = False  # 是否启用鲁棒性评估
+    robustness_noise_level: float = 0.05  # 鲁棒性测试噪声水平
+    robustness_trials: int = 5  # 鲁棒性测试次数
+    scoring_weights: Optional[Dict[str, float]] = None  # 综合评分权重配置
 
     # 并行配置
     max_workers: int = 1

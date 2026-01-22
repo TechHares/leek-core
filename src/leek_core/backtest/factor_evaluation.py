@@ -93,6 +93,11 @@ def run_symbol_timeframe_evaluation(config: Dict[str, Any], status_queue, cancel
         quantile_count = config.get('quantile_count', 5)
         ic_window_size = config.get('ic_window_size', 0)
         
+        # AlphaEval 配置
+        enable_robustness = config.get('enable_robustness', False)
+        robustness_noise_level = config.get('robustness_noise_level', 0.05)
+        robustness_trials = config.get('robustness_trials', 5)
+        
         if not factor_configs:
             raise ValueError(f"No factors configured for {symbol} {timeframe_str}")
         
@@ -180,6 +185,38 @@ def run_symbol_timeframe_evaluation(config: Dict[str, Any], status_queue, cancel
                         result['factor_id'] = factor_id
                         result['factor_class_name'] = factor_class_name
                         result['output_name'] = output_name
+                        
+                        # AlphaEval: 计算时间稳定性（RRE）
+                        try:
+                            stability_result = evaluator.calculate_temporal_stability(df, output_name)
+                            result['temporal_stability'] = stability_result.get('rre_score', 0.0)
+                            result['estimated_turnover'] = stability_result.get('estimated_turnover', 0.0)
+                        except Exception as e:
+                            logger.debug(f"计算时间稳定性失败 {output_name}: {e}")
+                            result['temporal_stability'] = 0.0
+                            result['estimated_turnover'] = 0.0
+                        
+                        # AlphaEval: 计算鲁棒性（PFS，可选）
+                        try:
+                            robustness_result = evaluator.calculate_robustness(
+                                df,
+                                output_name,
+                                factor_compute_func=None,  # 简化版本，直接对因子值添加噪声
+                                noise_level=robustness_noise_level,
+                                n_trials=robustness_trials,
+                                enable_robustness=enable_robustness
+                            )
+                            result['robustness_gaussian'] = robustness_result.get('pfs_gaussian', 1.0)
+                            result['robustness_t_dist'] = robustness_result.get('pfs_t_dist', 1.0)
+                            result['robustness_min'] = robustness_result.get('pfs_min', 1.0)
+                            result['robustness_enabled'] = robustness_result.get('enabled', False)
+                        except Exception as e:
+                            logger.debug(f"计算鲁棒性失败 {output_name}: {e}")
+                            result['robustness_gaussian'] = 1.0
+                            result['robustness_t_dist'] = 1.0
+                            result['robustness_min'] = 1.0
+                            result['robustness_enabled'] = False
+                        
                         factor_results[output_name] = result
             
             return {
@@ -307,6 +344,13 @@ class FactorEvaluatorExecutor:
                         'timeframes': [],
                         'quantile_returns_list': [],
                         'long_short_return_list': [],
+                        # AlphaEval 新增字段
+                        'temporal_stability_list': [],
+                        'estimated_turnover_list': [],
+                        'robustness_gaussian_list': [],
+                        'robustness_t_dist_list': [],
+                        'robustness_min_list': [],
+                        'robustness_enabled': False,
                         'factor_id': factor_result.get('factor_id'),
                         'factor_class_name': factor_result.get('factor_class_name'),
                         'output_name': factor_result.get('output_name'),
@@ -319,6 +363,14 @@ class FactorEvaluatorExecutor:
                 buffer['timeframes'].append(timeframe)
                 buffer['quantile_returns_list'].append(factor_result.get('quantile_returns', {}))
                 buffer['long_short_return_list'].append(factor_result.get('long_short_return', 0.0))
+                # AlphaEval 新增字段
+                buffer['temporal_stability_list'].append(factor_result.get('temporal_stability', 0.0))
+                buffer['estimated_turnover_list'].append(factor_result.get('estimated_turnover', 0.0))
+                buffer['robustness_gaussian_list'].append(factor_result.get('robustness_gaussian', 1.0))
+                buffer['robustness_t_dist_list'].append(factor_result.get('robustness_t_dist', 1.0))
+                buffer['robustness_min_list'].append(factor_result.get('robustness_min', 1.0))
+                if factor_result.get('robustness_enabled', False):
+                    buffer['robustness_enabled'] = True
         
         # 修复逻辑：按时间对齐合并IC序列
         evaluation_results = {}
@@ -369,6 +421,14 @@ class FactorEvaluatorExecutor:
             # 合并多空收益（取平均值）
             long_short_return = float(np.mean([v for v in buffer['long_short_return_list'] if not np.isnan(v)])) if buffer['long_short_return_list'] else 0.0
             
+            # AlphaEval: 计算平均值
+            temporal_stability = float(np.mean(buffer['temporal_stability_list'])) if buffer['temporal_stability_list'] else 0.0
+            estimated_turnover = float(np.mean(buffer['estimated_turnover_list'])) if buffer['estimated_turnover_list'] else 0.0
+            robustness_gaussian = float(np.mean(buffer['robustness_gaussian_list'])) if buffer['robustness_gaussian_list'] else 1.0
+            robustness_t_dist = float(np.mean(buffer['robustness_t_dist_list'])) if buffer['robustness_t_dist_list'] else 1.0
+            robustness_min = float(np.mean(buffer['robustness_min_list'])) if buffer['robustness_min_list'] else 1.0
+            robustness_enabled = buffer.get('robustness_enabled', False)
+            
             factor_id = buffer.get('factor_id')
             output_name = buffer.get('output_name', factor_key.split('_', 1)[1] if '_' in factor_key else factor_key)
             
@@ -386,6 +446,13 @@ class FactorEvaluatorExecutor:
                 'ic_series_by_st': ic_series_by_st,  # 按symbol×timeframe保存
                 'quantile_returns': quantile_returns_merged,
                 'long_short_return': long_short_return,
+                # AlphaEval 新增字段
+                'temporal_stability': temporal_stability,
+                'estimated_turnover': estimated_turnover,
+                'robustness_gaussian': robustness_gaussian,
+                'robustness_t_dist': robustness_t_dist,
+                'robustness_min': robustness_min,
+                'robustness_enabled': robustness_enabled,
             }
             
             # factor_metrics 不包含 ic_series（减少存储大小）
@@ -399,6 +466,13 @@ class FactorEvaluatorExecutor:
                 'ic_skewness': ic_skewness,
                 'quantile_returns': quantile_returns_merged,
                 'long_short_return': long_short_return,
+                # AlphaEval 新增字段
+                'temporal_stability': temporal_stability,
+                'estimated_turnover': estimated_turnover,
+                'robustness_gaussian': robustness_gaussian,
+                'robustness_t_dist': robustness_t_dist,
+                'robustness_min': robustness_min,
+                'robustness_enabled': robustness_enabled,
             })
         
         return evaluation_results, factor_metrics
@@ -443,25 +517,50 @@ class FactorEvaluatorExecutor:
         
         return merged
     
-    def _generate_summary(self, factor_metrics: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """生成汇总指标"""
+    def _generate_summary(self, factor_metrics: List[Dict[str, Any]], correlation_matrix: Dict[str, Any]) -> Dict[str, Any]:
+        """生成汇总指标（包含AlphaEval指标）"""
         if not factor_metrics:
             return {
                 'ic_mean': 0.0,
                 'ir': 0.0,
                 'ic_win_rate': 0.0,
                 'factor_count': 0,
+                'temporal_stability': 0.0,
+                'robustness_score': 0.0,
+                'diversity_score': 0.0,
             }
         
         ic_means = [m['ic_mean'] for m in factor_metrics if not np.isnan(m.get('ic_mean', np.nan))]
         irs = [m['ir'] for m in factor_metrics if not np.isnan(m.get('ir', np.nan))]
         ic_win_rates = [m['ic_win_rate'] for m in factor_metrics]
         
+        # AlphaEval 汇总指标
+        temporal_stabilities = [m.get('temporal_stability', 0.0) for m in factor_metrics]
+        robustness_scores = [m.get('robustness_min', 1.0) for m in factor_metrics]
+        
+        # 计算多样性熵（基于相关性矩阵）
+        diversity_score = 0.0
+        if correlation_matrix:
+            try:
+                # 将相关性矩阵转换为DataFrame
+                corr_df = pd.DataFrame(correlation_matrix)
+                # 创建evaluator实例来计算多样性
+                from leek_core.ml import FactorEvaluator
+                evaluator = FactorEvaluator()
+                diversity_score = evaluator.calculate_diversity_entropy(corr_df)
+            except Exception as e:
+                logger.debug(f"计算多样性熵失败: {e}")
+                diversity_score = 0.0
+        
         summary = {
             'ic_mean': float(np.mean(ic_means)) if ic_means else 0.0,
             'ir': float(np.mean(irs)) if irs else 0.0,
             'ic_win_rate': float(np.mean(ic_win_rates)) if ic_win_rates else 0.0,
             'factor_count': len(factor_metrics),
+            # AlphaEval 汇总指标
+            'temporal_stability': float(np.mean(temporal_stabilities)) if temporal_stabilities else 0.0,
+            'robustness_score': float(np.mean(robustness_scores)) if robustness_scores else 0.0,
+            'diversity_score': float(diversity_score),
         }
         
         return summary
@@ -515,6 +614,10 @@ class FactorEvaluatorExecutor:
                             'future_periods': self.config.future_periods,
                             'quantile_count': self.config.quantile_count,
                             'ic_window_size': self.config.ic_window if self.config.ic_window is not None else 0,
+                            # AlphaEval 配置
+                            'enable_robustness': getattr(self.config, 'enable_robustness', False),
+                            'robustness_noise_level': getattr(self.config, 'robustness_noise_level', 0.05),
+                            'robustness_trials': getattr(self.config, 'robustness_trials', 5),
                         }
                     # 使用带状态队列和取消事件的包装函数
                     future = self.executor.submit(run_symbol_timeframe_evaluation, task_config, self.status_queue, self.cancel_event)
@@ -580,10 +683,10 @@ class FactorEvaluatorExecutor:
             if self._subphase_callback:
                 self._subphase_callback('correlation', 'completed')
             
-            # 生成汇总指标
+            # 生成汇总指标（包含多样性评估）
             if self._subphase_callback:
                 self._subphase_callback('summary', 'running')
-            summary = self._generate_summary(factor_metrics)
+            summary = self._generate_summary(factor_metrics, correlation_matrix)
             if self._subphase_callback:
                 self._subphase_callback('summary', 'completed')
             
