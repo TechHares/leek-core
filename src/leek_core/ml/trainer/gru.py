@@ -814,3 +814,28 @@ class GRUTrainer(BaseTrainer):
         self._model.to(device)
         
         logger.info(f"Model loaded successfully. Window size: {model_config['window_size']}")
+"""
+方案 A：借鉴思路，简化执行
+Phase 1: 单模型验证
+├── 用你现有的 GRUTrainer
+├── 1分钟/5分钟/15分钟 K 线
+└── 目标：验证 GRU 在加密货币上是否有效
+
+Phase 2: 如果有效，加入变体
+├── Double-GRU（num_layers=2）
+├── 不同 window_size（20/60/120）
+└── 等权融合 3-6 个模型
+
+Phase 3: 如果还想提升
+├── Attention-GRU
+├── CNN-GRU
+└── 更多数据源（链上、合约）
+
+方案 B：针对加密货币的调整
+原方案	        调整建议
+1/2/3 年跨度	1/2/4 周跨度
+日线数据	    分钟线数据
+资金流数据	    链上数据 + 合约数据
+选股因子	    择时信号（单币种）
+指增组合	    单币种多空
+"""

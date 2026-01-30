@@ -9,7 +9,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Dict, Any, Set, List, Optional
+from typing import Dict, List, Optional
 
 from leek_core.policy.strategy import StrategyPolicy
 from leek_core.models import ExecutionContext, PositionInfo, Field, FieldType
@@ -25,6 +25,27 @@ class TradeRecord:
     timestamp: datetime          # 交易时间
     profit_pct: float            # 盈利百分比（正盈负亏）
     strategy_key: str            # 策略唯一标识 (strategy_id:strategy_instance_id)
+
+
+@dataclass
+class StrategyRiskState:
+    """单个策略的风控状态"""
+    # 交易记录列表
+    trade_records: List[TradeRecord]
+    # === 风控触发相关 ===
+    # 连续亏损累计和（百分比，正数表示亏损）
+    cumulative_loss: float = 0.0
+    # 连续亏损笔数
+    consecutive_losses: int = 0
+    # 风控触发时间
+    pause_start_time: Optional[datetime] = None
+    # === 恢复相关 ===
+    # 从风控触发点开始的累计盈利（百分比）
+    recovery_cumulative_profit: float = 0.0
+    # 连续盈利笔数（用于恢复判断）
+    consecutive_wins: int = 0
+    # 是否暂停交易
+    is_trading_paused: bool = False
 
 
 class StrategyProfitControl(StrategyPolicy):
@@ -135,43 +156,40 @@ class StrategyProfitControl(StrategyPolicy):
         self.recovery_cumulative_profit_pct = recovery_cumulative_profit_pct
         self.max_pause_hours = max_pause_hours
         
-        # 交易记录列表
-        self._trade_records: List[TradeRecord] = []
-        
-        # 跟踪的策略唯一标识集合 (strategy_id:strategy_instance_id)
-        self._tracked_strategies: Set[str] = set()
-        
-        # === 风控触发相关 ===
-        # 连续亏损累计和（百分比，正数表示亏损）
-        self._cumulative_loss: float = 0.0
-        # 连续亏损笔数
-        self._consecutive_losses: int = 0
-        # 风控触发时间
-        self._pause_start_time: Optional[datetime] = None
-        
-        # === 恢复相关 ===
-        # 从风控触发点开始的累计盈利（百分比）
-        self._recovery_cumulative_profit: float = 0.0
-        # 连续盈利笔数（用于恢复判断）
-        self._consecutive_wins: int = 0
-        
-        # 是否暂停交易
-        self._is_trading_paused: bool = False
+        # 按策略隔离的风控状态 {strategy_key: StrategyRiskState}
+        self._strategy_states: Dict[str, StrategyRiskState] = {}
 
-    def _cleanup_expired_records(self):
+    def _get_or_create_state(self, strategy_key: str) -> StrategyRiskState:
+        """
+        获取或创建策略的风控状态
+        
+        参数:
+            strategy_key: 策略唯一标识 (strategy_id:strategy_instance_id)
+            
+        返回:
+            策略的风控状态
+        """
+        if strategy_key not in self._strategy_states:
+            self._strategy_states[strategy_key] = StrategyRiskState(trade_records=[])
+        return self._strategy_states[strategy_key]
+
+    def _cleanup_expired_records(self, state: StrategyRiskState):
         """
         清理过期的交易记录
         按时间和笔数两个维度清理
+        
+        参数:
+            state: 策略的风控状态
         """
         now = datetime.now()
         cutoff_time = now - timedelta(hours=self.observation_hours)
         
         # 按时间过滤
-        self._trade_records = [ r for r in self._trade_records if r.timestamp >= cutoff_time]
+        state.trade_records = [r for r in state.trade_records if r.timestamp >= cutoff_time]
         
         # 按笔数过滤，保留最近的 observation_count 笔
-        if len(self._trade_records) > self.observation_count:
-            self._trade_records = self._trade_records[-self.observation_count:]
+        if len(state.trade_records) > self.observation_count:
+            state.trade_records = state.trade_records[-self.observation_count:]
 
     def _record_trade(self, profit_ratio: float, strategy_key: str):
         """
@@ -183,86 +201,95 @@ class StrategyProfitControl(StrategyPolicy):
         """
         profit_pct = profit_ratio * 100  # 转百分比
         
+        # 获取策略的风控状态
+        state = self._get_or_create_state(strategy_key)
+        
         # 记录交易
         record = TradeRecord(timestamp=datetime.now(), profit_pct=profit_pct, strategy_key=strategy_key)
-        self._trade_records.append(record)
-        self._cleanup_expired_records()
+        state.trade_records.append(record)
+        self._cleanup_expired_records(state)
         
-        if not self._is_trading_paused:
+        if not state.is_trading_paused:
             # 未暂停状态：检查是否触发风控
             if profit_ratio < 0:
-                self._cumulative_loss += abs(profit_pct)
-                self._consecutive_losses += 1
+                state.cumulative_loss += abs(profit_pct)
+                state.consecutive_losses += 1
                 
                 logger.info(
-                    f"[{self.policy_instance_id}] 记录亏损: {profit_pct:.2f}%, "
-                    f"累计亏损: {self._cumulative_loss:.2f}%, 连续亏损: {self._consecutive_losses}笔"
+                    f"[{self.policy_instance_id}] [{strategy_key}] 记录亏损: {profit_pct:.2f}%, "
+                    f"累计亏损: {state.cumulative_loss:.2f}%, 连续亏损: {state.consecutive_losses}笔"
                 )
                 
                 # 检查是否触发风控
-                if (self._cumulative_loss > self.max_cumulative_loss_pct or 
-                    self._consecutive_losses >= self.max_consecutive_losses):
-                    self._is_trading_paused = True
-                    self._pause_start_time = datetime.now()
+                if (state.cumulative_loss > self.max_cumulative_loss_pct or 
+                    state.consecutive_losses >= self.max_consecutive_losses):
+                    state.is_trading_paused = True
+                    state.pause_start_time = datetime.now()
                     # 重置恢复相关计数
-                    self._recovery_cumulative_profit = 0.0
-                    self._consecutive_wins = 0
+                    state.recovery_cumulative_profit = 0.0
+                    state.consecutive_wins = 0
                     logger.error(
-                        f"[{self.policy_instance_id}] 风控触发! "
-                        f"累计亏损: {self._cumulative_loss:.2f}% (阈值: {self.max_cumulative_loss_pct}%), "
-                        f"连续亏损: {self._consecutive_losses}笔 (阈值: {self.max_consecutive_losses}笔)"
+                        f"[{self.policy_instance_id}] [{strategy_key}] 风控触发! "
+                        f"累计亏损: {state.cumulative_loss:.2f}% (阈值: {self.max_cumulative_loss_pct}%), "
+                        f"连续亏损: {state.consecutive_losses}笔 (阈值: {self.max_consecutive_losses}笔)"
                     )
             else:
                 # 盈利：重置连续亏损统计
                 logger.info(
-                    f"[{self.policy_instance_id}] 记录盈利: {profit_pct:.2f}%, 重置连续亏损统计"
+                    f"[{self.policy_instance_id}] [{strategy_key}] 记录盈利: {profit_pct:.2f}%, 重置连续亏损统计"
                 )
-                self._cumulative_loss = 0.0
-                self._consecutive_losses = 0
+                state.cumulative_loss = 0.0
+                state.consecutive_losses = 0
         else:
             # 已暂停状态：检查恢复条件（不区分虚拟/真实）
             # 累加恢复累计盈利（盈亏都算）
-            self._recovery_cumulative_profit += profit_pct
+            state.recovery_cumulative_profit += profit_pct
             
             if profit_ratio > 0:
-                self._consecutive_wins += 1
+                state.consecutive_wins += 1
             else:
-                self._consecutive_wins = 0
+                state.consecutive_wins = 0
             
             logger.info(
-                f"[{self.policy_instance_id}] 风控期间交易: {profit_pct:.2f}%, "
-                f"恢复累计盈利: {self._recovery_cumulative_profit:.2f}%, "
-                f"连续盈利: {self._consecutive_wins}笔"
+                f"[{self.policy_instance_id}] [{strategy_key}] 风控期间交易: {profit_pct:.2f}%, "
+                f"恢复累计盈利: {state.recovery_cumulative_profit:.2f}%, "
+                f"连续盈利: {state.consecutive_wins}笔"
             )
             
             # 检查恢复条件
-            if (self._recovery_cumulative_profit >= self.recovery_cumulative_profit_pct or
-                self._consecutive_wins >= self.recovery_win_count):
+            if (state.recovery_cumulative_profit >= self.recovery_cumulative_profit_pct or
+                state.consecutive_wins >= self.recovery_win_count):
                 self._resume_trading(
-                    f"累计盈利: {self._recovery_cumulative_profit:.2f}% (阈值: {self.recovery_cumulative_profit_pct}%), "
-                    f"连续盈利: {self._consecutive_wins}笔 (阈值: {self.recovery_win_count}笔)"
+                    strategy_key,
+                    f"累计盈利: {state.recovery_cumulative_profit:.2f}% (阈值: {self.recovery_cumulative_profit_pct}%), "
+                    f"连续盈利: {state.consecutive_wins}笔 (阈值: {self.recovery_win_count}笔)"
                 )
 
-    def _resume_trading(self, reason: str):
+    def _resume_trading(self, strategy_key: str, reason: str):
         """
-        恢复交易，重置所有状态
+        恢复交易，重置策略的风控状态
         
         参数:
+            strategy_key: 策略唯一标识 (strategy_id:strategy_instance_id)
             reason: 恢复原因描述
         """
-        self._is_trading_paused = False
-        self._pause_start_time = None
+        state = self._get_or_create_state(strategy_key)
+        state.is_trading_paused = False
+        state.pause_start_time = None
         # 重置所有计数
-        self._cumulative_loss = 0.0
-        self._consecutive_losses = 0
-        self._recovery_cumulative_profit = 0.0
-        self._consecutive_wins = 0
-        logger.info(f"[{self.policy_instance_id}] 交易恢复! {reason}")
+        state.cumulative_loss = 0.0
+        state.consecutive_losses = 0
+        state.recovery_cumulative_profit = 0.0
+        state.consecutive_wins = 0
+        logger.info(f"[{self.policy_instance_id}] [{strategy_key}] 交易恢复! {reason}")
 
-    def _check_pause_timeout(self) -> bool:
+    def _check_pause_timeout(self, state: StrategyRiskState) -> bool:
         """
         检查是否超过最大封禁时长
         
+        参数:
+            state: 策略的风控状态
+            
         返回:
             是否超时（超时返回True）
         """
@@ -270,10 +297,10 @@ class StrategyProfitControl(StrategyPolicy):
             # 0或负数表示无限封禁
             return False
         
-        if not self._pause_start_time:
+        if not state.pause_start_time:
             return False
         
-        elapsed = datetime.now() - self._pause_start_time
+        elapsed = datetime.now() - state.pause_start_time
         return elapsed >= timedelta(hours=self.max_pause_hours)
 
     @staticmethod
@@ -301,26 +328,29 @@ class StrategyProfitControl(StrategyPolicy):
         返回:
             是否放行信号（True=放行真实交易，False=转为虚拟单）
         """
-        # 记录策略唯一标识到跟踪集合
+        # 生成策略唯一标识
         strategy_key = self._make_strategy_key(signal.strategy_id, signal.strategy_instance_id)
-        self._tracked_strategies.add(strategy_key)
         
-        # 如果交易被暂停，检查是否超时恢复
-        if self._is_trading_paused:
-            if self._check_pause_timeout():
-                elapsed_hours = (datetime.now() - self._pause_start_time).total_seconds() / 3600
+        # 获取策略的风控状态
+        state = self._get_or_create_state(strategy_key)
+        
+        # 如果该策略的交易被暂停，检查是否超时恢复
+        if state.is_trading_paused:
+            if self._check_pause_timeout(state):
+                elapsed_hours = (datetime.now() - state.pause_start_time).total_seconds() / 3600
                 self._resume_trading(
+                    strategy_key,
                     f"封禁超时自动恢复 (已封禁 {elapsed_hours:.1f} 小时, 阈值: {self.max_pause_hours} 小时)"
                 )
             else:
                 logger.warning(
-                    f"[{self.policy_instance_id}] 信号被风控拒绝: strategy={strategy_key}, "
-                    f"累计亏损={self._cumulative_loss:.2f}%, 连续亏损={self._consecutive_losses}笔"
+                    f"[{self.policy_instance_id}] [{strategy_key}] 信号被风控拒绝: "
+                    f"累计亏损={state.cumulative_loss:.2f}%, 连续亏损={state.consecutive_losses}笔"
                 )
                 return False
         
         logger.debug(
-            f"[{self.policy_instance_id}] 信号放行: strategy={strategy_key}"
+            f"[{self.policy_instance_id}] [{strategy_key}] 信号放行"
         )
         return True
 
@@ -340,15 +370,8 @@ class StrategyProfitControl(StrategyPolicy):
             self.event_bus.unsubscribe_event(EventType.EXEC_ORDER_UPDATED, self._on_exec_order_updated)
             logger.info(f"[{self.policy_instance_id}] 已取消订阅 EXEC_ORDER_UPDATED 事件")
         
-        # 清理状态
-        self._tracked_strategies.clear()
-        self._trade_records.clear()
-        self._cumulative_loss = 0.0
-        self._consecutive_losses = 0
-        self._pause_start_time = None
-        self._recovery_cumulative_profit = 0.0
-        self._consecutive_wins = 0
-        self._is_trading_paused = False
+        # 清理所有策略的风控状态
+        self._strategy_states.clear()
     
     def _on_exec_order_updated(self, event: Event):
         """
@@ -369,8 +392,8 @@ class StrategyProfitControl(StrategyPolicy):
             # 生成策略唯一标识
             strategy_key = self._make_strategy_key(exec_ctx.strategy_id, exec_ctx.strategy_instance_id)
             
-            # 检查策略是否在跟踪集合中
-            if strategy_key not in self._tracked_strategies:
+            # 检查策略是否在管理范围内（有对应的状态记录）
+            if strategy_key not in self._strategy_states:
                 return
             
             # 检查是否有平仓资产
@@ -387,8 +410,7 @@ class StrategyProfitControl(StrategyPolicy):
                 profit_ratio = float(total_pnl / exec_ctx.close_amount)
                 
                 logger.info(
-                    f"[{self.policy_instance_id}] 收到订单完成: "
-                    f"strategy={strategy_key}, "
+                    f"[{self.policy_instance_id}] [{strategy_key}] 收到订单完成: "
                     f"actual_pnl={total_actual_pnl}, virtual_pnl={total_virtual_pnl}, "
                     f"total_pnl={total_pnl}, close_amount={exec_ctx.close_amount}, "
                     f"profit_ratio={profit_ratio:.4f}"

@@ -12,9 +12,11 @@ class PositionTargetTrailingExit(SubStrategy):
     """
     目标追踪离场：止损、目标、预留百分比。
 
-    多头：突破目标后，出场价 = 开仓价 + (最高价-开仓价)*reserve_ratio，且仅上调(ST)。
-    空头：突破目标后，出场价 = 开仓价 - (开仓价-最低价)*reserve_ratio，且仅下调(ST)。
+    多头：收盘价突破目标后，出场价 = 开仓价 + (极值收盘价-开仓价)*reserve_ratio，且仅上调(ST)。
+    空头：收盘价突破目标后，出场价 = 开仓价 - (开仓价-极值收盘价)*reserve_ratio，且仅下调(ST)。
     回落(或反弹)到出场价则退出。
+    
+    注意：使用收盘价判断目标突破，避免影线假突破导致在同一根K线内被错误平仓。
 
     利润保留比例（可选）：
     默认启用动态利润保留，根据盈利幅度动态调整保留比例，避免大盈利时回吐过多利润：
@@ -217,9 +219,9 @@ class PositionTargetTrailingExit(SubStrategy):
                               f"开仓价: {cost}, 当前价格: {data.close}, 止损价: {stop_price}, "
                               f"盈利比例: {profit_pct}%")
                     return False
-                if data.high is not None and data.high >= target_price:
+                if data.close >= target_price:
                     state['target_broken'] = True
-                    state['highest_since_break'] = data.high
+                    state['highest_since_break'] = data.close
                     # 使用开仓价为锚点初始化追踪出场价，ST方式仅上调
                     retention = self._get_profit_retention_ratio(position, state['highest_since_break'])
                     state['trailing_stop'] = cost + (state['highest_since_break'] - cost) * retention
@@ -227,33 +229,32 @@ class PositionTargetTrailingExit(SubStrategy):
                     retention_pct = (retention * Decimal('100')).quantize(Decimal('0.01'))
                     retained_profit_pct = (profit_pct * retention).quantize(Decimal('0.01'))
                     logger.info(f"目标追踪离场: {position.position_id} 目标突破, 进入追踪阶段, "
-                              f"开仓价: {cost}, 最高价: {state['highest_since_break']}, 盈利比例: {profit_pct}%, "
+                              f"开仓价: {cost}, 极值价: {state['highest_since_break']}, 盈利比例: {profit_pct}%, "
                               f"保留比例: {retention_pct}%, 保留利润: {retained_profit_pct}%, "
                               f"追踪出场价: {state['trailing_stop']}")
                 return True
 
-            if data.high is not None:
-                old_highest = state['highest_since_break']
-                state['highest_since_break'] = max(state['highest_since_break'], data.high)
-                # 仅上调：基于开仓价与破目标后的最高价
-                retention = self._get_profit_retention_ratio(position, state['highest_since_break'])
-                new_trailing = cost + (state['highest_since_break'] - cost) * retention
-                if state['trailing_stop'] is None or new_trailing > state['trailing_stop']:
-                    if state['highest_since_break'] > old_highest:
-                        profit_pct = ((state['highest_since_break'] - cost) / cost * Decimal('100')).quantize(Decimal('0.01'))
-                        retention_pct = (retention * Decimal('100')).quantize(Decimal('0.01'))
-                        retained_profit_pct = (profit_pct * retention).quantize(Decimal('0.01'))
-                        logger.info(f"目标追踪离场: {position.position_id} 更新追踪出场价, "
-                                  f"最高价: {state['highest_since_break']}(前: {old_highest}), 盈利比例: {profit_pct}%, "
-                                  f"保留比例: {retention_pct}%, 保留利润: {retained_profit_pct}%, "
-                                  f"新追踪出场价: {new_trailing}(前: {state['trailing_stop']})")
-                    state['trailing_stop'] = new_trailing
+            old_highest = state['highest_since_break']
+            state['highest_since_break'] = max(state['highest_since_break'], data.close)
+            # 仅上调：基于开仓价与破目标后的极值收盘价
+            retention = self._get_profit_retention_ratio(position, state['highest_since_break'])
+            new_trailing = cost + (state['highest_since_break'] - cost) * retention
+            if state['trailing_stop'] is None or new_trailing > state['trailing_stop']:
+                if state['highest_since_break'] > old_highest:
+                    profit_pct = ((state['highest_since_break'] - cost) / cost * Decimal('100')).quantize(Decimal('0.01'))
+                    retention_pct = (retention * Decimal('100')).quantize(Decimal('0.01'))
+                    retained_profit_pct = (profit_pct * retention).quantize(Decimal('0.01'))
+                    logger.info(f"目标追踪离场: {position.position_id} 更新追踪出场价, "
+                              f"极值价: {state['highest_since_break']}(前: {old_highest}), 盈利比例: {profit_pct}%, "
+                              f"保留比例: {retention_pct}%, 保留利润: {retained_profit_pct}%, "
+                              f"新追踪出场价: {new_trailing}(前: {state['trailing_stop']})")
+                state['trailing_stop'] = new_trailing
             if data.close <= state['trailing_stop']:
                 profit_pct = ((state['highest_since_break'] - cost) / cost * Decimal('100')).quantize(Decimal('0.01'))
                 retention_pct = ((state['trailing_stop'] - cost) / (state['highest_since_break'] - cost) * Decimal('100')).quantize(Decimal('0.01')) if state['highest_since_break'] > cost else Decimal('0')
                 retained_profit_pct = ((state['trailing_stop'] - cost) / cost * Decimal('100')).quantize(Decimal('0.01'))
                 logger.info(f"目标追踪离场: {position.position_id} 触发追踪离场, "
-                          f"开仓价: {cost}, 当前价格: {data.close}, 最高价: {state['highest_since_break']}, "
+                          f"开仓价: {cost}, 当前价格: {data.close}, 极值价: {state['highest_since_break']}, "
                           f"追踪出场价: {state['trailing_stop']}, 最高盈利比例: {profit_pct}%, "
                           f"保留比例: {retention_pct}%, 保留利润: {retained_profit_pct}%")
                 return False
@@ -267,9 +268,9 @@ class PositionTargetTrailingExit(SubStrategy):
                               f"开仓价: {cost}, 当前价格: {data.close}, 止损价: {stop_price}, "
                               f"盈利比例: {profit_pct}%")
                     return False
-                if data.low is not None and data.low <= target_price:
+                if data.close <= target_price:
                     state['target_broken'] = True
-                    state['lowest_since_break'] = data.low
+                    state['lowest_since_break'] = data.close
                     # 使用开仓价为锚点初始化追踪出场价，ST方式仅下调
                     retention = self._get_profit_retention_ratio(position, state['lowest_since_break'])
                     state['trailing_stop'] = cost - (cost - state['lowest_since_break']) * retention
@@ -277,33 +278,32 @@ class PositionTargetTrailingExit(SubStrategy):
                     retention_pct = (retention * Decimal('100')).quantize(Decimal('0.01'))
                     retained_profit_pct = (profit_pct * retention).quantize(Decimal('0.01'))
                     logger.info(f"目标追踪离场: {position.position_id} 目标突破, 进入追踪阶段, "
-                              f"开仓价: {cost}, 最低价: {state['lowest_since_break']}, 盈利比例: {profit_pct}%, "
+                              f"开仓价: {cost}, 极值价: {state['lowest_since_break']}, 盈利比例: {profit_pct}%, "
                               f"保留比例: {retention_pct}%, 保留利润: {retained_profit_pct}%, "
                               f"追踪出场价: {state['trailing_stop']}")
                 return True
 
-            if data.low is not None:
-                old_lowest = state['lowest_since_break']
-                state['lowest_since_break'] = min(state['lowest_since_break'], data.low)
-                # 仅下调：基于开仓价与破目标后的最低价
-                retention = self._get_profit_retention_ratio(position, state['lowest_since_break'])
-                new_trailing = cost - (cost - state['lowest_since_break']) * retention
-                if state['trailing_stop'] is None or new_trailing < state['trailing_stop']:
-                    if state['lowest_since_break'] < old_lowest:
-                        profit_pct = ((cost - state['lowest_since_break']) / cost * Decimal('100')).quantize(Decimal('0.01'))
-                        retention_pct = (retention * Decimal('100')).quantize(Decimal('0.01'))
-                        retained_profit_pct = (profit_pct * retention).quantize(Decimal('0.01'))
-                        logger.info(f"目标追踪离场: {position.position_id} 更新追踪出场价, "
-                                  f"最低价: {state['lowest_since_break']}(前: {old_lowest}), 盈利比例: {profit_pct}%, "
-                                  f"保留比例: {retention_pct}%, 保留利润: {retained_profit_pct}%, "
-                                  f"新追踪出场价: {new_trailing}(前: {state['trailing_stop']})")
-                    state['trailing_stop'] = new_trailing
+            old_lowest = state['lowest_since_break']
+            state['lowest_since_break'] = min(state['lowest_since_break'], data.close)
+            # 仅下调：基于开仓价与破目标后的极值收盘价
+            retention = self._get_profit_retention_ratio(position, state['lowest_since_break'])
+            new_trailing = cost - (cost - state['lowest_since_break']) * retention
+            if state['trailing_stop'] is None or new_trailing < state['trailing_stop']:
+                if state['lowest_since_break'] < old_lowest:
+                    profit_pct = ((cost - state['lowest_since_break']) / cost * Decimal('100')).quantize(Decimal('0.01'))
+                    retention_pct = (retention * Decimal('100')).quantize(Decimal('0.01'))
+                    retained_profit_pct = (profit_pct * retention).quantize(Decimal('0.01'))
+                    logger.info(f"目标追踪离场: {position.position_id} 更新追踪出场价, "
+                              f"极值价: {state['lowest_since_break']}(前: {old_lowest}), 盈利比例: {profit_pct}%, "
+                              f"保留比例: {retention_pct}%, 保留利润: {retained_profit_pct}%, "
+                              f"新追踪出场价: {new_trailing}(前: {state['trailing_stop']})")
+                state['trailing_stop'] = new_trailing
             if data.close >= state['trailing_stop']:
                 profit_pct = ((cost - state['lowest_since_break']) / cost * Decimal('100')).quantize(Decimal('0.01'))
                 retention_pct = ((cost - state['trailing_stop']) / (cost - state['lowest_since_break']) * Decimal('100')).quantize(Decimal('0.01')) if state['lowest_since_break'] < cost else Decimal('0')
                 retained_profit_pct = ((cost - state['trailing_stop']) / cost * Decimal('100')).quantize(Decimal('0.01'))
                 logger.info(f"目标追踪离场: {position.position_id} 触发追踪离场, "
-                          f"开仓价: {cost}, 当前价格: {data.close}, 最低价: {state['lowest_since_break']}, "
+                          f"开仓价: {cost}, 当前价格: {data.close}, 极值价: {state['lowest_since_break']}, "
                           f"追踪出场价: {state['trailing_stop']}, 最高盈利比例: {profit_pct}%, "
                           f"保留比例: {retention_pct}%, 保留利润: {retained_profit_pct}%")
                 return False

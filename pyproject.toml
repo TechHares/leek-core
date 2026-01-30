@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "leek-core"
-version = "1.9.4"
+version = "1.10.0"
 description = "Leek Core 量化交易引擎/组件化事件驱动框架"
 authors = ["shenglin.li <764935704@qq.com>"]
 readme = "README.md"
@@ -63,7 +63,9 @@ joblib = "~=1.5.2"
 optuna = "~=4.5.0"
 xgboost = "~=3.1.2"
 scikit-learn = "~=1.7.2"
-torch = "~=2.2.0"
+torch = [
+    {version = "~=2.2.0", source = "pytorch-cpu"},
+]
 
 [tool.poetry.group.dev.dependencies]
 black = "~=24.4.2"
@@ -122,6 +124,11 @@ priority = "supplemental"
 [[tool.poetry.source]]
 name = "ustc"
 url = "https://pypi.mirrors.ustc.edu.cn/simple/"
+priority = "supplemental"
+
+[[tool.poetry.source]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
 priority = "supplemental"
 
 [[tool.poetry.source]]
