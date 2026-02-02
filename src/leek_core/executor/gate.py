@@ -5,6 +5,7 @@
 Gate.io 交易执行模块
 """
 
+import time
 import threading
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -400,8 +401,8 @@ class GateRestExecutor(Executor):
         """
         查询订单的成交手续费和已实现盈亏
         
-        对于平仓订单，优先从平仓历史记录获取准确的pnl和手续费
-        对于开仓订单，从成交记录获取手续费
+        fee 总是从 get_futures_my_trades 获取
+        pnl 总是从 get_futures_position_close 获取
         
         Args:
             order_info: 订单信息
@@ -409,78 +410,76 @@ class GateRestExecutor(Executor):
             order: 原始订单对象
             
         Returns:
-            tuple: (fee, pnl) - fee为负数（支出），pnl可能为正或负
+            tuple: (fee, pnl) - fee为负数（支出），pnl可能为正或负，无数据时返回None
         """
+        contract = order_info.get("currency_pair")
+        if not contract:
+            return None, None
+        
+        # 获取结算货币
+        settle = contract.split("_")[-1].lower() if "_" in contract else "usdt"
+        
+        # 从成交记录获取手续费
+        fee = Decimal(0)
         try:
-            contract = order_info.get("currency_pair")
+            exchange_order_id = str(order_data.get("id", ""))
+            if exchange_order_id:
+                result = self.adapter.get_futures_my_trades(
+                    settle=settle,
+                    contract=contract,
+                    order_id=exchange_order_id,
+                    limit=100
+                )
+                
+                if result and result.get("code") == "0":
+                    trades = result.get("data", [])
+                    if trades:
+                        total_fee = Decimal(0)
+                        for trade in trades:
+                            trade_fee = self._safe_decimal(trade.get("fee", "0"))
+                            # 确保为负数（支出）
+                            if trade_fee > 0:
+                                trade_fee = -trade_fee
+                            total_fee += trade_fee
+                        fee = total_fee
+                        logger.info(f"从成交记录获取手续费 - order_id: {exchange_order_id}, fee: {fee}, 成交笔数: {len(trades)}")
+                else:
+                    logger.warning(f"查询成交记录失败: {result.get('msg') if result else '无响应'}, order_id: {exchange_order_id}")
+        except Exception as e:
+            logger.warning(f"从成交记录查询手续费异常: {e}", exc_info=True)
+        
+        # 从平仓历史获取pnl，最多重试3次，每次间隔2秒
+        pnl = None
+        try:
             text_id = str(order_data.get("text", ""))
-            
-            if not contract:
-                return Decimal(0), Decimal(0)
-            
-            # 获取结算货币
-            settle = contract.split("_")[-1].lower() if "_" in contract else "usdt"
-            
-            # 如果是平仓订单，优先从平仓历史获取pnl
-            if not order.is_open and text_id:
-                try:
-                    # 使用订单时间戳减1秒作为起始时间，更精确地查询平仓记录
-                    from_time = None
-                    if order.order_time:
-                        from_time = int(order.order_time.timestamp()) - 1
-                    result = self.adapter.get_futures_position_close(settle=settle, contract=contract, limit=10, from_time=from_time)
-                    logger.info(f"从平仓历史获取数据 - {text_id}, settle={settle}, contract={contract}, from_time={from_time}, result: {result}")
+            if text_id:
+                from_time = None
+                if order.order_time:
+                    from_time = int(order.order_time.timestamp()) - 1
+                
+                max_retries = 3
+                for retry_count in range(max_retries):
+                    result = self.adapter.get_futures_position_close(settle=settle, contract=contract, limit=100, from_time=from_time)
+                    logger.info(f"从平仓历史获取数据 - {text_id}, settle={settle}, contract={contract}, from_time={from_time}, retry={retry_count+1}, result: {result}")
                     if result and result.get("code") == "0":
                         position_closes = result.get("data", [])
-                        # 通过text字段匹配我们的订单ID
                         for close_record in position_closes:
                             if close_record.get("text") == text_id:
-                                # 从平仓记录获取准确的pnl和手续费
                                 pnl = self._safe_decimal(close_record.get("pnl", "0"))
-                                pnl_pnl = self._safe_decimal(close_record.get("pnl_pnl", "0"))
-                                pnl_fee = self._safe_decimal(close_record.get("pnl_fee", "0"))
-                                
-                                # pnl_fee是手续费支出，应该是负数；如果API返回正数，转为负数
-                                if pnl_fee > 0:
-                                    pnl_fee = -pnl_fee
-                                
-                                logger.info(f"从平仓历史获取数据 - text_id: {text_id}, pnl: {pnl}, pnl_pnl: {pnl_pnl}, pnl_fee: {pnl_fee}")
-                                return pnl_fee, pnl
-                except Exception as e:
-                    logger.warning(f"从平仓历史查询失败: {e}, 尝试从成交记录查询")
-            
-            # 如果没有从平仓历史获取到，或者是开仓订单，从成交记录获取手续费
-            exchange_order_id = str(order_data.get("id", ""))
-            if not exchange_order_id:
-                return Decimal(0), Decimal(0)
-            
-            result = self.adapter.get_futures_my_trades(
-                settle=settle,
-                contract=contract,
-                order_id=exchange_order_id,
-                limit=100
-            )
-            
-            if not result or result.get("code") != "0":
-                logger.warning(f"查询成交记录失败: {result.get('msg') if result else '无响应'}, order_id: {exchange_order_id}")
-                return Decimal(0), Decimal(0)
-            
-            # 汇总所有成交的手续费
-            trades = result.get("data", [])
-            total_fee = Decimal(0)
-            for trade in trades:
-                # Gate.io 成交记录中的 fee 字段，确保为负数（支出）
-                fee = self._safe_decimal(trade.get("fee", "0"))
-                # 如果API返回正数，转为负数
-                if fee > 0:
-                    fee = -fee
-                total_fee += fee
-            
-            logger.info(f"从成交记录获取手续费 - order_id: {exchange_order_id}, fee: {total_fee}, 成交笔数: {len(trades)}")
-            return total_fee, Decimal(0)
+                                logger.info(f"从平仓历史获取pnl - text_id: {text_id}, pnl: {pnl}")
+                                break
+                    
+                    if pnl is not None:
+                        break
+                    
+                    # 没有查询到结果，等待2秒后重试
+                    if retry_count < max_retries - 1:
+                        logger.info(f"未找到平仓记录，等待2秒后重试 - text_id: {text_id}, retry={retry_count+1}/{max_retries}")
+                        time.sleep(2)
         except Exception as e:
-            logger.warning(f"查询订单手续费和盈亏异常: {e}", exc_info=True)
-            return Decimal(0), Decimal(0)
+            logger.warning(f"从平仓历史查询pnl异常: {e}", exc_info=True)
+        
+        return fee, pnl if pnl is not None else Decimal(0)
 
     def _polling_loop(self):
         """
