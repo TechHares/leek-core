@@ -10,7 +10,7 @@ __all__ = ["T", "TR", "ATR", "RSRS", "SAR", "KDJ", "MA", "EMA", "BollBand", "DK"
            "MACD", "MERGE", "SuperSmoother", "UltimateOscillator", "Reflex", "TrendFlex", "BiasRatio",
            "DeMarker", "TDSequence", "TDTrendLine", "DMI", "ADX", "WMA", "HMA", "IchimokuCloud", "WR", "CCI", "CCIV2", "Divergence",
            "HurstExponent", "LyapunovExponent", "CorrelationDimension",
-           "Extreme", "ChaikinVolatility", "SuperTrend", "ZScore", "CZSC", "ElderImpulse", "DonchianChannel",
+           "Extreme", "ChaikinVolatility", "SuperTrend", "ZScore", "RSquared", "CZSC", "ElderImpulse", "DonchianChannel",
            "GannHiLo", "KeltnerChannel", "VolumeProfile", "SpikeDetector"]
 
 from.t import T
@@ -47,6 +47,7 @@ from .bias import BiasRatio
 from .bbi import BBI
 from .chaikin_volatility import ChaikinVolatility
 from .zscore import ZScore
+from .r_squared import RSquared
 from .czsc import CZSC
 from .elder_impulse import ElderImpulse
 from .donchian import DonchianChannel
