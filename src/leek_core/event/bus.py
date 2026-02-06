@@ -3,7 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Set, Callable, Tuple
 import threading
-from queue import Queue, Empty
+from queue import Queue, Empty, Full
 
 from leek_core.utils import get_logger
 from .types import EventType, Event
@@ -17,19 +17,31 @@ logger = get_logger(__name__)
 class EventBus:
     """优化版事件总线，使用主队列分发机制，保证顺序性的同时控制线程数量"""
 
-    def __init__(self, max_workers: int = 10):
+    def __init__(
+        self,
+        max_workers: int = 10,
+        queue_size: int = 0,
+        overflow_policy: str = "drop_oldest",
+        queue_block_timeout: float = 0.1,
+    ):
         """
         初始化事件总线
         
         参数:
             max_workers: 线程池最大工作线程数
+            queue_size: 队列最大长度，0 表示不限制
+            overflow_policy: 队列满时处理策略（drop_oldest/drop_newest/block）
+            queue_block_timeout: overflow_policy=block 时的阻塞时间
         """
         self._thread_pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="EventBus")
         self._subscribers: Dict[EventType, Set[Callable]] = {}
         self._all_event_subscribers: Set[Callable] = set()
 
         # 主事件队列，所有事件都先放入这里
-        self._main_event_queue: Queue = Queue()
+        self._queue_size = max(0, int(queue_size))
+        self._overflow_policy = overflow_policy
+        self._queue_block_timeout = max(0.0, float(queue_block_timeout))
+        self._main_event_queue: Queue = Queue(maxsize=self._queue_size) if self._queue_size > 0 else Queue()
         
         # 每个订阅者的事件队列，保证顺序处理
         self._subscriber_queues: Dict[Tuple[Callable, EventType], Queue] = {}
@@ -48,6 +60,47 @@ class EventBus:
         
         # 是否已启动
         self._started = False
+
+        # 丢弃统计
+        self._dropped_main_events = 0
+        self._dropped_subscriber_events = 0
+
+    def _put_queue(self, queue: Queue, item, queue_name: str) -> bool:
+        """根据溢出策略将事件放入队列"""
+        try:
+            queue.put_nowait(item)
+            return True
+        except Full:
+            if self._overflow_policy == "drop_newest":
+                if queue_name == "main":
+                    self._dropped_main_events += 1
+                else:
+                    self._dropped_subscriber_events += 1
+                return False
+            if self._overflow_policy == "block":
+                try:
+                    queue.put(item, timeout=self._queue_block_timeout)
+                    return True
+                except Full:
+                    if queue_name == "main":
+                        self._dropped_main_events += 1
+                    else:
+                        self._dropped_subscriber_events += 1
+                    return False
+            # 默认 drop_oldest
+            try:
+                queue.get_nowait()
+            except Empty:
+                pass
+            try:
+                queue.put_nowait(item)
+                return True
+            except Full:
+                if queue_name == "main":
+                    self._dropped_main_events += 1
+                else:
+                    self._dropped_subscriber_events += 1
+                return False
 
     def _ensure_started(self):
         """确保事件总线已启动"""
@@ -106,7 +159,8 @@ class EventBus:
             
             # 为订阅者创建队列
             if subscriber_key not in self._subscriber_queues:
-                self._subscriber_queues[subscriber_key] = Queue()
+                queue = Queue(maxsize=self._queue_size) if self._queue_size > 0 else Queue()
+                self._subscriber_queues[subscriber_key] = queue
                 self._ready_subscribers.add(subscriber_key)
                 logger.debug(f"为订阅者创建队列: {subscriber_key}")
             
@@ -146,8 +200,25 @@ class EventBus:
     def _cleanup_subscriber(self, subscriber_key: Tuple[Callable, EventType]):
         """清理订阅者的资源"""
         if subscriber_key in self._subscriber_queues:
-            # 向队列发送停止信号
-            self._subscriber_queues[subscriber_key].put(None)
+            queue = self._subscriber_queues[subscriber_key]
+            # 尽量清空再发送停止信号，避免队列满导致无法退出
+            try:
+                while True:
+                    queue.get_nowait()
+            except Empty:
+                pass
+            try:
+                queue.put_nowait(None)
+            except Full:
+                # 兜底：强制覆盖旧事件
+                try:
+                    queue.get_nowait()
+                except Empty:
+                    pass
+                try:
+                    queue.put_nowait(None)
+                except Full:
+                    pass
             del self._subscriber_queues[subscriber_key]
         
         self._ready_subscribers.discard(subscriber_key)
@@ -189,14 +260,14 @@ class EventBus:
             for callback in self._all_event_subscribers:
                 subscriber_key = self._get_subscriber_key(callback, None)
                 if subscriber_key in self._subscriber_queues:
-                    self._subscriber_queues[subscriber_key].put(event)
+                    self._put_queue(self._subscriber_queues[subscriber_key], event, "subscriber")
             
             # 分发给特定事件类型订阅者
             if event.event_type in self._subscribers:
                 for callback in self._subscribers[event.event_type]:
                     subscriber_key = self._get_subscriber_key(callback, event.event_type)
                     if subscriber_key in self._subscriber_queues:
-                        self._subscriber_queues[subscriber_key].put(event)
+                        self._put_queue(self._subscriber_queues[subscriber_key], event, "subscriber")
 
     def _schedule_subscribers(self):
         """调度空闲的订阅者处理事件"""
@@ -252,7 +323,7 @@ class EventBus:
         self._ensure_started()
         
         # 将事件放入主队列
-        self._main_event_queue.put(event)
+        self._put_queue(self._main_event_queue, event, "main")
 
     def shutdown(self):
         """关闭事件总线，清理所有资源"""
@@ -260,7 +331,18 @@ class EventBus:
         self._stop_event.set()
         
         # 向主队列发送停止信号
-        self._main_event_queue.put(None)
+        try:
+            self._main_event_queue.put(None, timeout=self._queue_block_timeout)
+        except Full:
+            # 兜底：清空一个元素再放入停止信号
+            try:
+                self._main_event_queue.get_nowait()
+            except Empty:
+                pass
+            try:
+                self._main_event_queue.put_nowait(None)
+            except Full:
+                pass
         
         # 等待分发线程结束
         if self._dispatcher_thread and self._dispatcher_thread.is_alive():
@@ -283,5 +365,9 @@ class EventBus:
                 "ready_subscribers_count": len(self._ready_subscribers),
                 "thread_pool_max_workers": self._thread_pool._max_workers,
                 "dispatcher_thread_alive": self._dispatcher_thread.is_alive() if self._dispatcher_thread else False,
-                "started": self._started
+                "started": self._started,
+                "queue_size": self._queue_size,
+                "overflow_policy": self._overflow_policy,
+                "dropped_main_events": self._dropped_main_events,
+                "dropped_subscriber_events": self._dropped_subscriber_events,
             }

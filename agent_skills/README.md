@@ -13,6 +13,7 @@
 | `leek-backtest` | 使用回测系统 |
 | `leek-risk-position` | 风险和仓位管理 |
 | `leek-factors` | 开发机器学习因子（DualModeFactor） |
+| `leek-strategy-evaluation` | 评估策略回测结果，判断策略是否可用 |
 
 ## 安装方式
 

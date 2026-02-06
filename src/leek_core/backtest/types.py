@@ -247,6 +247,218 @@ class PerformanceMetrics:
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
+    def _calculate_grade(self) -> str:
+        """基于多维度指标计算策略等级 (A+/A/B+/B/C/D/F)"""
+        score = 0
+        
+        # 收益维度 (0-25分)
+        if self.annual_return > 0.5:
+            score += 25
+        elif self.annual_return > 0.3:
+            score += 20
+        elif self.annual_return > 0.15:
+            score += 15
+        elif self.annual_return > 0:
+            score += 10
+        elif self.annual_return > -0.1:
+            score += 5
+        
+        # 风险调整收益维度 (0-25分)
+        if self.sharpe_ratio > 2.0:
+            score += 25
+        elif self.sharpe_ratio > 1.5:
+            score += 20
+        elif self.sharpe_ratio > 1.0:
+            score += 15
+        elif self.sharpe_ratio > 0.5:
+            score += 10
+        elif self.sharpe_ratio > 0:
+            score += 5
+        
+        # 回撤控制维度 (0-25分)
+        if self.max_drawdown > -0.1:
+            score += 25
+        elif self.max_drawdown > -0.2:
+            score += 20
+        elif self.max_drawdown > -0.3:
+            score += 15
+        elif self.max_drawdown > -0.5:
+            score += 10
+        elif self.max_drawdown > -0.7:
+            score += 5
+        
+        # 统计显著性维度 (0-25分)
+        if self.t_pvalue < 0.01 and self.total_trades >= 50:
+            score += 25
+        elif self.t_pvalue < 0.05 and self.total_trades >= 30:
+            score += 20
+        elif self.t_pvalue < 0.1 and self.total_trades >= 20:
+            score += 15
+        elif self.total_trades >= 30:
+            score += 10
+        elif self.total_trades >= 10:
+            score += 5
+        
+        # 转换为等级
+        if score >= 90:
+            return "A+"
+        elif score >= 80:
+            return "A"
+        elif score >= 70:
+            return "B+"
+        elif score >= 60:
+            return "B"
+        elif score >= 50:
+            return "C"
+        elif score >= 40:
+            return "D"
+        else:
+            return "F"
+
+    def _identify_concerns(self) -> List[str]:
+        """识别策略潜在风险和问题"""
+        concerns = []
+        
+        # 交易次数不足
+        if self.total_trades < 30:
+            concerns.append(f"交易次数不足({self.total_trades}笔)，统计结果可能不可靠")
+        
+        # 统计显著性问题
+        if self.t_pvalue >= 0.05:
+            concerns.append(f"收益统计不显著(p={self.t_pvalue:.3f})，可能是随机结果")
+        
+        # 回撤过大
+        if self.max_drawdown < -0.3:
+            concerns.append(f"最大回撤过大({self.max_drawdown:.1%})，风险较高")
+        
+        # 夏普比率过低
+        if self.sharpe_ratio < 0.5 and self.total_return > 0:
+            concerns.append(f"夏普比率偏低({self.sharpe_ratio:.2f})，风险调整后收益不佳")
+        
+        # 胜率与盈亏比不匹配
+        if self.win_rate > 0 and self.win_loss_ratio > 0:
+            expectancy = self.win_rate * self.win_loss_ratio - (1 - self.win_rate)
+            if expectancy < 0.1:
+                concerns.append("期望收益较低，胜率与盈亏比组合不佳")
+        
+        # 多空不平衡
+        if self.long_trades > 0 and self.short_trades > 0:
+            if self.long_win_rate > 0 and self.short_win_rate > 0:
+                if abs(self.long_win_rate - self.short_win_rate) > 0.2:
+                    concerns.append("多空胜率差异较大，策略可能存在方向偏好")
+        
+        # 单边交易
+        if self.long_trades == 0 or self.short_trades == 0:
+            direction = "只做多" if self.long_trades > 0 else "只做空"
+            concerns.append(f"策略{direction}，未充分利用双向交易机会")
+        
+        # 最大单笔亏损过大
+        if self.largest_loss < -0.1:
+            concerns.append(f"最大单笔亏损过大({self.largest_loss:.1%})，建议加强止损")
+        
+        # 收益分布偏态
+        if self.skewness < -1:
+            concerns.append("收益分布负偏，存在较多极端亏损")
+        
+        # VaR 风险
+        if self.var_95 < -0.03:
+            concerns.append(f"95% VaR较高({self.var_95:.1%})，日波动风险较大")
+        
+        return concerns
+
+    def _generate_text_summary(self) -> str:
+        """生成一句话策略评估摘要"""
+        parts = []
+        
+        # 收益评估
+        if self.annual_return > 0.5:
+            parts.append(f"年化收益优秀({self.annual_return:.0%})")
+        elif self.annual_return > 0.2:
+            parts.append(f"年化收益良好({self.annual_return:.0%})")
+        elif self.annual_return > 0:
+            parts.append(f"年化收益一般({self.annual_return:.0%})")
+        else:
+            parts.append(f"策略亏损({self.annual_return:.0%})")
+        
+        # 风险评估
+        if self.max_drawdown > -0.1:
+            parts.append("回撤控制优秀")
+        elif self.max_drawdown > -0.2:
+            parts.append("回撤可接受")
+        elif self.max_drawdown > -0.3:
+            parts.append("回撤偏大")
+        else:
+            parts.append(f"回撤过大({self.max_drawdown:.0%})")
+        
+        # 风险调整收益
+        if self.sharpe_ratio > 1.5:
+            parts.append(f"夏普比率优秀({self.sharpe_ratio:.2f})")
+        elif self.sharpe_ratio > 1.0:
+            parts.append(f"夏普比率良好({self.sharpe_ratio:.2f})")
+        elif self.sharpe_ratio > 0.5:
+            parts.append(f"夏普比率一般({self.sharpe_ratio:.2f})")
+        else:
+            parts.append(f"夏普比率偏低({self.sharpe_ratio:.2f})")
+        
+        # 统计显著性
+        if self.t_pvalue < 0.01:
+            parts.append("结果高度显著")
+        elif self.t_pvalue < 0.05:
+            parts.append("结果统计显著")
+        elif self.t_pvalue < 0.1:
+            parts.append("结果边缘显著")
+        else:
+            parts.append(f"结果可能是随机的(p={self.t_pvalue:.2f})")
+        
+        return "，".join(parts)
+
+    def to_agent_summary(self) -> Dict[str, Any]:
+        """
+        生成 AI Agent 友好的策略评估摘要
+        
+        返回精简的、结构化的评估数据，适合 AI 分析和决策。
+        包含约15个核心指标 + 自动评估结论，而不是全部50+指标。
+        """
+        return {
+            # ===== 核心收益指标 (5个) =====
+            "total_return": round(self.total_return, 4),
+            "annual_return": round(self.annual_return, 4),
+            "max_drawdown": round(self.max_drawdown, 4),
+            "sharpe_ratio": round(self.sharpe_ratio, 3),
+            "calmar_ratio": round(self.calmar_ratio, 3),
+            
+            # ===== 交易质量指标 (5个) =====
+            "total_trades": self.total_trades,
+            "win_rate": round(self.win_rate, 3),
+            "profit_factor": round(self.profit_factor, 3),
+            "avg_return_per_trade": round(self.avg_return_per_trade, 4),
+            "win_loss_ratio": round(self.win_loss_ratio, 3),
+            
+            # ===== 统计显著性 (4个) =====
+            "t_pvalue": round(self.t_pvalue, 4),
+            "bootstrap_sharpe_ci": [
+                round(self.bootstrap_sharpe_ci_lower, 3),
+                round(self.bootstrap_sharpe_ci_upper, 3)
+            ],
+            "bootstrap_annual_return_ci": [
+                round(self.bootstrap_annual_return_ci_lower, 4),
+                round(self.bootstrap_annual_return_ci_upper, 4)
+            ],
+            "alpha_pvalue": round(self.alpha_pvalue, 4),
+            
+            # ===== 自动评估结论 =====
+            "evaluation": {
+                "overall_grade": self._calculate_grade(),
+                "is_profitable": self.total_return > 0,
+                "is_statistically_significant": self.t_pvalue < 0.05,
+                "risk_adjusted_good": self.sharpe_ratio > 1.0,
+                "drawdown_acceptable": self.max_drawdown > -0.3,
+                "has_enough_trades": self.total_trades >= 30,
+                "concerns": self._identify_concerns(),
+                "summary": self._generate_text_summary()
+            }
+        }
+
 
 @dataclass
 class BacktestResult:
@@ -279,6 +491,69 @@ class BacktestResult:
             "execution_time": self.execution_time,
             "metadata": self.metadata or {}
         }
+
+    def to_agent_summary(self) -> Dict[str, Any]:
+        """
+        生成 AI Agent 友好的回测结果摘要
+        
+        返回精简的回测信息，去除大量时间序列数据，保留核心评估信息。
+        适合 AI 分析策略是否可用、是否需要优化。
+        """
+        # 配置摘要
+        config_summary = {}
+        if self.config:
+            config_summary = {
+                "symbol": self.config.get("symbol"),
+                "timeframe": str(self.config.get("timeframe")),
+                "initial_balance": float(self.config.get("initial_balance", 0)),
+                "strategy_class": self.config.get("strategy_class"),
+                "strategy_params": self.config.get("strategy_params"),
+            }
+        
+        # 交易摘要统计
+        trade_summary = {}
+        if self.trades:
+            pnls = [t.get("pnl", 0) for t in self.trades]
+            winning_trades = [p for p in pnls if p > 0]
+            losing_trades = [p for p in pnls if p < 0]
+            trade_summary = {
+                "total_count": len(self.trades),
+                "total_pnl": round(sum(pnls), 2),
+                "avg_pnl": round(sum(pnls) / len(pnls), 2) if pnls else 0,
+                "best_trade": round(max(pnls), 2) if pnls else 0,
+                "worst_trade": round(min(pnls), 2) if pnls else 0,
+                "avg_winning": round(sum(winning_trades) / len(winning_trades), 2) if winning_trades else 0,
+                "avg_losing": round(sum(losing_trades) / len(losing_trades), 2) if losing_trades else 0,
+            }
+        
+        # 净值曲线摘要（只保留关键点）
+        equity_summary = {}
+        if self.equity_curve and len(self.equity_curve) > 0:
+            equity_summary = {
+                "initial": round(self.equity_curve[0], 2),
+                "final": round(self.equity_curve[-1], 2),
+                "peak": round(max(self.equity_curve), 2),
+                "trough": round(min(self.equity_curve), 2),
+                "data_points": len(self.equity_curve),
+            }
+        
+        # 元数据
+        meta_summary = {}
+        if self.metadata:
+            meta_summary = {
+                "total_bars": self.metadata.get("total_bars", 0),
+                "turnover": round(self.metadata.get("turnover", 0), 4),
+            }
+        
+        return {
+            "config": config_summary,
+            "metrics": self.metrics.to_agent_summary(),
+            "trade_summary": trade_summary,
+            "equity_summary": equity_summary,
+            "metadata": meta_summary,
+            "execution_time": round(self.execution_time, 2),
+        }
+
 
 @dataclass
 class WindowResult:
@@ -327,6 +602,106 @@ class WalkForwardResult:
             "execution_time": self.execution_time
         }
 
+    def to_agent_summary(self) -> Dict[str, Any]:
+        """
+        生成 AI Agent 友好的 Walk-Forward 验证结果摘要
+        
+        重点展示样本外测试表现、参数稳定性、过拟合风险评估。
+        """
+        # 配置摘要
+        config_summary = {
+            "strategy_class": self.config.strategy_class,
+            "symbols": self.config.symbols,
+            "timeframes": [str(tf) for tf in (self.config.timeframes or [])],
+            "train_days": self.config.train_days,
+            "test_days": self.config.test_days,
+            "window_mode": self.config.wf_window_mode,
+        }
+        
+        # 窗口结果摘要
+        window_summaries = []
+        train_sharpes = []
+        test_sharpes = []
+        params_history = []
+        
+        for wr in self.window_results:
+            train_sharpe = wr.train_result.metrics.sharpe_ratio if wr.train_result else None
+            test_sharpe = wr.test_result.metrics.sharpe_ratio
+            
+            if train_sharpe is not None:
+                train_sharpes.append(train_sharpe)
+            test_sharpes.append(test_sharpe)
+            params_history.append(wr.best_params)
+            
+            window_summaries.append({
+                "window_idx": wr.window_idx,
+                "train_sharpe": round(train_sharpe, 3) if train_sharpe else None,
+                "test_sharpe": round(test_sharpe, 3),
+                "train_return": round(wr.train_result.metrics.total_return, 4) if wr.train_result else None,
+                "test_return": round(wr.test_result.metrics.total_return, 4),
+                "best_params": wr.best_params,
+            })
+        
+        # 过拟合分析
+        overfit_analysis = {}
+        if train_sharpes and test_sharpes and len(train_sharpes) == len(test_sharpes):
+            avg_train = sum(train_sharpes) / len(train_sharpes)
+            avg_test = sum(test_sharpes) / len(test_sharpes)
+            decay_ratio = (avg_train - avg_test) / avg_train if avg_train > 0 else 0
+            
+            overfit_analysis = {
+                "avg_train_sharpe": round(avg_train, 3),
+                "avg_test_sharpe": round(avg_test, 3),
+                "performance_decay": round(decay_ratio, 3),  # 越大越可能过拟合
+                "is_likely_overfit": decay_ratio > 0.5,  # 衰减超过50%认为可能过拟合
+                "consistent_windows": sum(1 for ts in test_sharpes if ts > 0),  # 正收益窗口数
+                "total_windows": len(test_sharpes),
+            }
+        
+        # 参数稳定性分析
+        param_stability = {}
+        if params_history and len(params_history) > 1:
+            # 检查参数是否稳定
+            all_params = set()
+            for p in params_history:
+                all_params.update(p.keys())
+            
+            param_changes = {}
+            for param in all_params:
+                values = [p.get(param) for p in params_history if param in p]
+                if len(set(values)) == 1:
+                    param_changes[param] = "stable"
+                elif len(set(values)) <= len(values) / 2:
+                    param_changes[param] = "moderate"
+                else:
+                    param_changes[param] = "unstable"
+            
+            param_stability = {
+                "parameter_changes": param_changes,
+                "is_params_stable": all(v == "stable" for v in param_changes.values()),
+            }
+        
+        # 净值曲线摘要
+        equity_summary = {}
+        if self.equity_curve and len(self.equity_curve) > 0:
+            equity_summary = {
+                "initial": round(self.equity_curve[0], 2),
+                "final": round(self.equity_curve[-1], 2),
+                "peak": round(max(self.equity_curve), 2),
+                "trough": round(min(self.equity_curve), 2),
+            }
+        
+        return {
+            "config": config_summary,
+            "metrics": self.aggregated_metrics.to_agent_summary(),
+            "window_count": len(self.window_results),
+            "windows": window_summaries,
+            "overfit_analysis": overfit_analysis,
+            "param_stability": param_stability,
+            "equity_summary": equity_summary,
+            "execution_time": round(self.execution_time, 2),
+        }
+
 
 @dataclass
 class NormalBacktestResult:
@@ -344,6 +719,102 @@ class NormalBacktestResult:
             "combined_equity_times": self.combined_equity_times,
             "combined_equity_values": self.combined_equity_values,
             "execution_time": self.execution_time,
+        }
+
+    def to_agent_summary(self) -> Dict[str, Any]:
+        """
+        生成 AI Agent 友好的多标的回测结果摘要
+        
+        展示各标的表现对比、策略普适性评估。
+        """
+        # 各标的结果摘要
+        result_summaries = []
+        symbols_performance = {}
+        timeframes_performance = {}
+        
+        for r in self.results:
+            symbol = r.config.get("symbol", "unknown") if r.config else "unknown"
+            timeframe = str(r.config.get("timeframe", "unknown")) if r.config else "unknown"
+            
+            summary = {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "total_return": round(r.metrics.total_return, 4),
+                "sharpe_ratio": round(r.metrics.sharpe_ratio, 3),
+                "max_drawdown": round(r.metrics.max_drawdown, 4),
+                "win_rate": round(r.metrics.win_rate, 3),
+                "total_trades": r.metrics.total_trades,
+            }
+            result_summaries.append(summary)
+            
+            # 按标的统计
+            if symbol not in symbols_performance:
+                symbols_performance[symbol] = []
+            symbols_performance[symbol].append(r.metrics.sharpe_ratio)
+            
+            # 按周期统计
+            if timeframe not in timeframes_performance:
+                timeframes_performance[timeframe] = []
+            timeframes_performance[timeframe].append(r.metrics.sharpe_ratio)
+        
+        # 标的普适性分析
+        symbol_analysis = {}
+        if symbols_performance:
+            avg_by_symbol = {
+                s: round(sum(v) / len(v), 3) 
+                for s, v in symbols_performance.items()
+            }
+            positive_symbols = sum(1 for v in avg_by_symbol.values() if v > 0)
+            symbol_analysis = {
+                "avg_sharpe_by_symbol": avg_by_symbol,
+                "positive_symbols": positive_symbols,
+                "total_symbols": len(symbols_performance),
+                "universality_ratio": round(positive_symbols / len(symbols_performance), 2) if symbols_performance else 0,
+            }
+        
+        # 周期普适性分析
+        timeframe_analysis = {}
+        if timeframes_performance:
+            avg_by_tf = {
+                tf: round(sum(v) / len(v), 3) 
+                for tf, v in timeframes_performance.items()
+            }
+            positive_tfs = sum(1 for v in avg_by_tf.values() if v > 0)
+            timeframe_analysis = {
+                "avg_sharpe_by_timeframe": avg_by_tf,
+                "positive_timeframes": positive_tfs,
+                "total_timeframes": len(timeframes_performance),
+            }
+        
+        # 组合净值摘要
+        equity_summary = {}
+        if self.combined_equity_values and len(self.combined_equity_values) > 0:
+            equity_summary = {
+                "initial": round(self.combined_equity_values[0], 2),
+                "final": round(self.combined_equity_values[-1], 2),
+                "peak": round(max(self.combined_equity_values), 2),
+                "trough": round(min(self.combined_equity_values), 2),
+            }
+        
+        # 整体评估
+        overall_evaluation = {
+            "is_universal": symbol_analysis.get("universality_ratio", 0) >= 0.7,  # 70%标的正收益
+            "best_symbol": max(result_summaries, key=lambda x: x["sharpe_ratio"])["symbol"] if result_summaries else None,
+            "worst_symbol": min(result_summaries, key=lambda x: x["sharpe_ratio"])["symbol"] if result_summaries else None,
+            "strategy_consistency": "consistent" if symbol_analysis.get("universality_ratio", 0) >= 0.8 else (
+                "moderate" if symbol_analysis.get("universality_ratio", 0) >= 0.5 else "inconsistent"
+            ),
+        }
+        
+        return {
+            "metrics": self.aggregated_metrics.to_agent_summary(),
+            "result_count": len(self.results),
+            "results": result_summaries,
+            "symbol_analysis": symbol_analysis,
+            "timeframe_analysis": timeframe_analysis,
+            "overall_evaluation": overall_evaluation,
+            "equity_summary": equity_summary,
+            "execution_time": round(self.execution_time, 2),
         }
 
     @staticmethod

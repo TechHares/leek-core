@@ -109,7 +109,8 @@ class StrategyDebugView(LeekComponent):
         order = event.data
         if order.is_open or not order.order_status.is_finished:
             return
-        pnl_val = float(order.pnl or 0)
+        # 订单pnl需要包含手续费和摩擦成本，与仓位统计保持一致
+        pnl_val = float((order.pnl or 0) + (order.fee or 0) + (order.friction or 0))
         
         trade_data = {
             "timestamp": int(order.order_time.timestamp() * 1000),
@@ -126,6 +127,9 @@ class StrategyDebugView(LeekComponent):
         if not isinstance(event.data, Position):
             return
         pos = event.data
+        # 只收集已平仓的仓位数据
+        if not pos.is_closed:
+            return
         position_data = {
                 "timestamp": DateTimeUtils.now_timestamp(),
                 "symbol": pos.symbol,
