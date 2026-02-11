@@ -5,7 +5,7 @@ import pandas as pd
 
 from leek_core.models import Field, FieldType
 
-from .base import DualModeFactor
+from .base import DualModeFactor, FeatureSpec
 
 class Alpha191Factor(DualModeFactor):
     """
@@ -63,8 +63,8 @@ class Alpha191Factor(DualModeFactor):
         
         return pd.DataFrame(factor_results, index=df.index)
     
-    def get_output_names(self) -> list:
-        return self.factor_names
+    def get_output_specs(self) -> list:
+        return [FeatureSpec(name=name) for name in self.factor_names]
     
     # ========== 数据预处理 ==========
     

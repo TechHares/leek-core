@@ -21,12 +21,17 @@ from sklearn.metrics import (
 )
 
 from leek_core.ml.trainer import GRUTrainer
+from leek_core.ml.label import TripleBarrierLabel, FutureReturnLabel
 
 
 def load_data():
     """从 data.csv 加载数据"""
     data_path = os.path.join(os.path.dirname(__file__), "data.csv")
     df = pd.read_csv(data_path)
+    # 确保列类型正确（TripleBarrierLabel 需要 float 类型）
+    for col in ['open', 'high', 'low', 'close', 'volume']:
+        if col in df.columns:
+            df[col] = df[col].astype(float)
     return df
 
 
@@ -64,28 +69,34 @@ def generate_features(df: pd.DataFrame):
     return df
 
 
-def generate_label(df: pd.DataFrame, periods: int = 3, threshold: float = 0.003):
+def generate_label(df: pd.DataFrame, hold_periods: int = 10, take_profit: float = 0.015, stop_loss: float = 0.008):
     """
-    生成三分类标签
+    使用三重屏障标签（TripleBarrierLabel）生成标签
+    
+    模拟真实交易：逐根 K 线检查止盈/止损/到期，哪个先触发就按哪个结算。
     
     Args:
-        df: DataFrame
-        periods: 预测未来几期
-        threshold: 涨跌阈值
+        df: DataFrame，需包含 open, high, low, close 列
+        hold_periods: 最大持仓周期（K线根数）
+        take_profit: 止盈比例（如0.015表示1.5%）
+        stop_loss: 止损比例（如0.008表示0.8%）
     
     Returns:
-        0 = 跌（未来收益 < -threshold）
-        1 = 震荡（-threshold <= 未来收益 <= threshold）
-        2 = 涨（未来收益 > threshold）
+        0 = 做空信号（做空止盈 或 做多止损）
+        1 = 不操作（震荡/不确定）
+        2 = 做多信号（做多止盈 或 做空止损）
     """
-    future_return = df["close"].shift(-periods) / df["close"] - 1
+    label_gen = TripleBarrierLabel(
+        hold_periods=hold_periods,
+        take_profit=take_profit,
+        stop_loss=stop_loss,
+        side="both",
+        num_classes=3,
+        conservative=True,
+    )
     
-    label = pd.Series(index=df.index, dtype=int)
-    label[future_return < -threshold] = 0  # 跌
-    label[(future_return >= -threshold) & (future_return <= threshold)] = 1  # 震荡
-    label[future_return > threshold] = 2  # 涨
-    
-    df["label"] = label
+    labels = label_gen.generate(df)
+    df["label"] = labels
     return df
 
 
@@ -112,13 +123,13 @@ def evaluate_model(y_test, y_pred, y_proba=None):
     
     print("\n混淆矩阵:")
     print(f"              预测")
-    print(f"           跌   震荡  涨")
-    for i, row_name in enumerate(['跌', '震荡', '涨']):
+    print(f"          做空  不操作  做多")
+    for i, row_name in enumerate(['做空', '不操作', '做多']):
         row = "  ".join([f"{v:4d}" for v in cm[i]])
         print(f"实际 {row_name}  {row}")
     
     print("\n详细分类报告:")
-    print(classification_report(y_test, y_pred, target_names=['跌', '震荡', '涨']))
+    print(classification_report(y_test, y_pred, target_names=['做空', '不操作', '做多']))
     
     return {
         'accuracy': accuracy,
@@ -141,9 +152,10 @@ def test_gru_trainer():
     print(f"数据加载完成，共 {len(df)} 条记录")
     
     # 2. 生成特征和标签
-    print("\n[2/6] 正在生成特征和标签...")
+    print("\n[2/6] 正在生成特征和标签（三重屏障标签）...")
     df = generate_features(df)
-    df = generate_label(df, periods=3, threshold=0.003)
+    df = generate_label(df, hold_periods=10, take_profit=0.01, stop_loss=0.015)
+    print(f"  标签方法: TripleBarrierLabel (hold=10, tp=1.5%, sl=0.8%, side=both)")
     
     # 删除 NaN
     df = df.dropna()
@@ -161,9 +173,9 @@ def test_gru_trainer():
     
     # 检查标签分布
     print(f"\n标签分布:")
-    print(f"  跌 (0): {(y == 0).sum()} ({(y == 0).mean():.1%})")
-    print(f"  震荡 (1): {(y == 1).sum()} ({(y == 1).mean():.1%})")
-    print(f"  涨 (2): {(y == 2).sum()} ({(y == 2).mean():.1%})")
+    print(f"  做空 (0): {(y == 0).sum()} ({(y == 0).mean():.1%})")
+    print(f"  不操作 (1): {(y == 1).sum()} ({(y == 1).mean():.1%})")
+    print(f"  做多 (2): {(y == 2).sum()} ({(y == 2).mean():.1%})")
     
     # 4. 划分数据集（按时间顺序）
     split_idx = int(len(df) * 0.8)
@@ -273,9 +285,11 @@ def test_gru_trainer_regression():
     df = load_data()
     df = generate_features(df)
     
-    # 回归标签：未来收益率
-    df["label"] = df["close"].shift(-3) / df["close"] - 1
+    # 回归标签：使用 FutureReturnLabel 生成未来收益率
+    label_gen = FutureReturnLabel(periods=3, use_log=False)
+    df["label"] = label_gen.generate(df)
     df = df.dropna()
+    print(f"  标签方法: FutureReturnLabel (periods=3)")
     
     feature_cols = [
         "return_1", "return_5", "high_low_ratio", "close_open_ratio",
@@ -346,9 +360,145 @@ def test_gru_trainer_regression():
     print("\nGRU 回归任务测试完成!")
 
 
+def test_gru_with_categorical_features():
+    """
+    测试 GRU 训练器的 categorical embedding 功能
+    
+    验证当存在 categorical 特征时，GRU 模型能正确：
+    1. 接受 categorical_info 参数
+    2. 创建 Embedding 层
+    3. 训练和预测
+    4. 保存和加载包含 categorical 信息的模型
+    """
+    print("\n" + "=" * 60)
+    print("开始 GRU Categorical Embedding 测试")
+    print("=" * 60)
+    
+    # 1. 加载数据并生成特征
+    df = load_data()
+    df = generate_features(df)
+    
+    # 添加 categorical 特征（模拟时间特征）
+    if 'start_time' in df.columns:
+        dt = pd.to_datetime(df['start_time'], unit='ms')
+        df['hour'] = dt.dt.hour         # 0-23
+        df['day_of_week'] = dt.dt.dayofweek  # 0-6
+    else:
+        # 如果没有 start_time，用随机数据模拟
+        np.random.seed(42)
+        df['hour'] = np.random.randint(0, 24, size=len(df))
+        df['day_of_week'] = np.random.randint(0, 7, size=len(df))
+    
+    # 生成标签
+    df = generate_label(df, hold_periods=10, take_profit=0.01, stop_loss=0.015)
+    df = df.dropna()
+    
+    # 2. 准备特征（混合 numeric 和 categorical）
+    feature_cols = [
+        "return_1", "return_5", "high_low_ratio", "close_open_ratio",
+        "ma5_bias", "ma10_bias", "ma20_bias",
+        "volume_ratio", "rsi",
+        "hour", "day_of_week",  # categorical 特征
+    ]
+    
+    categorical_info = {
+        "hour": 24,
+        "day_of_week": 7,
+    }
+    
+    X = df[feature_cols].astype(np.float32)
+    y = df["label"].astype(int)
+    
+    print(f"特征数: {len(feature_cols)} (numeric: {len(feature_cols) - len(categorical_info)}, categorical: {len(categorical_info)})")
+    print(f"Categorical 特征: {categorical_info}")
+    
+    # 3. 划分数据集
+    split_idx = int(len(df) * 0.8)
+    X_train, X_test = X[:split_idx], X[split_idx:]
+    y_train, y_test = y[:split_idx], y[split_idx:]
+    
+    val_split_idx = int(len(X_train) * 0.9)
+    X_train_final, X_val = X_train[:val_split_idx], X_train[val_split_idx:]
+    y_train_final, y_val = y_train[:val_split_idx], y_train[val_split_idx:]
+    
+    print(f"训练集: {len(X_train_final)}, 验证集: {len(X_val)}, 测试集: {len(X_test)}")
+    
+    # 4. 训练带 categorical embedding 的 GRU 模型
+    print("\n正在训练带 Embedding 的 GRU 模型...")
+    trainer = GRUTrainer(
+        task_type="classification",
+        window_size=20,
+        hidden_size=32,
+        num_layers=1,
+        dropout=0.2,
+        learning_rate=0.001,
+        batch_size=64,
+        epochs=30,
+        early_stopping_patience=10,
+        random_state=42,
+        device="cpu",
+    )
+    
+    trainer.train(
+        X_train_final,
+        y_train_final,
+        X_val,
+        y_val,
+        categorical_info=categorical_info,
+    )
+    print("训练完成!")
+    
+    # 验证模型存储了 categorical 信息
+    assert trainer._categorical_info == categorical_info, "Trainer 应存储 categorical_info"
+    assert trainer._model.categorical_info == categorical_info, "Model 应存储 categorical_info"
+    assert len(trainer._model.categorical_indices) == 2, "应有 2 个 categorical 特征索引"
+    assert len(trainer._model.numeric_indices) == 9, "应有 9 个 numeric 特征索引"
+    assert len(trainer._model.network.embeddings) == 2, "应有 2 个 Embedding 层"
+    print("模型结构验证通过!")
+    
+    # 5. 预测
+    result = trainer.predict(X_test)
+    y_pred = result['y_pred']
+    y_test_aligned = y_test.iloc[trainer.window_size:]
+    
+    accuracy = (y_pred.values == y_test_aligned.values).mean()
+    print(f"预测准确率: {accuracy:.4f}")
+    
+    # 6. 测试保存和加载
+    print("\n测试模型保存和加载（含 categorical 信息）...")
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        model_path = os.path.join(tmpdir, "gru_cat_model.pkl")
+        
+        # 保存
+        trainer.save_model(model_path)
+        
+        # 加载
+        new_trainer = GRUTrainer(device="cpu")
+        new_trainer.load_model(path=model_path)
+        
+        # 验证加载的 categorical 信息
+        assert new_trainer._categorical_info == categorical_info, "加载后 categorical_info 应一致"
+        assert new_trainer._model.categorical_info == categorical_info, "加载后 model.categorical_info 应一致"
+        
+        # 验证预测一致性
+        result_loaded = new_trainer.predict(X_test)
+        y_pred_loaded = result_loaded['y_pred']
+        
+        match_rate = (y_pred.values == y_pred_loaded.values).mean()
+        print(f"  加载后预测一致率: {match_rate:.2%}")
+        assert match_rate > 0.99, "加载后的模型预测结果应一致"
+    
+    print("\nGRU Categorical Embedding 测试通过!")
+    print("=" * 60)
+
+
 if __name__ == "__main__":
     # 运行分类测试
     test_gru_trainer()
     
     # 运行回归测试
     test_gru_trainer_regression()
+    
+    # 运行 categorical embedding 测试
+    test_gru_with_categorical_features()

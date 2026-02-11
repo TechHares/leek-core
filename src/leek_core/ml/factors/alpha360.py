@@ -5,7 +5,7 @@ import pandas as pd
 
 from leek_core.models import Field, FieldType
 
-from .base import DualModeFactor
+from .base import DualModeFactor, FeatureSpec
 
 class Alpha360Factor(DualModeFactor):
 
@@ -195,6 +195,6 @@ class Alpha360Factor(DualModeFactor):
             # 历史值：Ref($volume, period) / ($volume + 1e-12)
             return df['volume'].shift(period) / (df['volume'] + self._delta)
 
-    def get_output_names(self) -> List[str]:
-        """返回所有因子的输出名称"""
-        return self.factor_names
+    def get_output_specs(self) -> List[FeatureSpec]:
+        """返回所有因子的输出元数据"""
+        return [FeatureSpec(name=name) for name in self.factor_names]

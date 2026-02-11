@@ -36,7 +36,7 @@ import pandas as pd
 
 from leek_core.models import Field, FieldType
 
-from .base import DualModeFactor
+from .base import DualModeFactor, FeatureSpec, FeatureType
 
 
 class PriceSpikeFeaturesFactor(DualModeFactor):
@@ -325,9 +325,15 @@ class PriceSpikeFeaturesFactor(DualModeFactor):
         
         return pd.DataFrame(results, index=df.index)
     
-    def get_output_names(self) -> List[str]:
-        """返回因子列名列表"""
-        return self.factor_names
+    def get_output_specs(self) -> List[FeatureSpec]:
+        """返回因子元数据列表，is_spike 标记为 CATEGORICAL"""
+        specs = []
+        for name in self.factor_names:
+            if name.endswith("_is_spike"):
+                specs.append(FeatureSpec(name=name, type=FeatureType.CATEGORICAL, num_categories=2))
+            else:
+                specs.append(FeatureSpec(name=name))
+        return specs
 
 
 class SimplePriceSpikeDetector(DualModeFactor):
@@ -420,8 +426,8 @@ class SimplePriceSpikeDetector(DualModeFactor):
             f"{self._factor_prefix}_is_spike": is_spike
         }, index=df.index)
     
-    def get_output_names(self) -> List[str]:
+    def get_output_specs(self) -> List[FeatureSpec]:
         return [
-            f"{self._factor_prefix}_strength",
-            f"{self._factor_prefix}_is_spike"
+            FeatureSpec(name=f"{self._factor_prefix}_strength"),
+            FeatureSpec(name=f"{self._factor_prefix}_is_spike", type=FeatureType.CATEGORICAL, num_categories=2),
         ]

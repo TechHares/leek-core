@@ -13,6 +13,7 @@ from unittest.mock import patch, MagicMock
 from io import StringIO
 from leek_core.ml.factors.alpha101 import Alpha101Factor
 from leek_core.ml.factors.alpha191 import Alpha191Factor
+from leek_core.ml.factors.base import FeatureSpec, FeatureType
 import pandas as pd
 
 from leek_core.ml.factors.alpha158 import Alpha158Factor
@@ -20,6 +21,7 @@ from leek_core.ml.factors.alpha360 import Alpha360Factor
 from leek_core.ml.factors.volume import LongShortVolumeRatioFactor, VolumeAverageFactor
 from leek_core.ml.factors.direction import DirectionFactor
 from leek_core.ml.factors.time import TimeFactor
+from leek_core.ml.factors.price_spike import PriceSpikeFeaturesFactor, SimplePriceSpikeDetector
 from leek_core.utils.decorator import retry
 
 
@@ -204,6 +206,64 @@ class TestFactor(unittest.TestCase):
         print(result[factor.get_output_names()[0]].values)
         self.assertEqual(len(result.columns), len(factor.get_output_names()))
 
+    def test_feature_spec_api(self):
+        """测试 get_output_specs() API 返回正确的 FeatureSpec"""
+        # TimeFactor 应标记 categorical 特征
+        factor = TimeFactor()
+        specs = factor.get_output_specs()
+        names = factor.get_output_names()
+        
+        # get_output_names 应从 specs 派生且长度一致
+        self.assertEqual(len(specs), len(names))
+        for spec, name in zip(specs, names):
+            self.assertEqual(spec.name, name)
+        
+        # hour 应为 CATEGORICAL
+        hour_specs = [s for s in specs if s.name == "Time_hour"]
+        self.assertEqual(len(hour_specs), 1)
+        self.assertEqual(hour_specs[0].type, FeatureType.CATEGORICAL)
+        self.assertEqual(hour_specs[0].num_categories, 24)
+        
+        # day_of_week 应为 CATEGORICAL
+        dow_specs = [s for s in specs if s.name == "Time_day_of_week"]
+        self.assertEqual(len(dow_specs), 1)
+        self.assertEqual(dow_specs[0].type, FeatureType.CATEGORICAL)
+        self.assertEqual(dow_specs[0].num_categories, 7)
+        
+        # hour_sin 应为 NUMERIC（默认）
+        sin_specs = [s for s in specs if s.name == "Time_hour_sin"]
+        self.assertEqual(len(sin_specs), 1)
+        self.assertEqual(sin_specs[0].type, FeatureType.NUMERIC)
+        self.assertEqual(sin_specs[0].num_categories, 0)
+
+    def test_price_spike_specs(self):
+        """测试 PriceSpikeFeaturesFactor 的 specs 标记 is_spike 为 categorical"""
+        factor = PriceSpikeFeaturesFactor()
+        specs = factor.get_output_specs()
+        names = factor.get_output_names()
+        
+        self.assertEqual(len(specs), len(names))
+        
+        # is_spike 应为 CATEGORICAL
+        spike_specs = [s for s in specs if "is_spike" in s.name]
+        self.assertEqual(len(spike_specs), 1)
+        self.assertEqual(spike_specs[0].type, FeatureType.CATEGORICAL)
+        self.assertEqual(spike_specs[0].num_categories, 2)
+        
+        # diff 应为 NUMERIC
+        diff_specs = [s for s in specs if s.name.endswith("_diff") and "pos" not in s.name and "neg" not in s.name]
+        self.assertEqual(len(diff_specs), 1)
+        self.assertEqual(diff_specs[0].type, FeatureType.NUMERIC)
+
+    def test_alpha_specs_all_numeric(self):
+        """测试 Alpha 因子的 specs 全部为 NUMERIC"""
+        factor = Alpha158Factor()
+        specs = factor.get_output_specs()
+        
+        for spec in specs:
+            self.assertEqual(spec.type, FeatureType.NUMERIC, 
+                           f"Alpha158 spec {spec.name} should be NUMERIC")
+            self.assertEqual(spec.num_categories, 0)
     
 
 if __name__ == '__main__':

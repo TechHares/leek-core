@@ -10,6 +10,7 @@ from .cta import CTAStrategy
 from .strategy_mode import StrategyMode, KlineSimple, Single
 from .ml import MLStrategy
 from .xgboost_strategy import XGBoostStrategy
+from .gru_strategy import GRUStrategy
 
 from .strategy_dmi import DMIStrategy
 from .strategy_debug import DebugStrategy
@@ -19,6 +20,7 @@ __all__ = [
     'CTAStrategy',
     'MLStrategy',
     'XGBoostStrategy',
+    'GRUStrategy',
     'StrategyWrapper',
     'Strategy',
     'StrategyContext',

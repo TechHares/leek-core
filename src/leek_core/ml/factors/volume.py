@@ -8,7 +8,7 @@ import pandas as pd
 from leek_core.indicators import ATR, MA, RSI
 from leek_core.models import ChoiceType, Field, FieldType
 
-from .base import DualModeFactor
+from .base import DualModeFactor, FeatureSpec
 
 class LongShortVolumeRatioFactor(DualModeFactor):
     """
@@ -118,8 +118,8 @@ class LongShortVolumeRatioFactor(DualModeFactor):
         # 将结果赋值给 DataFrame
         return pd.DataFrame({self._factor_name: result}, index=df.index)
     
-    def get_output_names(self) -> list:
-        return [self._factor_name]
+    def get_output_specs(self) -> list:
+        return [FeatureSpec(name=self._factor_name)]
 
 
 class VolumeAverageFactor(DualModeFactor):
@@ -275,5 +275,5 @@ class VolumeAverageFactor(DualModeFactor):
         # 将结果赋值给 DataFrame
         return pd.DataFrame({self._factor_name: result}, index=df.index)
     
-    def get_output_names(self) -> list:
-        return [self._factor_name]
+    def get_output_specs(self) -> list:
+        return [FeatureSpec(name=self._factor_name)]

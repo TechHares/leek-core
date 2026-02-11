@@ -32,7 +32,7 @@ import pandas as pd
 
 from leek_core.models import Field, FieldType
 
-from .base import DualModeFactor
+from .base import DualModeFactor, FeatureSpec
 
 
 class ARPriceDiffFactor(DualModeFactor):
@@ -294,9 +294,9 @@ class ARPriceDiffFactor(DualModeFactor):
         
         return pd.DataFrame(results, index=df.index)
     
-    def get_output_names(self) -> List[str]:
-        """返回因子列名列表"""
-        return self.factor_names
+    def get_output_specs(self) -> List[FeatureSpec]:
+        """返回因子元数据列表"""
+        return [FeatureSpec(name=name) for name in self.factor_names]
 
 
 class SimpleARFactor(DualModeFactor):
@@ -392,5 +392,5 @@ class SimpleARFactor(DualModeFactor):
         
         return pd.DataFrame({self._factor_name: ar_result}, index=df.index)
     
-    def get_output_names(self) -> List[str]:
-        return [self._factor_name]
+    def get_output_specs(self) -> List[FeatureSpec]:
+        return [FeatureSpec(name=self._factor_name)]

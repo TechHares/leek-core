@@ -242,7 +242,8 @@ class XGBoostTrainer(BaseTrainer):
         y_train: pd.Series,
         X_val: Optional[pd.DataFrame] = None,
         y_val: Optional[pd.Series] = None,
-        progress_callback: Optional[Callable[[int, int, Dict[str, Any]], None]] = None
+        progress_callback: Optional[Callable[[int, int, Dict[str, Any]], None]] = None,
+        sample_weight: Optional[Any] = None,
     ):
         """
         训练 XGBoost 模型
@@ -254,6 +255,7 @@ class XGBoostTrainer(BaseTrainer):
         :param X_val: 验证集特征 DataFrame（可选）
         :param y_val: 验证集标签 Series（可选）
         :param progress_callback: 进度回调函数，格式为 callback(current_iteration, total_iterations, metrics_dict)
+        :param sample_weight: 样本权重（可选），用于类别不平衡时提高少数类权重，如 sklearn.utils.compute_sample_weight('balanced', y_train)
         """
         # 保存特征名称
         self._feature_names = list(X_train.columns)
@@ -275,10 +277,12 @@ class XGBoostTrainer(BaseTrainer):
             # 继续训练模式：使用已有模型
             model = self._model
         else:
-            # 新建模型：将 eval_metric 添加到模型参数中
+            # 新建模型：将 eval_metric 和 early_stopping_rounds 添加到构造参数中
             model_params_with_eval = self.model_params.copy()
             if self.eval_metric is not None:
                 model_params_with_eval["eval_metric"] = self.eval_metric
+            if self.early_stopping_rounds is not None:
+                model_params_with_eval["early_stopping_rounds"] = self.early_stopping_rounds
             
             if self.task_type == "classification":
                 model = XGBClassifier(**model_params_with_eval)
@@ -296,13 +300,13 @@ class XGBoostTrainer(BaseTrainer):
             model.callbacks = [ProgressCallback(progress_callback, total_iterations)]
         # 准备训练参数
         fit_params = {}
+        if sample_weight is not None:
+            fit_params["sample_weight"] = sample_weight
         
-        # 如果有验证集，设置验证集和早停
-        # 注意：eval_metric 应该在模型构造函数中设置，不在 fit() 中传递
+        # 如果有验证集，设置验证集
+        # 注意：eval_metric 和 early_stopping_rounds 在构造函数中设置
         if X_val is not None and y_val is not None:
             fit_params["eval_set"] = [(X_val, y_val)]
-            if self.early_stopping_rounds is not None:
-                fit_params["early_stopping_rounds"] = self.early_stopping_rounds
         
         # 训练模型
         model.fit(X_train, y_train, **fit_params, verbose=False)

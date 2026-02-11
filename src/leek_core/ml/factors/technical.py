@@ -8,7 +8,7 @@ import pandas as pd
 from leek_core.indicators import ATR, MA, RSI
 from leek_core.models import Field, FieldType
 
-from .base import DualModeFactor
+from .base import DualModeFactor, FeatureSpec
 
 class MAFactor(DualModeFactor):
     display_name = "MA"
@@ -40,8 +40,8 @@ class MAFactor(DualModeFactor):
         df[self._factor_name] = df['close'].rolling(window=self.window).mean()
         return df
     
-    def get_output_names(self) -> list:
-        return [self._factor_name]
+    def get_output_specs(self) -> list:
+        return [FeatureSpec(name=self._factor_name)]
 
 class RSIFactor(DualModeFactor):
     display_name = "RSI"
@@ -86,8 +86,8 @@ class RSIFactor(DualModeFactor):
         df[self._factor_name] = 100 - (100 / (1 + rs))
         return df
     
-    def get_output_names(self) -> list:
-        return [self._factor_name]
+    def get_output_specs(self) -> list:
+        return [FeatureSpec(name=self._factor_name)]
 
 class ATRFactor(DualModeFactor):
     display_name = "ATR"
@@ -135,6 +135,6 @@ class ATRFactor(DualModeFactor):
         df[self._factor_name] = tr.rolling(window=self.window).mean()
         return df
     
-    def get_output_names(self) -> list:
-        return [self._factor_name]
+    def get_output_specs(self) -> list:
+        return [FeatureSpec(name=self._factor_name)]
 

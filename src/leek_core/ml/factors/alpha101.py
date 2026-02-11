@@ -6,7 +6,7 @@ import pandas as pd
 
 from leek_core.models import Field, FieldType
 
-from .base import DualModeFactor
+from .base import DualModeFactor, FeatureSpec
 
 # 抑制LAPACK的数值警告（通过环境变量）
 # 这些警告通常不影响计算结果，只是数值精度问题
@@ -92,8 +92,8 @@ class Alpha101Factor(DualModeFactor):
         
         return pd.DataFrame(factor_results, index=df.index)
 
-    def get_output_names(self) -> list:
-        return self.factor_names
+    def get_output_specs(self) -> list:
+        return [FeatureSpec(name=name) for name in self.factor_names]
     
     # ========== 数据预处理 ==========
     

@@ -7,7 +7,7 @@ import pandas as pd
 
 from leek_core.models import Field, FieldType, KLine
 
-from .base import DualModeFactor
+from .base import DualModeFactor, FeatureSpec, FeatureType
 
 
 class TimeFactor(DualModeFactor):
@@ -351,65 +351,84 @@ class TimeFactor(DualModeFactor):
         return pd.DataFrame(factor_results, index=df.index)
 
     def _build_factor_names(self):
-        """构建因子名称列表"""
+        """构建因子名称列表和对应的 FeatureSpec 列表"""
+        self._factor_specs: List[FeatureSpec] = []
+        
         if self.include_hour:
             self.factor_names.append("hour")
+            self._factor_specs.append(FeatureSpec(name=f"{self.name}_hour", type=FeatureType.CATEGORICAL, num_categories=24))
             if self.include_cyclic:
                 self.factor_names.append("hour_sin")
+                self._factor_specs.append(FeatureSpec(name=f"{self.name}_hour_sin"))
                 self.factor_names.append("hour_cos")
+                self._factor_specs.append(FeatureSpec(name=f"{self.name}_hour_cos"))
         
         if self.include_minute:
             self.factor_names.append("minute")
+            self._factor_specs.append(FeatureSpec(name=f"{self.name}_minute", type=FeatureType.CATEGORICAL, num_categories=60))
             if self.include_cyclic:
                 self.factor_names.append("minute_sin")
+                self._factor_specs.append(FeatureSpec(name=f"{self.name}_minute_sin"))
                 self.factor_names.append("minute_cos")
+                self._factor_specs.append(FeatureSpec(name=f"{self.name}_minute_cos"))
         
         if self.include_day_of_week:
             self.factor_names.append("day_of_week")
+            self._factor_specs.append(FeatureSpec(name=f"{self.name}_day_of_week", type=FeatureType.CATEGORICAL, num_categories=7))
             if self.include_cyclic:
                 self.factor_names.append("dow_sin")
+                self._factor_specs.append(FeatureSpec(name=f"{self.name}_dow_sin"))
                 self.factor_names.append("dow_cos")
+                self._factor_specs.append(FeatureSpec(name=f"{self.name}_dow_cos"))
         
         if self.include_day_of_month:
             self.factor_names.append("day_of_month")
+            self._factor_specs.append(FeatureSpec(name=f"{self.name}_day_of_month", type=FeatureType.CATEGORICAL, num_categories=31))
         
         if self.include_day_of_year:
             self.factor_names.append("day_of_year")
+            self._factor_specs.append(FeatureSpec(name=f"{self.name}_day_of_year", type=FeatureType.CATEGORICAL, num_categories=366))
         
         if self.include_week_of_year:
             self.factor_names.append("week_of_year")
+            self._factor_specs.append(FeatureSpec(name=f"{self.name}_week_of_year", type=FeatureType.CATEGORICAL, num_categories=53))
         
         if self.include_month:
             self.factor_names.append("month")
+            self._factor_specs.append(FeatureSpec(name=f"{self.name}_month", type=FeatureType.CATEGORICAL, num_categories=12))
             if self.include_cyclic:
                 self.factor_names.append("month_sin")
+                self._factor_specs.append(FeatureSpec(name=f"{self.name}_month_sin"))
                 self.factor_names.append("month_cos")
+                self._factor_specs.append(FeatureSpec(name=f"{self.name}_month_cos"))
         
         if self.include_quarter:
             self.factor_names.append("quarter")
+            self._factor_specs.append(FeatureSpec(name=f"{self.name}_quarter", type=FeatureType.CATEGORICAL, num_categories=4))
             if self.include_cyclic:
                 self.factor_names.append("quarter_sin")
+                self._factor_specs.append(FeatureSpec(name=f"{self.name}_quarter_sin"))
                 self.factor_names.append("quarter_cos")
+                self._factor_specs.append(FeatureSpec(name=f"{self.name}_quarter_cos"))
         
         if self.include_boolean:
-            self.factor_names.extend([
-                "is_weekend",
-                "is_month_start",
-                "is_month_end",
-                "is_quarter_start",
-                "is_quarter_end",
-                "is_year_start",
-                "is_year_end"
-            ])
+            boolean_names = [
+                "is_weekend", "is_month_start", "is_month_end",
+                "is_quarter_start", "is_quarter_end", "is_year_start", "is_year_end"
+            ]
+            self.factor_names.extend(boolean_names)
+            for bn in boolean_names:
+                self._factor_specs.append(FeatureSpec(name=f"{self.name}_{bn}"))
         
         if self.include_days_since:
-            self.factor_names.extend([
-                "days_since_month_start",
-                "days_since_quarter_start",
-                "days_since_year_start"
-            ])
+            days_names = [
+                "days_since_month_start", "days_since_quarter_start", "days_since_year_start"
+            ]
+            self.factor_names.extend(days_names)
+            for dn in days_names:
+                self._factor_specs.append(FeatureSpec(name=f"{self.name}_{dn}"))
 
-    def get_output_names(self) -> List[str]:
-        """返回所有因子的输出名称"""
-        return [f"{self.name}_{name}" for name in self.factor_names]
+    def get_output_specs(self) -> List[FeatureSpec]:
+        """返回所有因子的输出元数据"""
+        return self._factor_specs
 

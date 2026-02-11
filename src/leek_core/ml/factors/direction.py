@@ -7,7 +7,7 @@ import pandas as pd
 
 from leek_core.models import Field, FieldType
 
-from .base import DualModeFactor
+from .base import DualModeFactor, FeatureSpec
 
 class DirectionFactor(DualModeFactor):
     """
@@ -154,5 +154,5 @@ class DirectionFactor(DualModeFactor):
         # 将结果赋值给 DataFrame
         return pd.DataFrame({self._factor_name: result}, index=df.index)
     
-    def get_output_names(self) -> list:
-        return [self._factor_name]
+    def get_output_specs(self) -> list:
+        return [FeatureSpec(name=self._factor_name)]

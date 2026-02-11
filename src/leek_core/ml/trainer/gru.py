@@ -5,6 +5,7 @@ GRU 训练器实现
 
 基于 PyTorch 的 GRU 模型，支持分类和回归任务。
 自动将扁平特征转换为时序窗口格式。
+支持 categorical 特征的 Embedding 层。
 
 依赖：需要安装 torch，可通过 `pip install torch` 或 `poetry add torch` 安装
 """
@@ -43,11 +44,17 @@ def _lazy_import_torch():
             )
 
 
+def _compute_embed_dim(num_categories: int) -> int:
+    """计算 Embedding 维度的启发式规则"""
+    return min(50, max(2, (num_categories + 1) // 2))
+
+
 class GRUModel(object):
     """
     GRU 模型封装类
     
-    包含模型结构和相关配置，便于序列化保存
+    包含模型结构和相关配置，便于序列化保存。
+    支持 categorical 特征的 Embedding 层。
     """
     
     def __init__(
@@ -61,7 +68,20 @@ class GRUModel(object):
         task_type: str,
         window_size: int,
         feature_names: List[str],
+        categorical_info: Optional[Dict[str, int]] = None,
     ):
+        """
+        :param input_size: 数值特征数量（不含 categorical）
+        :param hidden_size: GRU 隐藏层大小
+        :param num_layers: GRU 层数
+        :param num_classes: 输出类别数
+        :param dropout: Dropout 比例
+        :param bidirectional: 是否双向
+        :param task_type: 任务类型
+        :param window_size: 时序窗口大小
+        :param feature_names: 全部特征名称列表
+        :param categorical_info: categorical 特征信息 {feature_name: num_categories}
+        """
         _lazy_import_torch()
         
         self.input_size = input_size
@@ -73,19 +93,43 @@ class GRUModel(object):
         self.task_type = task_type
         self.window_size = window_size
         self.feature_names = feature_names
+        self.categorical_info = categorical_info or {}
+        
+        # 计算 categorical/numeric 特征的列索引
+        self.categorical_indices = []
+        self.numeric_indices = []
+        self.embed_configs = []  # [(num_categories, embed_dim), ...]
+        
+        for i, name in enumerate(feature_names):
+            if name in self.categorical_info:
+                self.categorical_indices.append(i)
+                num_cat = self.categorical_info[name]
+                embed_dim = _compute_embed_dim(num_cat)
+                self.embed_configs.append((num_cat, embed_dim))
+            else:
+                self.numeric_indices.append(i)
+        
+        self.total_embed_dim = sum(ed for _, ed in self.embed_configs)
         
         # 构建网络
         self.network = self._build_network()
         self.callbacks = None  # 兼容基类的 save_model
     
     def _build_network(self):
-        """构建 GRU 网络"""
+        """构建 GRU 网络（支持 Embedding）"""
         _lazy_import_torch()
+        
+        cat_indices = self.categorical_indices
+        num_indices = self.numeric_indices
+        embed_configs = self.embed_configs
+        num_numeric = len(num_indices)
+        total_embed_dim = self.total_embed_dim
         
         class GRUNetwork(nn.Module):
             def __init__(
                 self,
-                input_size: int,
+                numeric_size: int,
+                embed_configs_inner: list,
                 hidden_size: int,
                 num_layers: int,
                 num_classes: int,
@@ -99,10 +143,36 @@ class GRUModel(object):
                 self.num_layers = num_layers
                 self.bidirectional = bidirectional
                 self.num_directions = 2 if bidirectional else 1
+                self.cat_indices = cat_indices
+                self.num_indices = num_indices
+                
+                # 缓存索引为 buffer，避免每次 forward 重新创建 Tensor
+                if num_indices:
+                    self.register_buffer(
+                        '_num_idx', torch.tensor(num_indices, dtype=torch.long)
+                    )
+                else:
+                    self._num_idx = None
+                if cat_indices:
+                    self.register_buffer(
+                        '_cat_idx', torch.tensor(cat_indices, dtype=torch.long)
+                    )
+                else:
+                    self._cat_idx = None
+                
+                # Embedding 层（每个 categorical 特征一个）
+                self.embeddings = nn.ModuleList()
+                self._total_embed_dim = 0
+                for num_cat, embed_dim in embed_configs_inner:
+                    self.embeddings.append(nn.Embedding(num_cat + 1, embed_dim, padding_idx=0))
+                    self._total_embed_dim += embed_dim
+                
+                # GRU 输入大小 = 数值特征数 + embedding 总维度
+                gru_input_size = numeric_size + self._total_embed_dim
                 
                 # GRU 层
                 self.gru = nn.GRU(
-                    input_size=input_size,
+                    input_size=gru_input_size,
                     hidden_size=hidden_size,
                     num_layers=num_layers,
                     batch_first=True,
@@ -130,18 +200,40 @@ class GRUModel(object):
                     )
             
             def forward(self, x):
-                # x: (batch, seq_len, input_size)
-                # GRU 输出
-                gru_out, _ = self.gru(x)
-                # 取最后一个时间步的输出
-                # gru_out: (batch, seq_len, hidden_size * num_directions)
+                # x: (batch, seq_len, total_features) - all features as float
+                parts = []
+                
+                # 1. 提取数值特征（使用缓存的 buffer 索引）
+                if self._num_idx is not None:
+                    numeric_features = x.index_select(2, self._num_idx)
+                    parts.append(numeric_features)
+                
+                # 2. 提取 categorical 特征并通过 Embedding
+                if self._cat_idx is not None:
+                    cat_features = x.index_select(2, self._cat_idx).long()  # (batch, seq_len, num_cat)
+                    
+                    embed_parts = []
+                    for j, embed_layer in enumerate(self.embeddings):
+                        # 取第 j 个 categorical 特征
+                        cat_col = cat_features[:, :, j]  # (batch, seq_len)
+                        embedded = embed_layer(cat_col)    # (batch, seq_len, embed_dim)
+                        embed_parts.append(embedded)
+                    
+                    if embed_parts:
+                        parts.append(torch.cat(embed_parts, dim=2))
+                
+                # 3. 拼接所有特征
+                gru_input = torch.cat(parts, dim=2)  # (batch, seq_len, gru_input_size)
+                
+                # 4. GRU 输出
+                gru_out, _ = self.gru(gru_input)
                 out = gru_out[:, -1, :]
-                # 全连接层
                 out = self.fc(out)
                 return out
         
         return GRUNetwork(
-            input_size=self.input_size,
+            numeric_size=num_numeric,
+            embed_configs_inner=embed_configs,
             hidden_size=self.hidden_size,
             num_layers=self.num_layers,
             num_classes=self.num_classes,
@@ -186,10 +278,12 @@ class GRUTrainer(BaseTrainer):
     
     基于 PyTorch 的 GRU 模型，支持分类和回归任务。
     自动将扁平特征转换为时序窗口格式进行训练。
+    支持 categorical 特征通过 Embedding 层编码。
     
     特点：
     - 支持时序建模，适合短线择时策略
     - 自动处理时序窗口，无需修改 FeatureEngine
+    - 支持 categorical 特征 Embedding（如时间特征 hour/day_of_week 等）
     - 支持 GPU 加速（如果可用）
     - 支持早停、学习率调度等训练技巧
     """
@@ -308,8 +402,8 @@ class GRUTrainer(BaseTrainer):
             label="计算设备",
             type=FieldType.RADIO,
             default="auto",
-            description="选择计算设备：auto（自动选择GPU/CPU）、cuda（强制GPU）、cpu（强制CPU）",
-            choices=[("auto", "自动"), ("cuda", "GPU"), ("cpu", "CPU")],
+            description="选择计算设备：auto（自动选择GPU/CPU）、cuda（NVIDIA GPU）、mps（Apple Silicon GPU）、cpu（CPU）",
+            choices=[("auto", "自动"), ("cuda", "NVIDIA GPU"), ("mps", "Apple GPU"), ("cpu", "CPU")],
             choice_type=ChoiceType.STRING,
             required=False,
         ),
@@ -330,25 +424,8 @@ class GRUTrainer(BaseTrainer):
         random_state: Optional[int] = None,
         device: str = "auto",
     ):
-        """
-        初始化 GRU 训练器
-        
-        :param task_type: 任务类型，"classification"（分类）或 "regression"（回归）
-        :param window_size: 时序窗口大小，用于预测的历史K线数量
-        :param hidden_size: GRU 隐藏层大小
-        :param num_layers: GRU 层数
-        :param dropout: Dropout 比例
-        :param bidirectional: 是否使用双向 GRU
-        :param learning_rate: 学习率
-        :param batch_size: 批次大小
-        :param epochs: 最大训练轮数
-        :param early_stopping_patience: 早停耐心值，0表示禁用
-        :param random_state: 随机种子
-        :param device: 计算设备 ("auto", "cuda", "cpu")
-        """
         super().__init__()
         
-        # 验证任务类型
         if task_type not in ["classification", "regression"]:
             raise ValueError(
                 f"Invalid task_type: {task_type}. Must be 'classification' or 'regression'"
@@ -371,22 +448,34 @@ class GRUTrainer(BaseTrainer):
         self._device = None
         self._feature_names = None
         self._num_classes = None
+        self._categorical_info = None  # {feature_name: num_categories}
     
     def _get_device(self):
-        """获取计算设备"""
+        """获取计算设备（支持 CUDA / MPS / CPU）"""
         _lazy_import_torch()
         
         if self._device is not None:
             return self._device
         
         if self.device_config == "auto":
-            self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            if torch.cuda.is_available():
+                self._device = torch.device("cuda")
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                self._device = torch.device("mps")
+            else:
+                self._device = torch.device("cpu")
         elif self.device_config == "cuda":
             if not torch.cuda.is_available():
                 logger.warning("CUDA not available, falling back to CPU")
                 self._device = torch.device("cpu")
             else:
                 self._device = torch.device("cuda")
+        elif self.device_config == "mps":
+            if not (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
+                logger.warning("MPS not available, falling back to CPU")
+                self._device = torch.device("cpu")
+            else:
+                self._device = torch.device("mps")
         else:
             self._device = torch.device("cpu")
         
@@ -408,22 +497,28 @@ class GRUTrainer(BaseTrainer):
         y: pd.Series
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        将扁平特征转换为时序窗口格式
+        将扁平特征转换为时序窗口格式（向量化实现，零拷贝滑动窗口）
+        
+        所有特征统一为 float32（categorical 特征在网络内部转为 LongTensor）
         
         :param X: 特征 DataFrame (N, features)
         :param y: 标签 Series (N,)
         :return: (X_seq, y_seq) 其中 X_seq 形状为 (N-window_size, window_size, features)
         """
-        X_values = X.values.astype(np.float32)
+        X_values = np.ascontiguousarray(X.values, dtype=np.float32)
         y_values = y.values
         
-        X_seq, y_seq = [], []
-        for i in range(self.window_size, len(X_values)):
-            X_seq.append(X_values[i - self.window_size:i])
-            y_seq.append(y_values[i])
-        
+        # 使用 stride_tricks 实现零拷贝滑动窗口，比 Python for 循环快 100x+
+        n_samples, n_features = X_values.shape
+        stride_sample, stride_feature = X_values.strides
+        X_seq = np.lib.stride_tricks.as_strided(
+            X_values,
+            shape=(n_samples - self.window_size, self.window_size, n_features),
+            strides=(stride_sample, stride_sample, stride_feature),
+        )
+        # as_strided 返回视图，需要 copy 以避免后续操作的内存问题
         X_seq = np.array(X_seq, dtype=np.float32)
-        y_seq = np.array(y_seq)
+        y_seq = y_values[self.window_size:]
         
         return X_seq, y_seq
     
@@ -433,18 +528,23 @@ class GRUTrainer(BaseTrainer):
         y: np.ndarray, 
         shuffle: bool = True
     ):
-        """创建 DataLoader"""
+        """创建 DataLoader（数据预先搬到目标设备，避免逐 batch 传输）"""
         _lazy_import_torch()
         from torch.utils.data import DataLoader, TensorDataset
         
-        X_tensor = torch.FloatTensor(X)
+        device = self._get_device()
+        
+        # 直接在目标设备上创建 Tensor，避免训练循环中反复 .to(device)
+        # 对 MPS/CUDA 设备尤为重要：消除每 batch 的 CPU→GPU 传输延迟
+        X_tensor = torch.tensor(X, dtype=torch.float32, device=device)
         
         if self.task_type == "classification":
-            y_tensor = torch.LongTensor(y)
+            y_tensor = torch.tensor(y, dtype=torch.long, device=device)
         else:
-            y_tensor = torch.FloatTensor(y).unsqueeze(1)
+            y_tensor = torch.tensor(y, dtype=torch.float32, device=device).unsqueeze(1)
         
         dataset = TensorDataset(X_tensor, y_tensor)
+        
         dataloader = DataLoader(
             dataset, 
             batch_size=self.batch_size, 
@@ -460,7 +560,8 @@ class GRUTrainer(BaseTrainer):
         y_train: pd.Series,
         X_val: Optional[pd.DataFrame] = None,
         y_val: Optional[pd.Series] = None,
-        progress_callback: Optional[Callable[[int, int, Dict[str, Any]], None]] = None
+        progress_callback: Optional[Callable[[int, int, Dict[str, Any]], None]] = None,
+        categorical_info: Optional[Dict[str, int]] = None,
     ):
         """
         训练 GRU 模型
@@ -470,6 +571,8 @@ class GRUTrainer(BaseTrainer):
         :param X_val: 验证集特征 DataFrame（可选）
         :param y_val: 验证集标签 Series（可选）
         :param progress_callback: 进度回调函数
+        :param categorical_info: categorical 特征信息 {feature_name: num_categories}，
+               来自 FeatureEngine.get_categorical_info()
         """
         _lazy_import_torch()
         
@@ -479,9 +582,26 @@ class GRUTrainer(BaseTrainer):
         # 获取设备
         device = self._get_device()
         
-        # 保存特征名称
+        # 保存特征名称和 categorical 信息
         self._feature_names = list(X_train.columns)
-        input_size = len(self._feature_names)
+        self._categorical_info = categorical_info or {}
+        
+        # 只保留在特征列中实际存在的 categorical 信息
+        self._categorical_info = {
+            k: v for k, v in self._categorical_info.items()
+            if k in self._feature_names
+        }
+        
+        num_numeric = len(self._feature_names) - len(self._categorical_info)
+        
+        if self._categorical_info:
+            cat_embed_dims = sum(
+                _compute_embed_dim(nc) for nc in self._categorical_info.values()
+            )
+            logger.info(
+                f"Categorical features: {len(self._categorical_info)}, "
+                f"total embed dim: {cat_embed_dims}"
+            )
         
         # 转换为时序格式
         logger.info(f"Creating sequences with window_size={self.window_size}...")
@@ -501,9 +621,9 @@ class GRUTrainer(BaseTrainer):
         else:
             self._num_classes = 1
         
-        # 创建模型
+        # 创建模型（input_size 传 numeric 特征数，embedding 在网络内部处理）
         self._model = GRUModel(
-            input_size=input_size,
+            input_size=num_numeric,
             hidden_size=self.hidden_size,
             num_layers=self.num_layers,
             num_classes=self._num_classes,
@@ -512,6 +632,7 @@ class GRUTrainer(BaseTrainer):
             task_type=self.task_type,
             window_size=self.window_size,
             feature_names=self._feature_names,
+            categorical_info=self._categorical_info,
         ).to(device)
         
         # 创建 DataLoader
@@ -555,10 +676,8 @@ class GRUTrainer(BaseTrainer):
             train_total = 0
             
             for batch_X, batch_y in train_loader:
-                batch_X = batch_X.to(device)
-                batch_y = batch_y.to(device)
-                
-                optimizer.zero_grad()
+                # 数据已在目标设备上，无需 .to(device)
+                optimizer.zero_grad(set_to_none=True)
                 outputs = self._model(batch_X)
                 loss = criterion(outputs, batch_y)
                 loss.backward()
@@ -589,9 +708,7 @@ class GRUTrainer(BaseTrainer):
                 
                 with torch.no_grad():
                     for batch_X, batch_y in val_loader:
-                        batch_X = batch_X.to(device)
-                        batch_y = batch_y.to(device)
-                        
+                        # 数据已在目标设备上，无需 .to(device)
                         outputs = self._model(batch_X)
                         loss = criterion(outputs, batch_y)
                         
@@ -651,11 +768,20 @@ class GRUTrainer(BaseTrainer):
             self._model.load_state_dict(best_model_state)
             logger.info(f"Restored best model with val_loss: {best_val_loss:.4f}")
         
+        # 释放训练阶段的 GPU 显存（优化器、梯度、DataLoader 等），为预测腾出空间
+        del train_loader, optimizer, scheduler, criterion
+        if val_loader is not None:
+            del val_loader
+        if device.type == "mps":
+            torch.mps.empty_cache()
+        elif device.type == "cuda":
+            torch.cuda.empty_cache()
+        
         logger.info("Training completed!")
     
     def predict(self, X_test: pd.DataFrame) -> dict:
         """
-        预测结果
+        预测结果（分批推理，避免 GPU OOM）
         
         :param X_test: 测试集特征 DataFrame（扁平格式，会自动转换为时序窗口）
         :return: 预测结果字典
@@ -672,22 +798,27 @@ class GRUTrainer(BaseTrainer):
         self._model.eval_mode()
         
         # 转换为时序格式
-        # 注意：预测时需要创建一个假的标签
         dummy_y = pd.Series(np.zeros(len(X_test)), index=X_test.index)
         X_test_seq, _ = self._create_sequences(X_test, dummy_y)
         
         # 调整索引（因为窗口化会丢失前 window_size 个样本）
         valid_indices = X_test.index[self.window_size:]
         
-        # 创建 tensor
-        X_tensor = torch.FloatTensor(X_test_seq).to(device)
-        
-        # 预测
+        # 分批推理，每批推完立即搬回 CPU，避免 GPU OOM
+        all_outputs = []
         with torch.no_grad():
-            outputs = self._model(X_tensor)
+            for i in range(0, len(X_test_seq), self.batch_size):
+                batch = torch.tensor(
+                    X_test_seq[i:i + self.batch_size],
+                    dtype=torch.float32, device=device,
+                )
+                out = self._model(batch)
+                all_outputs.append(out.cpu())
+            
+            outputs = torch.cat(all_outputs, dim=0)
             
             if self.task_type == "classification":
-                proba = torch.softmax(outputs, dim=1).cpu().numpy()
+                proba = torch.softmax(outputs, dim=1).numpy()
                 y_pred = np.argmax(proba, axis=1)
                 
                 result = {
@@ -696,13 +827,11 @@ class GRUTrainer(BaseTrainer):
                 
                 # 返回概率
                 if proba.shape[1] == 2:
-                    # 二分类，返回正类概率
                     result['y_proba'] = pd.Series(proba[:, 1], index=valid_indices)
                 else:
-                    # 多分类，返回完整概率矩阵
                     result['y_proba'] = pd.DataFrame(proba, index=valid_indices)
             else:
-                y_pred = outputs.cpu().numpy().flatten()
+                y_pred = outputs.numpy().flatten()
                 result = {
                     'y_pred': pd.Series(y_pred, index=valid_indices),
                 }
@@ -710,16 +839,10 @@ class GRUTrainer(BaseTrainer):
         return result
     
     def save_model(self, path: Optional[str] = None) -> Optional[io.BytesIO]:
-        """
-        保存模型
-        
-        :param path: 保存路径（可选）
-        :return: 如果未提供路径，返回 BytesIO 对象
-        """
+        """保存模型"""
         if self._model is None:
             raise ValueError("No model to save. Please train the model first.")
         
-        # 准备保存的数据
         save_data = {
             'model_state_dict': self._model.state_dict(),
             'model_config': {
@@ -732,6 +855,7 @@ class GRUTrainer(BaseTrainer):
                 'task_type': self._model.task_type,
                 'window_size': self._model.window_size,
                 'feature_names': self._model.feature_names,
+                'categorical_info': self._model.categorical_info,
             },
             'trainer_config': {
                 'task_type': self.task_type,
@@ -762,16 +886,9 @@ class GRUTrainer(BaseTrainer):
         model: Optional[Any] = None, 
         model_io: Optional[io.BytesIO] = None
     ):
-        """
-        加载模型
-        
-        :param path: 模型文件路径
-        :param model: 模型对象（直接传入）
-        :param model_io: BytesIO 对象
-        """
+        """加载模型"""
         _lazy_import_torch()
         
-        # 加载数据
         if model is not None:
             save_data = model
         elif model_io is not None:
@@ -784,16 +901,14 @@ class GRUTrainer(BaseTrainer):
                 "No model source specified. Provide one of: path, model, or model_io"
             )
         
-        # 恢复模型配置
         model_config = save_data['model_config']
         self._feature_names = model_config['feature_names']
         self._num_classes = model_config['num_classes']
+        self._categorical_info = model_config.get('categorical_info', {})
         
-        # 同步 trainer 配置（重要：确保 predict 时使用正确的参数）
         self.window_size = model_config['window_size']
         self.task_type = model_config['task_type']
         
-        # 重建模型
         self._model = GRUModel(
             input_size=model_config['input_size'],
             hidden_size=model_config['hidden_size'],
@@ -804,38 +919,16 @@ class GRUTrainer(BaseTrainer):
             task_type=model_config['task_type'],
             window_size=model_config['window_size'],
             feature_names=model_config['feature_names'],
+            categorical_info=model_config.get('categorical_info', {}),
         )
         
-        # 加载权重
         self._model.load_state_dict(save_data['model_state_dict'])
         
-        # 移动到设备
         device = self._get_device()
         self._model.to(device)
         
-        logger.info(f"Model loaded successfully. Window size: {model_config['window_size']}")
-"""
-方案 A：借鉴思路，简化执行
-Phase 1: 单模型验证
-├── 用你现有的 GRUTrainer
-├── 1分钟/5分钟/15分钟 K 线
-└── 目标：验证 GRU 在加密货币上是否有效
-
-Phase 2: 如果有效，加入变体
-├── Double-GRU（num_layers=2）
-├── 不同 window_size（20/60/120）
-└── 等权融合 3-6 个模型
-
-Phase 3: 如果还想提升
-├── Attention-GRU
-├── CNN-GRU
-└── 更多数据源（链上、合约）
-
-方案 B：针对加密货币的调整
-原方案	        调整建议
-1/2/3 年跨度	1/2/4 周跨度
-日线数据	    分钟线数据
-资金流数据	    链上数据 + 合约数据
-选股因子	    择时信号（单币种）
-指增组合	    单币种多空
-"""
+        cat_count = len(self._categorical_info)
+        logger.info(
+            f"Model loaded successfully. Window size: {model_config['window_size']}, "
+            f"categorical features: {cat_count}"
+        )

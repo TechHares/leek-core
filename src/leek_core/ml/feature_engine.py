@@ -9,15 +9,16 @@ from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 
 from leek_core.models import KLine, TimeFrame
 
-from .factors.base import DualModeFactor
+from .factors.base import DualModeFactor, FeatureSpec, FeatureType
 
 class FeatureEngine:
     """
     特征工程引擎，支持流式和批量计算
     
-    自动处理 symbol 和 timeframe 的 label encoding：
-    - 训练模式：自动从数据中学习编码
-    - 预测模式：使用预训练的编码器
+    核心改进：
+    - 使用 factor_id 作为特征名前缀，确保不同因子实例的输出名唯一
+    - 存储 FeatureSpec 元数据，支持区分 NUMERIC 和 CATEGORICAL 特征
+    - 自动处理 symbol 和 timeframe 的 label encoding
     """
 
     def __init__(
@@ -39,10 +40,17 @@ class FeatureEngine:
         """
         self.factors: List[DualModeFactor] = factors
         self.feature_names: List[str] = []
+        self.feature_specs: Dict[str, FeatureSpec] = {}  # full_name -> FeatureSpec
+        
         for i in range(len(factors)):
             factor_id = factor_ids[i] if factor_ids is not None and len(factor_ids) >= len(factors) else f"{i}"
             setattr(self.factors[i], "_factor_id", factor_id)
-            self.feature_names.extend(self.factors[i].get_output_names())
+            # 收集 specs 并加上 factor_id 前缀
+            for spec in self.factors[i].get_output_specs():
+                full_name = f"{factor_id}_{spec.name}"
+                self.feature_names.append(full_name)
+                self.feature_specs[full_name] = spec
+        
         self._call_back = _call_back or (lambda factor_id, success: None)
         
         # Symbol 和 Timeframe 编码
@@ -56,6 +64,8 @@ class FeatureEngine:
                 if hasattr(self.symbol_encoder, 'categories_') and len(self.symbol_encoder.categories_) > 0:
                     symbol_feature_names = [f'symbol_{cat}' for cat in self.symbol_encoder.categories_[0]]
                     self.feature_names.extend(symbol_feature_names)
+                    for sfn in symbol_feature_names:
+                        self.feature_specs[sfn] = FeatureSpec(name=sfn)
             else:
                 # 训练模式：稍后通过 fit_encoders 拟合
                 self.symbol_encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
@@ -69,13 +79,17 @@ class FeatureEngine:
                 self.timeframe_encoder = LabelEncoder()
                 self._timeframe_encoder_fitted = False
                 # 在训练模式下，立即使用固定的 TimeFrame 枚举值拟合编码器
-                # 这样可以确保编码器包含所有可能的 timeframe，减少外部复杂度
                 all_timeframe_values = [tf.value for tf in TimeFrame]
                 self.timeframe_encoder.fit(all_timeframe_values)
                 self._timeframe_encoder_fitted = True
             
             # 添加 timeframe 编码特征名称
             self.feature_names.append('timeframe_encoded')
+            self.feature_specs['timeframe_encoded'] = FeatureSpec(
+                name='timeframe_encoded',
+                type=FeatureType.CATEGORICAL,
+                num_categories=len(TimeFrame),
+            )
 
     def update(self, kline: KLine) -> np.ndarray:
         """
@@ -86,16 +100,19 @@ class FeatureEngine:
         # 按照 feature_names 的顺序构建特征向量
         feature_dict = {}
         
-        # 1. 收集因子特征
+        # 1. 收集因子特征（使用 factor_id 前缀作为 key）
         for factor in self.factors:
             val = factor.update(kline)
             factor_names = factor.get_output_names()
+            factor_id = getattr(factor, "_factor_id")
             if isinstance(val, list):
                 for i, v in enumerate(val):
-                    feature_dict[factor_names[i]] = v
+                    full_name = f"{factor_id}_{factor_names[i]}"
+                    feature_dict[full_name] = v
             else:
                 for factor_name in factor_names:
-                    feature_dict[factor_name] = None
+                    full_name = f"{factor_id}_{factor_name}"
+                    feature_dict[full_name] = None
         
         # 2. 添加 symbol 和 timeframe 编码特征
         if self.enable_symbol_timeframe_encoding:
@@ -145,6 +162,10 @@ class FeatureEngine:
             factor_id = getattr(factor, "_factor_id")
             self.call_back(factor_id, False)
             factor_df = factor.compute(df)
+            # 将因子原始列名重命名为带 factor_id 前缀的全名
+            original_names = factor.get_output_names()
+            rename_map = {name: f"{factor_id}_{name}" for name in original_names}
+            factor_df = factor_df.rename(columns=rename_map)
             factor_dfs.append(factor_df)
             self.call_back(factor_id, True)
         
@@ -178,7 +199,6 @@ class FeatureEngine:
             duplicated_cols = result.columns[result.columns.duplicated()].unique().tolist()
             raise ValueError(
                 f"发现重复的列名: {duplicated_cols}。"
-                f"这会导致训练失败，因为 XGBoost 期望每个列都是 Series，但重复列名会导致访问列时返回 DataFrame。"
                 f"请检查因子配置，确保所有因子的输出列名都是唯一的。"
             )
         
@@ -215,15 +235,36 @@ class FeatureEngine:
                 symbol_feature_names = [f'symbol_{cat}' for cat in self.symbol_encoder.categories_[0]]
                 # 移除旧的 symbol 特征名称（如果有），然后添加新的
                 self.feature_names = [name for name in self.feature_names if not name.startswith('symbol_')]
+                # 同时清理 feature_specs 中的旧 symbol 条目
+                self.feature_specs = {k: v for k, v in self.feature_specs.items() if not k.startswith('symbol_')}
                 # 找到 timeframe_encoded 的位置，在它之前插入 symbol 特征
                 if 'timeframe_encoded' in self.feature_names:
                     tf_idx = self.feature_names.index('timeframe_encoded')
                     self.feature_names[tf_idx:tf_idx] = symbol_feature_names
                 else:
                     self.feature_names.extend(symbol_feature_names)
+                # 添加 symbol 特征的 specs
+                for sfn in symbol_feature_names:
+                    self.feature_specs[sfn] = FeatureSpec(name=sfn)
     
     def get_feature_names(self) -> List[str]:
         return self.feature_names
+    
+    def get_feature_specs(self) -> Dict[str, FeatureSpec]:
+        """返回所有特征的 spec 映射（full_name -> FeatureSpec）"""
+        return self.feature_specs
+    
+    def get_categorical_info(self) -> Dict[str, int]:
+        """
+        返回 categorical 特征的信息映射
+        
+        :return: {full_feature_name: num_categories} 字典，供 GRU Embedding 层使用
+        """
+        return {
+            name: spec.num_categories
+            for name, spec in self.feature_specs.items()
+            if spec.type == FeatureType.CATEGORICAL
+        }
     
     def get_encoder_classes(self) -> Dict[str, List[str]]:
         """
@@ -262,7 +303,6 @@ class FeatureEngine:
         :param factor_ids: 因子ID列表
         :param symbol_classes: symbol 编码器的类别列表（用于 OneHotEncoder）
         :param timeframe_classes: timeframe 编码器的类别列表（用于 LabelEncoder）
-        :param _call_back: 回调函数
         :param enable_symbol_timeframe_encoding: 是否启用 symbol 和 timeframe 编码
         :return: FeatureEngine 实例
         """
@@ -272,7 +312,6 @@ class FeatureEngine:
         if enable_symbol_timeframe_encoding:
             if symbol_classes is not None:
                 # Symbol 使用 OneHotEncoder
-                # 对 symbol_classes 进行排序，确保编码顺序一致
                 sorted_symbol_classes = sorted(symbol_classes)
                 symbol_encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
                 symbol_encoder.fit(np.array(sorted_symbol_classes).reshape(-1, 1))

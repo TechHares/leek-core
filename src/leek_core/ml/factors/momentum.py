@@ -14,7 +14,7 @@ import pandas as pd
 
 from leek_core.models import Field, FieldType
 
-from .base import DualModeFactor
+from .base import DualModeFactor, FeatureSpec
 
 
 def compute_r_squared(y_pred: np.ndarray, y_true: np.ndarray) -> np.ndarray:
@@ -216,6 +216,6 @@ class AccelerationMomentumFactor(DualModeFactor):
         
         return result
     
-    def get_output_names(self) -> List[str]:
-        """返回因子列名列表"""
-        return self.factor_names
+    def get_output_specs(self) -> List[FeatureSpec]:
+        """返回因子元数据列表"""
+        return [FeatureSpec(name=name) for name in self.factor_names]

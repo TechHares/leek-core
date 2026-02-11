@@ -570,12 +570,19 @@ class TrainingEngine(LeekComponent):
                 self._call_back(progress_info)
             
             # 调用训练器，传入进度回调
+            # 如果训练器支持 categorical_info（如 GRUTrainer），传递 FeatureEngine 的 categorical 信息
+            train_kwargs = {}
+            categorical_info = self.feature_engine.get_categorical_info()
+            if categorical_info and hasattr(self.trainer, '_categorical_info'):
+                train_kwargs['categorical_info'] = categorical_info
+            
             self.trainer.train(
                 X_train, 
                 y_train, 
                 X_val, 
                 y_val,
-                progress_callback=training_progress_callback
+                progress_callback=training_progress_callback,
+                **train_kwargs
             )
             self._send_progress('training', 'completed')
         except Exception as e:
