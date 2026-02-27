@@ -474,6 +474,13 @@ class BacktestRunner:
         avg_return_long = float(np.mean(returns_long)) if len(long_trades) > 0 else 0.0
         avg_return_short = float(np.mean(returns_short)) if len(short_trades) > 0 else 0.0
 
+        # 单笔最大亏损比例（小数），供评估与 -0.1 比较、.1% 展示
+        loss_return_rates = [
+            trade_return_rate(t) for t in self.trades_data
+            if t.get("pnl", 0) < 0 and t.get("entry_amount", 0) > 0
+        ]
+        largest_loss_ratio = float(min(loss_return_rates)) if loss_return_rates else 0.0
+
         # 统计检验（训练阶段可跳过以提升性能）
         statistical_results = {}
         if self.config.skip_statistical_tests is False:
@@ -514,7 +521,7 @@ class BacktestRunner:
             avg_loss_short=float(avg_loss_short),
             win_loss_ratio=float(win_loss_ratio),
             largest_win=float(max(profits)) if profits else 0.0,
-            largest_loss=float(min([-abs(l) for l in losses])) if losses else 0.0,
+            largest_loss=largest_loss_ratio,
             turnover=float(turnover),
             skewness=float(skewness),
             kurtosis=float(kurtosis),

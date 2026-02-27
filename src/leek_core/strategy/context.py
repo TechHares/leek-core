@@ -430,7 +430,8 @@ class StrategyWrapper(LeekComponent):
                 raise ValueError("should_close return value must be Decimal or bool")
             self.state = StrategyInstanceState.EXITING
             self.current_command = StrategyCommand(list(self.position.values())[0].side.switch(), res)
-            return self.current_command.side, min(self.current_command.ratio, self.position_rate), False
+            close_ratio = self.current_command.ratio * self.position_rate
+            return self.current_command.side, min(close_ratio, self.position_rate), False
 
         # 策略要求重复开仓
         if self.strategy.open_just_no_pos is False:

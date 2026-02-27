@@ -205,8 +205,8 @@ class PerformanceMetrics:
     avg_win_short: float = 0.0  # 做空平均利润（只算赚钱的单子）
     avg_loss_short: float = 0.0  # 做空平均亏损（只算亏钱的单子，取绝对值）
     win_loss_ratio: float = 0.0
-    largest_win: float = 0.0
-    largest_loss: float = 0.0
+    largest_win: float = 0.0  # 最大单笔盈利（金额）
+    largest_loss: float = 0.0  # 单笔最大亏损比例（小数，如 -0.05 表示 -5%）
 
     # 单笔收益（绝对值与收益率）
     avg_pnl: float = 0.0

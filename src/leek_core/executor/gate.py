@@ -164,7 +164,7 @@ class GateRestExecutor(Executor):
         if order.is_open and order.leverage:
             leverage = int(order.leverage)
             if leverage > 0:
-                self._set_futures_leverage(settle, contract, leverage)
+                self._set_futures_leverage(settle, contract, leverage, order.trade_mode == TradeMode.CROSS)
         
         # 计算 size（正数买入/负数卖出）
         # side 只表示买卖方向：LONG=买入，SHORT=卖出
@@ -203,17 +203,23 @@ class GateRestExecutor(Executor):
         return self.adapter.place_futures_order(settle=settle, **params)
     
     @cached(cache=TTLCache(maxsize=1000, ttl=36000))
-    def _set_futures_leverage(self, settle: str, contract: str, leverage: int):
+    def _set_futures_leverage(self, settle: str, contract: str, leverage: int, cross: bool = False):
         """
-        设置合约杠杆倍数（带缓存，60秒内相同合约不重复设置）
+        设置合约杠杆倍数（带缓存，36000秒内相同合约+模式不重复设置）
+        Gate.io: leverage=0 表示全仓模式，此时用 cross_leverage_limit 指定倍数；
+                 leverage>0 表示逐仓模式。
         """
-        result = self.adapter.update_futures_leverage(settle=settle, contract=contract, leverage=leverage)
+        if cross:
+            result = self.adapter.update_futures_leverage(
+                settle=settle, contract=contract, leverage=0, cross_leverage_limit=leverage
+            )
+        else:
+            result = self.adapter.update_futures_leverage(settle=settle, contract=contract, leverage=leverage)
         if not result or result.get("code") != "0":
             error_msg = result.get("msg", "未知错误") if result else "无响应"
-            logger.warning(f"设置杠杆失败: {error_msg}, contract: {contract}, leverage: {leverage}")
-            # 设置杠杆失败不阻塞下单，只记录警告
+            logger.warning(f"设置杠杆失败: {error_msg}, contract: {contract}, leverage: {leverage}, cross: {cross}")
         else:
-            logger.info(f"设置杠杆成功: contract={contract}, leverage={leverage}")
+            logger.info(f"设置杠杆成功: contract={contract}, leverage={leverage}, cross={cross}")
 
     def cancel_order(self, order_id: str, symbol: str, **kwargs):
         """

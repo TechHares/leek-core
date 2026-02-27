@@ -197,8 +197,8 @@ class PerformanceMetrics:
     avg_win: float = 0.0            # 平均盈利
     avg_loss: float = 0.0           # 平均亏损
     win_loss_ratio: float = 0.0     # 盈亏比率
-    largest_win: float = 0.0        # 最大单笔盈利
-    largest_loss: float = 0.0       # 最大单笔亏损
+    largest_win: float = 0.0        # 最大单笔盈利（金额）
+    largest_loss: float = 0.0       # 单笔最大亏损比例（小数，与 -0.1 比较、.1% 展示）
     
     # 单笔收益
     avg_pnl: float = 0.0            # 平均单笔收益

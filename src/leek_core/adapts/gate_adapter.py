@@ -847,14 +847,14 @@ class GateAdapter:
                 "contract": contract,
                 "interval": interval,
             }
-            # Gate.io API: limit 和 from/to 不能同时存在
-            # 如果指定了时间范围，则不使用 limit
-            if from_time is not None or to_time is not None:
-                if from_time is not None:
-                    params["from"] = from_time
-                if to_time is not None:
-                    params["to"] = to_time
-            else:
+            # Gate.io API: from + to + limit 三参数不能共存
+            # 支持组合: limit | to + limit | from + limit | from + to(无limit)
+            if from_time is not None:
+                params["from"] = from_time
+            if to_time is not None:
+                params["to"] = to_time
+            # 仅当 from 和 to 同时存在时不传 limit（API返回范围内全部数据）
+            if not (from_time is not None and to_time is not None):
                 params["limit"] = limit
             
             result = self._request("GET", f"/api/v4/futures/{settle}/candlesticks", params=params)

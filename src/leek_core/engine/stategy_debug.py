@@ -301,9 +301,9 @@ class StrategyDebugView(LeekComponent):
                         custom_key.append(k)
                         if k not in data:
                             data[k] = []
-                    print("========================")
-                    print(f"自定义KEY: {custom_key}")
-                    print("========================")
+                    # print("========================")
+                    # print(f"自定义KEY: {custom_key}")
+                    # print("========================")
                 data["open"].append(kline.open)
                 data["high"].append(kline.high)
                 data["low"].append(kline.low)
@@ -349,9 +349,9 @@ class StrategyDebugView(LeekComponent):
                 data["profit"].append((total_value - self.initial_balance) / self.initial_balance * 100)
         
         logger.info(f"数据执行完成，共{count}条")
-        
-        # 计算并输出回测指标
-        self._print_backtest_metrics(equity_values)
+        if kwargs.get("print_metrics", True):
+            # 计算并输出回测指标
+            self._print_backtest_metrics(equity_values)
         
         self.data_source.on_stop()
         self.engine.on_stop()
@@ -364,6 +364,10 @@ class StrategyDebugView(LeekComponent):
         import pandas as pd
 
         df = pd.DataFrame(data)
+
+        if kwargs.get("sample_draw", False):
+            return self._sample_draw(df, custom_draw, **kwargs)
+
         rows_count = max(row or 2, 2)
         # 动态生成specs，只有第二行支持secondary_y
         specs = []
@@ -412,5 +416,44 @@ class StrategyDebugView(LeekComponent):
         # 设置右边y轴的标题
         fig.update_yaxes(title_text="Position Rate", secondary_y=True, row=2, col=1)
         fig.update_xaxes(rangeslider_visible=False, row=1, col=1)
+        fig.show()
+
+    def _sample_draw(self, df, custom_draw=None, **kwargs) -> None:
+        """简单模式画图：close和return归一化为百分比变化，画在同一张图上"""
+        import plotly.graph_objs as go
+        from plotly.subplots import make_subplots
+
+        # close 归一化为百分比变化（相对于第一个值）
+        first_close = df['close'].iloc[0]
+        close_pct = (df['close'] - first_close) / first_close * 100
+
+        # 计算自定义图的行数
+        custom_rows = 0
+        if custom_draw is not None:
+            # 先用临时fig探测custom_draw会添加多少行
+            custom_rows = kwargs.get("sample_custom_rows", 0)
+
+        rows_count = max(1 + custom_rows, 1)
+        specs = [[{"secondary_y": False}] for _ in range(rows_count)]
+        fig = make_subplots(rows=rows_count, cols=1, shared_xaxes=True, specs=specs)
+
+        # close 百分比变化曲线
+        fig.add_trace(go.Scatter(
+            x=df['time'], y=close_pct, mode='lines', name='close %',
+            line=dict(color='#1f77b4', width=1.5)
+        ), row=1, col=1)
+
+        # return 曲线（已经是百分比）
+        fig.add_trace(go.Scatter(
+            x=df['time'], y=df['profit'], mode='lines', name='return %',
+            line=dict(color='#ff7f0e', width=2)
+        ), row=1, col=1)
+
+        fig.update_yaxes(title_text="%", ticksuffix="%", row=1, col=1)
+
+        if custom_draw is not None:
+            custom_draw(fig, df)
+
+        fig.update_layout(height=kwargs.get("height", 500 + custom_rows * 150))
         fig.show()
 

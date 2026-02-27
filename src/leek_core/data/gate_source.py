@@ -415,15 +415,16 @@ class GateDataSource(WebSocketDataSource):
             logger.error(f"不支持的时间周期: {timeframe}")
             return iter([])
         
-        page_size = min(2000, limit)  # Gate.io 最大支持2000条
+        page_size = min(2000, limit)  # Gate.io 单次最大支持2000条
         res = []
         
+        # 翻页策略: 使用 to_time + limit 向前翻页（Gate.io 不支持 from+to+limit 三参数共存）
+        # from_time 仅作为本地截止条件
         while len(res) < limit:
             candlesticks = self.adapter.get_futures_candlesticks(
                 settle=self.settle,
                 contract=contract,
                 interval=interval,
-                from_time=from_time,
                 to_time=to_time,
                 limit=page_size
             )
@@ -482,14 +483,21 @@ class GateDataSource(WebSocketDataSource):
             res = batch + res
             
             # 更新 to_time 为本批次第一条（最早）K线的时间-1，用于获取更早的数据
-            if data:
-                first_row = data[0]
-                first_t = first_row.get("t") if isinstance(first_row, dict) else first_row[0]
-                to_time = int(first_t) - 1
+            first_row = data[0]
+            first_t = first_row.get("t") if isinstance(first_row, dict) else first_row[0]
+            to_time = int(first_t) - 1
+            
+            # 已到达 start_time 之前，无需继续翻页
+            if from_time is not None and to_time <= from_time:
+                break
             
             # 如果返回的数据少于请求的数量，说明已经没有更多数据了
             if len(data) < page_size:
                 break
+        
+        # 如果指定了 from_time，过滤掉早于 from_time 的数据
+        if from_time is not None:
+            res = [k for k in res if k.start_time >= from_time * 1000]
         
         # 取最近的 limit 条数据（数据已是升序：从旧到新）
         res = res[-limit:] if len(res) > limit else res
