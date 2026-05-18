@@ -93,7 +93,7 @@ class StrategyDebugView(LeekComponent):
                        max_strategy_amount=limit_amt, max_strategy_ratio=Decimal("0.5"),
                        max_symbol_amount=limit_amt, max_symbol_ratio=Decimal("1"), max_ratio=Decimal("1"))
         self.engine = SimpleEngine("p1", "debug", cfg, 0, self.event_bus)
-        self.strategy.positon_getter = self.engine.position_tracker.find_position
+        self.strategy.positon_getter = self.engine.portfolio.position_tracker.find_position
 
     def get_color(self, color=None):
         if color is not None:
@@ -288,7 +288,7 @@ class StrategyDebugView(LeekComponent):
                 kline = raw_kline
             count += 1
             assets = self.strategy.on_data(kline)
-            self.engine.position_tracker.on_data(kline)
+            self.engine.portfolio.position_tracker.on_data(kline)
             
             # 模拟模式下只记录完成的K线数据，非模拟模式记录所有数据
             should_record = not self.simulate_kline or kline.is_finished

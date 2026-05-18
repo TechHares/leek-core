@@ -3,7 +3,7 @@
 
 from typing import List
 
-from leek_core.policy.strategy import StrategyPolicy
+from .base import StrategyPolicy
 from leek_core.models import ChoiceType, ExecutionContext, PositionInfo, Field, FieldType, PositionSide
 from leek_core.utils import get_logger
 
@@ -71,12 +71,12 @@ class StrategyTimeWindow(StrategyPolicy):
                  post_seconds: int = 1800,
                  timestamps: List[int] = None):
         super().__init__()
-        
+
         # 调试信息：打印原始参数
         self.action_scope = action_scope or 0
         self.pre_seconds = int(pre_seconds or 0)
         self.post_seconds = int(post_seconds or 0)
-        
+
         # 处理 timestamps 参数
         if timestamps is None:
             self.timestamps = []
@@ -126,10 +126,10 @@ class StrategyTimeWindow(StrategyPolicy):
                 continue
             # 调试信息
             logger.debug(f"StrategyTimeWindow: 检查资产 {asset.side}, action_scope={self.action_scope} (type: {type(self.action_scope)})")
-            
+
             # 处理 action_scope 可能是字符串或整数的情况
             action_scope = int(self.action_scope) if isinstance(self.action_scope, str) and self.action_scope.isdigit() else self.action_scope
-            
+
             if action_scope == 0:
                 logger.debug(f"StrategyTimeWindow: 匹配所有开仓")
                 return True
@@ -152,20 +152,18 @@ class StrategyTimeWindow(StrategyPolicy):
         if now_sec <= 0:
             logger.debug(f"StrategyTimeWindow: 无效时间戳，放行信号 {signal.signal_id}")
             return True
-        
+
         # 调试信息
         logger.debug(f"StrategyTimeWindow: 检查信号 {signal.signal_id}")
         logger.debug(f"StrategyTimeWindow: 信号时间 {now_sec} ({signal.created_time})")
         logger.debug(f"StrategyTimeWindow: 配置时间点 {self.timestamps}")
         logger.debug(f"StrategyTimeWindow: 窗口范围 {self.pre_seconds}秒前 - {self.post_seconds}秒后")
-        
+
         # 如果在窗口内，则拒绝
         in_win = self._in_window(now_sec)
         if in_win:
             logger.info(f"StrategyTimeWindow: 命中时间窗口，拒绝信号 {signal.signal_id} @ {now_sec}")
             return False
-        
+
         logger.debug(f"StrategyTimeWindow: 未命中时间窗口，放行信号 {signal.signal_id} @ {now_sec}")
         return True
-
-

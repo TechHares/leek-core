@@ -226,6 +226,11 @@ class ExecutionAsset:
     virtual_pnl: Decimal = None # 虚拟仓位盈亏
     executor_sz: Dict[str, Decimal] = None  # 执行器的仓位大小
 
+    # 新增字段（向后兼容；None 表示按 ExecutionContext.order_type 默认行为）
+    # 每笔 Asset 独立携带 order_type，使一个 ExecutionContext 内可混合市价/限价
+    order_type: Optional[OrderType] = None
+    expire_bars: Optional[int] = None
+
     @property
     def asset_key(self) -> str:
         return f"{self.symbol}_{self.quote_currency}_{self.ins_type.value}_{self.asset_type.value}_{self.side.value}"

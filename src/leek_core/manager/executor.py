@@ -31,6 +31,32 @@ class ExecutorManager(ComponentManager[ExecutorContext, Executor, Dict[str, Any]
         self.execution_order_map = {}
         self.order_map = {}
 
+        # 订阅撤单请求(由 StrategyWrapper 在 expire_bars 到期 / 用户撤单意图时发出)
+        self.event_bus.subscribe_event(EventType.ORDER_CANCEL_REQUEST, self.on_cancel_request)
+
+    def on_cancel_request(self, event: Event):
+        """
+        处理撤单请求。payload 为 Order 对象(由 wrapper 发出, 含 executor_id / market_order_id / order_id)。
+        """
+        order = event.data
+        if order is None:
+            return
+        executor_id = getattr(order, 'executor_id', None)
+        if not executor_id:
+            logger.warning(f"撤单请求缺少 executor_id: order_id={getattr(order, 'order_id', None)}")
+            return
+        ex_ctx = self.get(executor_id)
+        if not ex_ctx:
+            logger.warning(f"撤单请求未找到 executor: executor_id={executor_id}")
+            return
+        # 实盘 executor 优先用 market_order_id(交易所返回); 回测里 _pending_orders 按内部 order_id 索引,
+        # 这里始终把内部 order_id 作为兜底传过去, 由具体 executor 自行选择。
+        target_id = order.market_order_id or order.order_id
+        try:
+            ex_ctx.cancel_order(target_id, order.symbol, leek_order_id=order.order_id)
+        except Exception as e:
+            logger.error(f"撤单失败 order_id={order.order_id}: {e}", exc_info=True)
+
     @log_method(level=logging.DEBUG, log_execution_time=True)
     def handle_order(self, execution_order: ExecutionContext):
         """
@@ -211,6 +237,11 @@ class ExecutorManager(ComponentManager[ExecutorContext, Executor, Dict[str, Any]
         target_assets = assets if assets is not None else execution_order.execution_assets
         
         for asset in target_assets:
+            # 优先使用每笔 Asset 自带的 order_type (策略意图独立);
+            # 否则回退到 ExecutionContext 的统一 order_type
+            asset_order_type = getattr(asset, 'order_type', None) or execution_order.order_type
+            # 限价单的 order_price 应使用 asset.price (策略指定的挂单价);
+            # 市价单的 order_price 是参考价 (即 asset.price = 当前价)
             order = Order(
                 order_id=generate_str(),
                 position_id=asset.position_id,
@@ -223,19 +254,19 @@ class ExecutorManager(ComponentManager[ExecutorContext, Executor, Dict[str, Any]
                 order_time=datetime.now(),
                 ratio=asset.ratio,
                 sz=asset.sz if not asset.is_open else None,
-                
+
                 symbol=asset.symbol,
                 quote_currency=asset.quote_currency,
                 ins_type=asset.ins_type,
                 asset_type=asset.asset_type,
                 side=asset.side,
-                
+
                 is_open=asset.is_open,
                 is_fake=False,
                 order_amount=asset.amount,
                 order_price=asset.price,
-                order_type=execution_order.order_type,
-                
+                order_type=asset_order_type,
+
                 leverage=Decimal(execution_order.leverage),
                 trade_mode=execution_order.trade_mode,
                 extra=asset.extra

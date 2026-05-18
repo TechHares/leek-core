@@ -9,11 +9,13 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Dict, Any, Generator
 
+from typing import Any
+
 from leek_core.event.types import EventSource
 from leek_core.manager import ComponentManager
 from leek_core.event import Event, EventType, EventBus
 from leek_core.models import StrategyState, LeekComponentConfig, Position, StrategyConfig, StrategyPositionConfig, \
-    OrderType, Asset, Signal, Data, ExecutionContext
+    OrderType, Asset, Signal, Data, ExecutionContext, Order
 from leek_core.strategy import StrategyContext, Strategy
 from leek_core.utils import get_logger
 from leek_core.utils.id_generator import generate_str
@@ -72,6 +74,27 @@ class StrategyManager(ComponentManager[StrategyContext, Strategy, StrategyConfig
         strategy_ctx = self.get(strategy_id)
         if strategy_ctx:
             strategy_ctx.exec_update(execution_context)
+
+    def dispatch_event(self, strategy_id: str, event_type: EventType, payload: Any):
+        """
+        把事件路由到对应策略上下文,由 StrategyContext 进一步分发到 StrategyWrapper。
+
+        典型来源:
+            - Engine.on_order_update: dispatch_event(order.strategy_id, ORDER_UPDATED, order)
+            - 仓位更新: dispatch_event(strategy_id, POSITION_UPDATE, position)
+
+        参数:
+            strategy_id: 策略实例 ID (顶层 strategy_id, 非 wrapper-key)
+            event_type:  事件类型
+            payload:     事件数据(Order / Position / ...)
+        """
+        strategy_ctx = self.get(strategy_id)
+        if strategy_ctx is None:
+            return
+        try:
+            strategy_ctx.dispatch_event(event_type, payload)
+        except Exception as e:
+            logger.error(f"策略 {strategy_id} 处理事件 {event_type} 异常: {e}", exc_info=True)
 
     def process_data(self, data: Data) -> Generator[Signal, None, None]:
         """

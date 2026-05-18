@@ -37,6 +37,8 @@ class EventType(Enum):
     EXEC_ORDER_UPDATED = "exec_order_updated"  # 订单更新
     ORDER_CREATED = "order_created"  # 订单路由
     ORDER_UPDATED = "order_updated"  # 订单更新
+    ORDER_CANCEL_REQUEST = "order_cancel_request"  # 撤单请求(策略发起 / Wrapper 触发过期撤单)
+    PENDING_ORDER_RECONCILE = "pending_order_reconcile"  # 重启后挂单与交易所对账
 
     # 资金管理事件
     TRANSACTION = "transaction"  # 资金流水

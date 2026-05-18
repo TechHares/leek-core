@@ -8,9 +8,9 @@ from leek_core.base import LeekContext
 from leek_core.event import EventBus, Event, EventType
 from leek_core.models import (LeekComponentConfig, PositionConfig, Signal, ExecutionContext, ExecutionAsset, PositionInfo, Order, OrderStatus)
 from leek_core.utils import get_logger, generate_str, decimal_quantize, thread_lock
+from leek_core.risk.pre_trade import RiskManager
 from .capital_account import CapitalAccount
 from .position_tracker import PositionTracker
-from .risk import RiskManager
 
 logger = get_logger(__name__)
 _portfolio_lock = RLock()
@@ -205,6 +205,9 @@ class Portfolio:
                 is_open=asset.is_open,
                 quote_currency=asset.quote_currency,
                 extra=asset.extra,
+                # 透传 Asset 的限价/过期字段, 让下游 ExecutorManager 在生成 Order 时使用每笔意图的 order_type
+                order_type=asset.order_type,
+                expire_bars=asset.expire_bars,
             )
             
             execution_assets.append(execution_asset)

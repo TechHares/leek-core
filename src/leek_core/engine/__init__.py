@@ -6,7 +6,7 @@
 """
 
 from .indicator_view import IndicatorView
-from .stategy_debug import StrategyDebugView
+from .strategy_debug import StrategyDebugView
 from .engine import SimpleEngine
 __all__ = [
     "StrategyDebugView",

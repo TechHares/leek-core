@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List
 
 from leek_core.models import ExecutionContext, PositionInfo
-from .strategy import StrategyPolicy
+from .base import StrategyPolicy
 from leek_core.utils import get_logger
 from leek_core.models import Field, FieldType
 
@@ -18,7 +18,7 @@ class StrategySignalLimit(StrategyPolicy):
     主要参数说明（由 leek_core.models.Field 定义）：
     - per_hours (int): 时间窗口，单位为小时。
     - max_signals (int): 时间窗口内允许的最大信号数量。
-    
+
     使用说明：
     - 继承自 StrategyPolicy，需实现 evaluate 方法。
     - 在 evaluate 中根据 per_hours 和 max_signals 判断信号是否通过风控。

@@ -6,12 +6,15 @@
 """
 from .backtest import EnhancedBacktester
 from .runner import run_backtest
+from .strategy_evaluation import StrategyEvaluator
 from .types import (
     BacktestConfig,
     BacktestMode,
     NormalBacktestResult,
     OptimizationObjective,
     BacktestResult,
+    StrategyEvaluationConfig,
+    StrategyEvaluationResult,
     WalkForwardResult,
     WindowResult,
 )
@@ -22,6 +25,9 @@ __all__ = [
     "BacktestResult",
     "NormalBacktestResult",
     "BacktestMode",
+    "StrategyEvaluator",
+    "StrategyEvaluationConfig",
+    "StrategyEvaluationResult",
     "WalkForwardResult",
     "WindowResult",
     "OptimizationObjective",

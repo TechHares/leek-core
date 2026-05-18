@@ -913,3 +913,136 @@ class FactorEvaluationConfig:
             self.end_time = DateTimeUtils.to_timestamp(self.end_time)
         if isinstance(self.end_time, datetime):
             self.end_time = DateTimeUtils.datetime_to_timestamp(self.end_time)
+
+
+@dataclass
+class StrategyEvaluationConfig:
+    """策略评估配置：单策略详细诊断 + 多策略横向对比统一接口。"""
+    id: int = 0
+    name: str = "strategy_evaluation"
+
+    # 策略列表 [(strategy_class_str, params_dict), ...]，单策略时长度为 1
+    strategies: List[Tuple[str, Dict[str, Any]]] = field(default_factory=list)
+
+    # 数据配置（所有策略共享）
+    symbol: str = None
+    timeframe: TimeFrame = None
+    start_time: Union[str, datetime, int] = None
+    end_time: Union[str, datetime, int] = None
+    market: str = "okx"
+    quote_currency: str = "USDT"
+    ins_type: TradeInsType = TradeInsType.SWAP
+
+    # 数据源 / 执行器
+    datasource_class: str = None
+    datasource_config: Dict[str, Any] = None
+    executor_class: str = "leek_core.executor.BacktestExecutor"
+    executor_config: Dict[str, Any] = None
+
+    initial_balance: Decimal = Decimal("10000")
+
+    # 风控（所有策略共享）
+    risk_policies: List[Dict[str, Any]] = None
+
+    mount_dirs: List[str] = field(default_factory=list)
+
+    # Regime 切片配置
+    regime_method: str = "adx"          # "adx" | "none"，未来可扩展
+    adx_threshold: float = 25.0
+    adx_smoothing: int = 6
+    adx_di_length: int = 14
+
+    max_workers: int = 1
+    use_cache: bool = True
+    simulate_kline: bool = False
+
+    def __post_init__(self):
+        if isinstance(self.timeframe, str):
+            self.timeframe = TimeFrame(self.timeframe)
+        if isinstance(self.ins_type, int):
+            self.ins_type = TradeInsType(self.ins_type)
+        if isinstance(self.ins_type, str):
+            self.ins_type = TradeInsType(TradeInsType[self.ins_type])
+        if isinstance(self.start_time, str):
+            self.start_time = DateTimeUtils.to_timestamp(self.start_time)
+        if isinstance(self.start_time, datetime):
+            self.start_time = DateTimeUtils.datetime_to_timestamp(self.start_time)
+        if isinstance(self.end_time, str):
+            self.end_time = DateTimeUtils.to_timestamp(self.end_time)
+        if isinstance(self.end_time, datetime):
+            self.end_time = DateTimeUtils.datetime_to_timestamp(self.end_time)
+        if not self.strategies:
+            raise ValueError("strategies 不能为空")
+        assert self.symbol is not None
+        assert self.timeframe is not None
+        assert self.start_time is not None
+        assert self.end_time is not None
+        assert self.datasource_class is not None
+
+
+@dataclass
+class StrategyEvaluationResult:
+    """策略评估结果：单策略时 per_strategy 长度为 1，correlation_matrix 为 None。
+
+    设计原则：纯事实输出，不预设 verdict / 推荐组合等主观结论。
+    """
+    config: Dict[str, Any]
+    per_strategy: Dict[str, BacktestResult] = field(default_factory=dict)
+    # {strategy_id: {regime: {sharpe, max_drawdown, total_return, n_periods, time_share}}}
+    regime_metrics: Dict[str, Dict[str, Dict[str, float]]] = field(default_factory=dict)
+    # 策略间收益序列相关矩阵；strategy_ids 给出顺序（单策略时为 None）
+    correlation_matrix: Optional[List[List[float]]] = None
+    strategy_ids: List[str] = field(default_factory=list)
+    execution_time: float = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "config": self.config,
+            "per_strategy": {sid: br.to_dict() for sid, br in self.per_strategy.items()},
+            "regime_metrics": self.regime_metrics,
+            "correlation_matrix": self.correlation_matrix,
+            "strategy_ids": self.strategy_ids,
+            "execution_time": self.execution_time,
+        }
+
+    def to_agent_summary(self) -> Dict[str, Any]:
+        """Agent 友好的精简输出：单/多策略形状不同，都不含主观判断字段。"""
+        if len(self.per_strategy) == 1:
+            sid, br = next(iter(self.per_strategy.items()))
+            summary = br.to_agent_summary()
+            summary["mode"] = "single"
+            summary["strategy_id"] = sid
+            summary["regime_breakdown"] = self.regime_metrics.get(sid, {})
+            return summary
+
+        strategies_summary = {}
+        for sid, br in self.per_strategy.items():
+            s = br.to_agent_summary()
+            s["regime_breakdown"] = self.regime_metrics.get(sid, {})
+            strategies_summary[sid] = s
+
+        ranking_by_sharpe = sorted(
+            (
+                {
+                    "id": sid,
+                    "sharpe_ratio": round(br.metrics.sharpe_ratio, 3),
+                    "calmar_ratio": round(br.metrics.calmar_ratio, 3),
+                    "total_return": round(br.metrics.total_return, 4),
+                    "max_drawdown": round(br.metrics.max_drawdown, 4),
+                    "total_trades": br.metrics.total_trades,
+                }
+                for sid, br in self.per_strategy.items()
+            ),
+            key=lambda x: x["sharpe_ratio"],
+            reverse=True,
+        )
+
+        return {
+            "mode": "multi",
+            "strategy_count": len(self.per_strategy),
+            "strategies": strategies_summary,
+            "ranking_by_sharpe": ranking_by_sharpe,
+            "correlation_matrix": self.correlation_matrix,
+            "strategy_ids": self.strategy_ids,
+            "execution_time": round(self.execution_time, 2),
+        }

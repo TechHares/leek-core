@@ -6,13 +6,13 @@
 信号用于在各组件（如策略、风控、交易执行等）之间传递交易意图。
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, List, Optional
 
 from .config import StrategyPositionConfig
-from .constants import AssetType, TradeInsType
+from .constants import AssetType, OrderType, TradeInsType
 from .position import PositionSide
 
 
@@ -28,13 +28,17 @@ class Asset:
     symbol: str               # 交易对或合约标识，例如 "BTC"、"AAPL"
 
     side: PositionSide        # 多空方向，PositionSide 枚举（LONG/SHORT/NEUTRAL等）
-    price: Decimal            # 交易价格，建议的交易价格
+    price: Decimal            # 交易价格：MarketOrder 时是参考价；LimitOrder 时是策略指定的挂单价
     ratio: Decimal            # 仓位比例，取值范围 0~1，表示本信号建议的持仓占比
     actual_ratio: Decimal = None # 实际仓位比例
     is_open: bool = False     # 是否为开仓信号，用于表示信号是否为开仓信号
 
     quote_currency: str = None# 计价币种，如 USDT、USD、CNY
     extra: Any = None         # 其他扩展信息（如信号置信度、触发条件、备注等，可选）
+
+    # 新增字段（向后兼容；None 时表示走 Portfolio/Signal.config 的默认配置）
+    order_type: Optional[OrderType] = None     # 订单类型：单笔意图独立指定，优先级高于 Signal.config.order_type
+    expire_bars: Optional[int] = None          # 限价单存活 bar 数，由 wrapper 维护过期撤单
 
     @property
     def asset_key(self) -> str:
@@ -54,6 +58,6 @@ class Signal:
     signal_time: datetime         # 信号产生时间，用于标识信号的产生时间
     strategy_cls: str
 
-    assets: list[Asset] = list            # 断言信息，用于描述信号的约束条件（如仓位限制、风险控制等）
+    assets: List[Asset] = field(default_factory=list)  # 资产意图列表，描述信号的约束条件（如仓位限制、风险控制等）
     config: StrategyPositionConfig = None # 仓位配置
     extra: Any = None                     # 其他扩展信息（如信号置信度、触发条件、备注等，可选）

@@ -2,14 +2,14 @@
 # -*- coding: utf-8 -*-
 from datetime import datetime
 from decimal import Decimal
-from typing import Dict, Any, Optional, Set
+from typing import Dict, Any, Set
 
 from leek_core.base import LeekContext
 from leek_core.event import EventBus, Event, EventType, EventSource
 from leek_core.models import LeekComponentConfig, ExecutionContext, PositionInfo
 from leek_core.models import RiskEventType, RiskEvent
 from leek_core.utils import get_logger
-from .strategy import StrategyPolicy
+from .base import StrategyPolicy
 
 logger = get_logger(__name__)
 
@@ -32,18 +32,18 @@ class StrategyPolicyContext(LeekContext):
         # 过滤配置
         data = config.extra or {}
         self.scope: str = data.get('scope', 'all')
-        # 前端“实例”选择的是策略ID
+        # 前端"实例"选择的是策略ID
         self.allowed_strategy_ids: Set[str] = set(str(x) for x in (data.get('strategy_instance_ids') or []))
-        # 前端“模板”选择的是 模块|类 名称
+        # 前端"模板"选择的是 模块|类 名称
         self.allowed_strategy_templates: Set[str] = set(data.get('strategy_template_ids') or [])
 
     def evaluate(self, signal: ExecutionContext, context: PositionInfo) -> bool:
         result = self.policy.evaluate(signal, context)
-        
+
         # 如果风控策略评估失败，发布风控事件
         if not result:
             self._publish_policy_risk_event(signal, context)
-        
+
         return result
 
     def is_applicable(self, signal: ExecutionContext) -> bool:
@@ -75,7 +75,7 @@ class StrategyPolicyContext(LeekContext):
     def _publish_policy_risk_event(self, signal: ExecutionContext, context: PositionInfo):
         """
         发布策略风控事件
-        
+
         Args:
             signal: 执行上下文
             context: 仓位信息
@@ -112,5 +112,3 @@ class StrategyPolicyContext(LeekContext):
             self.event_bus.publish_event(event)
         except Exception as e:
             logger.error(f"发布策略风控事件失败: {e}", exc_info=True)
-
-

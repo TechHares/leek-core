@@ -34,7 +34,7 @@ from leek_core.models import (
     StrategyState,
 )
 from leek_core.models.ctx import initialize_context
-from leek_core.position import CapitalAccount, Portfolio, PositionTracker, RiskManager
+from leek_core.position import Portfolio
 from leek_core.strategy import Strategy, StrategyContext
 from leek_core.utils import LeekJSONEncoder, get_logger
 from leek_core.utils.id_generator import generate_str
@@ -76,13 +76,11 @@ class SimpleEngine(LeekComponent):
                 config=None
             ), max_workers=max_workers)
 
-        self.risk_manager: RiskManager = RiskManager(self.event_bus)
-        self.position_tracker: PositionTracker = PositionTracker(self.event_bus)
-        self.capital_account = CapitalAccount(self.event_bus, self.position_config.init_amount)
-        self.portfolio: Portfolio = Portfolio(self.event_bus, position_config, risk_manager=self.risk_manager,
-                                              position_tracker=self.position_tracker, capital_account=self.capital_account)
+        # Portfolio 作为 Façade 持有 capital_account / position_tracker / risk_manager 三件套
+        # Engine 内部及外部统一走 self.portfolio.<子组件> 访问,不再直接持有 Engine 级字段
+        self.portfolio: Portfolio = Portfolio(self.event_bus, position_config)
         # 初始化全局上下文
-        initialize_context(self.position_tracker)
+        initialize_context(self.portfolio.position_tracker)
 
         self.executor_manager: ExecutorManager = ExecutorManager(
             self.event_bus, LeekComponentConfig(
@@ -94,15 +92,32 @@ class SimpleEngine(LeekComponent):
 
     def on_data(self, data: Data):
         """
-        处理数据事件
+        处理数据事件:
+        1. 回测模式: 先让 BacktestExecutor 用新 bar 撮合已挂的限价单
+           (撮合产生的 ORDER_UPDATED 会先于策略 on_data 处理, 保证策略下一轮 should_open 时
+            能看到上一根 bar 挂单的最新成交结果)
+        2. 走原 dispatch: strategy_manager.process_data → _on_signal → portfolio → executor
+        3. position_tracker 更新价格
         """
         try:
+            self._run_backtest_match(data)
             for signal in self.strategy_manager.process_data(data):
                 if signal is None:
                     continue
                 self._on_signal(signal)
         finally:
-            self.position_tracker.on_data(data)
+            self.portfolio.position_tracker.on_data(data)
+
+    def _run_backtest_match(self, data: Data):
+        """在新 bar 到达时, 让回测 Executor 撮合已挂限价单。无 BacktestExecutor 时为空操作"""
+        try:
+            from leek_core.executor.backtest import BacktestExecutor
+            for ex_ctx in list(self.executor_manager.components.values()):
+                executor = getattr(ex_ctx, 'executor', None)
+                if isinstance(executor, BacktestExecutor):
+                    executor.on_bar(data)
+        except Exception as e:
+            logger.error(f"BacktestExecutor on_bar 撮合异常: {e}", exc_info=True)
 
 
     def _on_signal(self, signal: Signal):
@@ -115,13 +130,13 @@ class SimpleEngine(LeekComponent):
 
         # 构建仓位信息上下文
         position_info = PositionInfo(
-            positions=list(self.position_tracker.positions.values())
+            positions=list(self.portfolio.position_tracker.positions.values())
         )
         # 过风控
-        self.risk_manager.evaluate_risk(execution_context, position_info)
+        self.portfolio.risk_manager.evaluate_risk(execution_context, position_info)
 
         # 冻结资金
-        if not self.capital_account.freeze_amount(execution_context):
+        if not self.portfolio.capital_account.freeze_amount(execution_context):
             logger.error(f"Portfolio 冻结资金失败: {execution_context.signal_id}, {execution_context}")
             self.strategy_manager.exec_update(signal.strategy_id, signal.signal_id)
             return
@@ -134,10 +149,14 @@ class SimpleEngine(LeekComponent):
         virtual_pnl = self.portfolio.order_update(order)
         execution_order = self.executor_manager.order_update(order, virtual_pnl)
         if execution_order is None:
+            # 中间态(SUBMITTED / PARTIALLY_FILLED 等)也要转给策略,允许 wrapper 维护 pending_index
+            self.strategy_manager.dispatch_event(order.strategy_id, EventType.ORDER_UPDATED, order)
             return
         self.event_bus.publish_event(Event(EventType.EXEC_ORDER_UPDATED, execution_order))
 
+        # 终态:既要让旧 exec_update 处理(回收 Signal),也要让 wrapper 收到 Order 终态事件
         self.strategy_manager.exec_update(order.strategy_id, execution_order)
+        self.strategy_manager.dispatch_event(order.strategy_id, EventType.ORDER_UPDATED, order)
 
     def check_component(self):
         """
@@ -159,7 +178,7 @@ class SimpleEngine(LeekComponent):
         """
         获取未平仓
         """
-        return self.position_tracker.get_unpnl()
+        return self.portfolio.position_tracker.get_unpnl()
 
     def get_strategy_state(self):
         """
@@ -346,7 +365,7 @@ class SimpleEngine(LeekComponent):
             }
             config = self.format_component_config(config)
             config.extra = data
-        self.risk_manager.add_policy(config)
+        self.portfolio.risk_manager.add_policy(config)
 
     def update_position_policy(self, config: LeekComponentConfig[LeekComponent, Dict[str, Any]]):
         """更新全局仓位风控策略：按类名先移除后添加"""
@@ -360,13 +379,13 @@ class SimpleEngine(LeekComponent):
 
     def remove_position_policy(self, instance_id: str):
         """移除全局仓位风控策略，优先按实例ID移除，其次按类名移除"""
-        self.risk_manager.remove_policy(instance_id)
+        self.portfolio.risk_manager.remove_policy(instance_id)
 
     def close_position(self, position_id: str):
         """
         关闭仓位
         """
-        position = self.position_tracker.find_position(position_id=str(position_id))
+        position = self.portfolio.position_tracker.find_position(position_id=str(position_id))
         logger.info(f"关闭仓位: {position_id}, {'已找到仓位' if position else '未找到仓位'}")
         if position:
             signal = self.strategy_manager.close_position(position[0])

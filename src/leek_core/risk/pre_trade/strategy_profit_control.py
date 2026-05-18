@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
-from leek_core.policy.strategy import StrategyPolicy
+from .base import StrategyPolicy
 from leek_core.models import ExecutionContext, PositionInfo, Field, FieldType
 from leek_core.event import Event, EventType
 from leek_core.utils import get_logger
@@ -155,17 +155,17 @@ class StrategyProfitControl(StrategyPolicy):
         self.recovery_win_count = recovery_win_count
         self.recovery_cumulative_profit_pct = recovery_cumulative_profit_pct
         self.max_pause_hours = max_pause_hours
-        
+
         # 按策略隔离的风控状态 {strategy_key: StrategyRiskState}
         self._strategy_states: Dict[str, StrategyRiskState] = {}
 
     def _get_or_create_state(self, strategy_key: str) -> StrategyRiskState:
         """
         获取或创建策略的风控状态
-        
+
         参数:
             strategy_key: 策略唯一标识 (strategy_id:strategy_instance_id)
-            
+
         返回:
             策略的风控状态
         """
@@ -177,16 +177,16 @@ class StrategyProfitControl(StrategyPolicy):
         """
         清理过期的交易记录
         按时间和笔数两个维度清理
-        
+
         参数:
             state: 策略的风控状态
         """
         now = datetime.now()
         cutoff_time = now - timedelta(hours=self.observation_hours)
-        
+
         # 按时间过滤
         state.trade_records = [r for r in state.trade_records if r.timestamp >= cutoff_time]
-        
+
         # 按笔数过滤，保留最近的 observation_count 笔
         if len(state.trade_records) > self.observation_count:
             state.trade_records = state.trade_records[-self.observation_count:]
@@ -194,34 +194,34 @@ class StrategyProfitControl(StrategyPolicy):
     def _record_trade(self, profit_ratio: float, strategy_key: str):
         """
         记录交易并更新状态
-        
+
         参数:
             profit_ratio: 盈利比例（小数形式，如0.05表示5%）
             strategy_key: 策略唯一标识 (strategy_id:strategy_instance_id)
         """
         profit_pct = profit_ratio * 100  # 转百分比
-        
+
         # 获取策略的风控状态
         state = self._get_or_create_state(strategy_key)
-        
+
         # 记录交易
         record = TradeRecord(timestamp=datetime.now(), profit_pct=profit_pct, strategy_key=strategy_key)
         state.trade_records.append(record)
         self._cleanup_expired_records(state)
-        
+
         if not state.is_trading_paused:
             # 未暂停状态：检查是否触发风控
             if profit_ratio < 0:
                 state.cumulative_loss += abs(profit_pct)
                 state.consecutive_losses += 1
-                
+
                 logger.info(
                     f"[{self.policy_instance_id}] [{strategy_key}] 记录亏损: {profit_pct:.2f}%, "
                     f"累计亏损: {state.cumulative_loss:.2f}%, 连续亏损: {state.consecutive_losses}笔"
                 )
-                
+
                 # 检查是否触发风控
-                if (state.cumulative_loss > self.max_cumulative_loss_pct or 
+                if (state.cumulative_loss > self.max_cumulative_loss_pct or
                     state.consecutive_losses >= self.max_consecutive_losses):
                     state.is_trading_paused = True
                     state.pause_start_time = datetime.now()
@@ -244,18 +244,18 @@ class StrategyProfitControl(StrategyPolicy):
             # 已暂停状态：检查恢复条件（不区分虚拟/真实）
             # 累加恢复累计盈利（盈亏都算）
             state.recovery_cumulative_profit += profit_pct
-            
+
             if profit_ratio > 0:
                 state.consecutive_wins += 1
             else:
                 state.consecutive_wins = 0
-            
+
             logger.info(
                 f"[{self.policy_instance_id}] [{strategy_key}] 风控期间交易: {profit_pct:.2f}%, "
                 f"恢复累计盈利: {state.recovery_cumulative_profit:.2f}%, "
                 f"连续盈利: {state.consecutive_wins}笔"
             )
-            
+
             # 检查恢复条件
             if (state.recovery_cumulative_profit >= self.recovery_cumulative_profit_pct or
                 state.consecutive_wins >= self.recovery_win_count):
@@ -268,7 +268,7 @@ class StrategyProfitControl(StrategyPolicy):
     def _resume_trading(self, strategy_key: str, reason: str):
         """
         恢复交易，重置策略的风控状态
-        
+
         参数:
             strategy_key: 策略唯一标识 (strategy_id:strategy_instance_id)
             reason: 恢复原因描述
@@ -286,20 +286,20 @@ class StrategyProfitControl(StrategyPolicy):
     def _check_pause_timeout(self, state: StrategyRiskState) -> bool:
         """
         检查是否超过最大封禁时长
-        
+
         参数:
             state: 策略的风控状态
-            
+
         返回:
             是否超时（超时返回True）
         """
         if self.max_pause_hours <= 0:
             # 0或负数表示无限封禁
             return False
-        
+
         if not state.pause_start_time:
             return False
-        
+
         elapsed = datetime.now() - state.pause_start_time
         return elapsed >= timedelta(hours=self.max_pause_hours)
 
@@ -307,11 +307,11 @@ class StrategyProfitControl(StrategyPolicy):
     def _make_strategy_key(strategy_id: str, strategy_instance_id: str) -> str:
         """
         生成策略唯一标识
-        
+
         参数:
             strategy_id: 策略ID
             strategy_instance_id: 策略实例ID
-            
+
         返回:
             策略唯一标识 (strategy_id:strategy_instance_id)
         """
@@ -330,10 +330,10 @@ class StrategyProfitControl(StrategyPolicy):
         """
         # 生成策略唯一标识
         strategy_key = self._make_strategy_key(signal.strategy_id, signal.strategy_instance_id)
-        
+
         # 获取策略的风控状态
         state = self._get_or_create_state(strategy_key)
-        
+
         # 如果该策略的交易被暂停，检查是否超时恢复
         if state.is_trading_paused:
             if self._check_pause_timeout(state):
@@ -348,7 +348,7 @@ class StrategyProfitControl(StrategyPolicy):
                     f"累计亏损={state.cumulative_loss:.2f}%, 连续亏损={state.consecutive_losses}笔"
                 )
                 return False
-        
+
         logger.debug(
             f"[{self.policy_instance_id}] [{strategy_key}] 信号放行"
         )
@@ -361,7 +361,7 @@ class StrategyProfitControl(StrategyPolicy):
         if self.event_bus:
             self.event_bus.subscribe_event(EventType.EXEC_ORDER_UPDATED, self._on_exec_order_updated)
             logger.info(f"[{self.policy_instance_id}] 已订阅 EXEC_ORDER_UPDATED 事件")
-    
+
     def on_stop(self):
         """
         停止风控策略，取消订阅事件并清理状态
@@ -369,14 +369,14 @@ class StrategyProfitControl(StrategyPolicy):
         if self.event_bus:
             self.event_bus.unsubscribe_event(EventType.EXEC_ORDER_UPDATED, self._on_exec_order_updated)
             logger.info(f"[{self.policy_instance_id}] 已取消订阅 EXEC_ORDER_UPDATED 事件")
-        
+
         # 清理所有策略的风控状态
         self._strategy_states.clear()
-    
+
     def _on_exec_order_updated(self, event: Event):
         """
         处理执行订单更新事件，统计平仓盈亏
-        
+
         参数:
             event: 执行订单更新事件，data 为 ExecutionContext 对象
         """
@@ -384,39 +384,39 @@ class StrategyProfitControl(StrategyPolicy):
             exec_ctx: ExecutionContext = event.data
             if not exec_ctx:
                 return
-            
+
             # 检查是否完成
             if not exec_ctx.is_finish:
                 return
-            
+
             # 生成策略唯一标识
             strategy_key = self._make_strategy_key(exec_ctx.strategy_id, exec_ctx.strategy_instance_id)
-            
+
             # 检查策略是否在管理范围内（有对应的状态记录）
             if strategy_key not in self._strategy_states:
                 return
-            
+
             # 检查是否有平仓资产
             if all(asset.is_open for asset in exec_ctx.execution_assets):
                 return
-            
+
             # 从 execution_assets 中汇总盈亏：actual_pnl + virtual_pnl
             total_actual_pnl = sum((asset.actual_pnl or 0) for asset in exec_ctx.execution_assets if asset.is_open is False)
             total_virtual_pnl = sum((asset.virtual_pnl or 0) for asset in exec_ctx.execution_assets if asset.is_open is False)
             total_pnl = total_actual_pnl + total_virtual_pnl
-            
+
             # 计算盈利比例
             if exec_ctx.close_amount and exec_ctx.close_amount > 0:
                 profit_ratio = float(total_pnl / exec_ctx.close_amount)
-                
+
                 logger.info(
                     f"[{self.policy_instance_id}] [{strategy_key}] 收到订单完成: "
                     f"actual_pnl={total_actual_pnl}, virtual_pnl={total_virtual_pnl}, "
                     f"total_pnl={total_pnl}, close_amount={exec_ctx.close_amount}, "
                     f"profit_ratio={profit_ratio:.4f}"
                 )
-                
+
                 self._record_trade(profit_ratio, strategy_key)
-                
+
         except Exception as e:
             logger.error(f"[{self.policy_instance_id}] 处理订单更新事件异常: {e}", exc_info=True)
